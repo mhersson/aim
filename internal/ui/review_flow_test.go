@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"context"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -39,16 +38,15 @@ func waitForText(t *testing.T, tm *teatest.TestModel, want string) {
 }
 
 // A drawer opened in a running program shows the worktree's diff, and a file
-// saved afterwards reaches the screen by itself.
+// saved afterwards reaches the screen once the watcher reports it.
 func TestReviewDrawerFlow(t *testing.T) {
 	t.Parallel()
-	dir := editedRepo(t)
-	set := git.NewWatchSet(context.Background(), git.WatchOptions{Debounce: 20 * time.Millisecond})
 
-	t.Cleanup(func() { _ = set.Close() })
-
+	f := newFakeGit(t)
+	rp := editedRepo(t, f)
+	dir := rp.Root()
 	tmp := t.TempDir()
-	a, _, _ := kindApp(t, func(o *Options) { o.Cwd, o.GitTempDir, o.Watches = dir, tmp, set })
+	a, _, _ := kindApp(t, gitOf(f), func(o *Options) { o.Cwd, o.GitTempDir = dir, tmp })
 
 	if got := a.store.State().Panes["p1"].Cwd; got != dir {
 		t.Fatalf("the first pane starts in %q, want %q", got, dir)
@@ -59,6 +57,7 @@ func TestReviewDrawerFlow(t *testing.T) {
 	waitForText(t, tm, "fifty")
 
 	write(t, filepath.Join(dir, "f.txt"), editedF(0)+"LIVEUPDATE\n")
+	f.watches.send(dir, git.Batch{Paths: []string{"f.txt"}})
 	waitForText(t, tm, "LIVEUPDATE")
 
 	if err := tm.Quit(); err != nil {

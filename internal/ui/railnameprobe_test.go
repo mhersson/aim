@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -60,8 +61,10 @@ func (r *railApp) name(t *testing.T, id core.PaneID) string {
 }
 
 func TestRailNameProbeOnOpen(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
-	dir := r.repo(t, "proj")
+	dir := r.repo(t, "proj").Root()
 	named := r.addAgent(t, false, dir)
 	bare := r.addAgent(t, true, dir)
 	r.session(t, named, transcriptNamed(t, "muxr-orchestrator"))
@@ -88,8 +91,10 @@ func TestRailNameProbeOnOpen(t *testing.T) {
 }
 
 func TestRailNameProbeTriggers(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
-	id := r.addAgent(t, false, r.repo(t, "proj"))
+	id := r.addAgent(t, false, r.repo(t, "proj").Root())
 	r.openRail()
 
 	transcript := transcriptNamed(t, "first")
@@ -141,8 +146,10 @@ func TestRailNameProbeTriggers(t *testing.T) {
 // A session start replaces the session: the probe it raises reads the
 // transcript the hook reports, not the earlier session's.
 func TestRailNameProbeAfterASessionStartReadsTheNewTranscript(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
-	id := r.addAgent(t, false, r.repo(t, "proj"))
+	id := r.addAgent(t, false, r.repo(t, "proj").Root())
 	r.session(t, id, transcriptNamed(t, "old"))
 	r.openRail()
 
@@ -169,10 +176,12 @@ func TestRailNameProbeAfterASessionStartReadsTheNewTranscript(t *testing.T) {
 }
 
 func TestRailNameProbeForAPaneThatBecomesAnAgent(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
 	r.openRail()
 
-	id := r.addAgent(t, false, r.repo(t, "proj"))
+	id := r.addAgent(t, false, r.repo(t, "proj").Root())
 	r.session(t, id, transcriptNamed(t, "newcomer"))
 
 	if n := countOf[railNameMsg](r.deliver(r.settle())); n != 1 {
@@ -190,8 +199,10 @@ func TestRailNameProbeForAPaneThatBecomesAnAgent(t *testing.T) {
 }
 
 func TestRailNameProbeInterval(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
-	id := r.addAgent(t, false, r.repo(t, "proj"))
+	id := r.addAgent(t, false, r.repo(t, "proj").Root())
 	transcript := transcriptNamed(t, "first")
 	r.session(t, id, transcript)
 	r.openRail()
@@ -242,8 +253,10 @@ func TestRailNameProbeInterval(t *testing.T) {
 }
 
 func TestRailNameTriggerDuringProbeRunsOneAfter(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
-	id := r.addAgent(t, false, r.repo(t, "proj"))
+	id := r.addAgent(t, false, r.repo(t, "proj").Root())
 	r.session(t, id, transcriptNamed(t, "first"))
 
 	cmd := r.railOpened()
@@ -271,9 +284,11 @@ func TestRailNameTriggerDuringProbeRunsOneAfter(t *testing.T) {
 }
 
 func TestRailNameProbeDropsStaleResults(t *testing.T) {
+	t.Parallel()
+
 	t.Run("pane closed", func(t *testing.T) {
 		r := newRailApp(t, false)
-		id := r.addAgent(t, false, r.repo(t, "proj"))
+		id := r.addAgent(t, false, r.repo(t, "proj").Root())
 		r.session(t, id, transcriptNamed(t, "gone"))
 		msgs := flatten(r.railOpened())
 
@@ -291,7 +306,7 @@ func TestRailNameProbeDropsStaleResults(t *testing.T) {
 
 	t.Run("session changed", func(t *testing.T) {
 		r := newRailApp(t, false)
-		id := r.addAgent(t, false, r.repo(t, "proj"))
+		id := r.addAgent(t, false, r.repo(t, "proj").Root())
 		r.session(t, id, transcriptNamed(t, "old"))
 		msgs := flatten(r.railOpened())
 
@@ -326,7 +341,7 @@ func TestRailNameProbeDropsStaleResults(t *testing.T) {
 
 	t.Run("rail closed", func(t *testing.T) {
 		r := newRailApp(t, false)
-		id := r.addAgent(t, false, r.repo(t, "proj"))
+		id := r.addAgent(t, false, r.repo(t, "proj").Root())
 		r.session(t, id, transcriptNamed(t, "late"))
 		cmd := r.railOpened()
 		r.railClosed()
@@ -346,7 +361,7 @@ func TestRailNameProbeDropsStaleResults(t *testing.T) {
 
 	t.Run("a hook with the rail closed", func(t *testing.T) {
 		r := newRailApp(t, false)
-		id := r.addAgent(t, false, r.repo(t, "proj"))
+		id := r.addAgent(t, false, r.repo(t, "proj").Root())
 		r.session(t, id, transcriptNamed(t, "x"))
 
 		if msgs := flatten(hook(r.App, idleHook(id))); countOf[railNameMsg](msgs) != 0 {
@@ -356,11 +371,13 @@ func TestRailNameProbeDropsStaleResults(t *testing.T) {
 }
 
 func TestRailNameProbeFailures(t *testing.T) {
+	t.Parallel()
+
 	setup := func(t *testing.T) (*railApp, core.PaneID, string) {
 		t.Helper()
 
 		r := newRailApp(t, false)
-		id := r.addAgent(t, false, r.repo(t, "proj"))
+		id := r.addAgent(t, false, r.repo(t, "proj").Root())
 		transcript := transcriptNamed(t, "kept")
 		r.session(t, id, transcript)
 		r.openRail()
@@ -423,7 +440,6 @@ func TestRailNameProbeFailures(t *testing.T) {
 		name string
 		err  error
 	}{
-		{"deadline exceeded", context.DeadlineExceeded},
 		{"deadline exceeded inside the reader's error", fmt.Errorf("harness: read transcript: %w", context.DeadlineExceeded)},
 		{"cancelled", context.Canceled},
 	} {
@@ -471,50 +487,96 @@ func TestRailNameProbeFailures(t *testing.T) {
 	})
 }
 
+// countingHarness counts the transcript reads. Its id is not one harness.ByID
+// knows, so a pane without a harness id of its own is read through it.
+type countingHarness struct {
+	harness.Harness
+	reads atomic.Int32
+}
+
+func (h *countingHarness) CustomName(ctx context.Context, transcript string) (string, error) {
+	h.reads.Add(1)
+
+	return h.Harness.CustomName(ctx, transcript)
+}
+
 func TestRailNameProbeSharesTheProbeSlots(t *testing.T) {
-	r := newRailApp(t, false)
-	id := r.addAgent(t, false, r.repo(t, "proj"))
-	r.openRail()
-	r.session(t, id, transcriptNamed(t, "waited"))
+	t.Parallel()
 
-	cmd := r.railFire(r.store.State(), id, probeName)
-	if cmd == nil {
-		t.Fatal("no name probe started")
-	}
+	// start fills every slot and starts a name probe that has to wait.
+	start := func(t *testing.T) (*railApp, *countingHarness, <-chan tea.Msg) {
+		t.Helper()
 
-	for range railProbeMax {
-		r.probeSem <- struct{}{}
-	}
+		r := newRailApp(t, false)
+		h := &countingHarness{Harness: r.harness}
+		r.harness = h
 
-	done := make(chan tea.Msg, 1)
+		id := r.addAgent(t, true, r.repo(t, "proj").Root())
+		r.openRail()
+		r.session(t, id, transcriptNamed(t, "waited"))
 
-	go func() { done <- cmd() }()
-
-	select {
-	case <-done:
-		t.Fatal("a name probe ran with every probe slot taken")
-	case <-time.After(150 * time.Millisecond):
-	}
-
-	<-r.probeSem
-
-	select {
-	case msg := <-done:
-		if nm, ok := msg.(railNameMsg); !ok || nm.name != "waited" {
-			t.Errorf("answer = %+v, want the name", msg)
+		cmd := r.railFire(r.store.State(), id, probeName)
+		if cmd == nil {
+			t.Fatal("no name probe started")
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("the name probe did not run once a slot was free")
+
+		for range railProbeMax {
+			r.probeSem <- struct{}{}
+		}
+
+		done := make(chan tea.Msg, 1)
+
+		go func() { done <- cmd() }()
+
+		return r, h, done
 	}
 
-	for range railProbeMax - 1 {
+	t.Run("a full set of slots keeps the transcript unread", func(t *testing.T) {
+		t.Parallel()
+
+		r, h, done := start(t)
+		r.railClosed()
+
+		select {
+		case msg := <-done:
+			if nm, ok := msg.(railNameMsg); !ok || !errors.Is(nm.err, context.Canceled) {
+				t.Errorf("answer = %+v, want a cancel", msg)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("the waiting name probe did not end with the rail")
+		}
+
+		if n := h.reads.Load(); n != 0 {
+			t.Errorf("the transcript was read %d times with every probe slot taken", n)
+		}
+	})
+
+	t.Run("a free slot lets it read once", func(t *testing.T) {
+		t.Parallel()
+
+		r, h, done := start(t)
 		<-r.probeSem
-	}
+
+		select {
+		case msg := <-done:
+			if nm, ok := msg.(railNameMsg); !ok || nm.name != "waited" {
+				t.Errorf("answer = %+v, want the name", msg)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("the name probe did not run once a slot was free")
+		}
+
+		if n := h.reads.Load(); n != 1 {
+			t.Errorf("the transcript was read %d times, want 1", n)
+		}
+	})
 }
 
 func TestRailNameProbeCleansWhatItReads(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
-	id := r.addAgent(t, false, r.repo(t, "proj"))
+	id := r.addAgent(t, false, r.repo(t, "proj").Root())
 	r.session(t, id, transcriptNamed(t, "ok\x1b]0;pwn\x07\u202eed\u009b2J"))
 	r.openRail()
 

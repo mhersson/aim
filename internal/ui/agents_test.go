@@ -478,8 +478,9 @@ func statusEvent(pane core.PaneID, session core.SessionID, model string, pct flo
 func TestStatusEventSkipsHookEffects(t *testing.T) {
 	t.Parallel()
 	// With no watch a hook event refreshes the drawer, so the drawer's silence is the test.
-	r := newDrawerRig(t, func(o *Options) { o.Watches = nil })
-	id := r.agent(t, editedRepo(t), "s1")
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f), func(o *Options) { o.Watches = nil })
+	id := r.agent(t, editedRepo(t, f).Root(), "s1")
 	v := r.open(t, id)
 
 	r.run(r.railOpened())

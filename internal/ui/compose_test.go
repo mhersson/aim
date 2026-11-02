@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -14,6 +15,7 @@ import (
 	"github.com/charmbracelet/x/exp/golden"
 
 	"github.com/mhersson/aim/internal/core"
+	"github.com/mhersson/aim/internal/git"
 	"github.com/mhersson/aim/internal/github"
 )
 
@@ -48,12 +50,19 @@ func newComposeRig(t *testing.T) *composeRig {
 func (r *composeRig) openCompose(t *testing.T) {
 	t.Helper()
 
+	r.openComposeMsgs(t)
+}
+
+// openComposeMsgs is openCompose that returns every message it fed back.
+func (r *composeRig) openComposeMsgs(t *testing.T) []tea.Msg {
+	t.Helper()
+
 	c, ok := r.reg.get("pr.open")
 	if !ok {
 		t.Fatal("no pr.open command")
 	}
 
-	r.churn(t, c.run(r.App))
+	return r.churnMsgs(t, c.run(r.App))
 }
 
 func (r *composeRig) mustOpen(t *testing.T) *composeView {
@@ -88,15 +97,28 @@ func (r *composeRig) typed(t *testing.T, s string) {
 func (r *composeRig) pushBranch(t *testing.T) {
 	t.Helper()
 
-	gitIn(t, r.real, r.dir, "push", "-q", "-u", "origin", "feat/x")
+	r.publish(t)
 }
 
 // oneCommit leaves feat/x one commit past main.
 func (r *composeRig) oneCommit(t *testing.T, subject, body string) {
 	t.Helper()
 
-	gitIn(t, r.real, r.dir, "reset", "-q", "--hard", "origin/main")
-	gitIn(t, r.real, r.dir, "commit", "-q", "--allow-empty", "-m", subject, "-m", body)
+	r.repo.reset(r.branchTip("main"))
+	r.repo.commit(subject + "\n\n" + body)
+}
+
+// midBranch has the remote hold the first commit past main as mid, which makes
+// main two commits away and mid one.
+func (r *composeRig) midBranch(t *testing.T) {
+	t.Helper()
+
+	var first string
+
+	r.fake.edit(func() { first = r.fake.commits[r.repo.headOID()].parent })
+
+	r.origin.setBranch("mid", first)
+	r.repo.track("origin", "mid", first)
 }
 
 func (r *composeRig) text() string { return ansi.Strip(r.View().Content) }
@@ -104,8 +126,10 @@ func (r *composeRig) text() string { return ansi.Strip(r.View().Content) }
 // The box starts from the worktree the drawer shows, which PR mode holds
 // while the pane follows another.
 func TestComposeTargetsThePRModeWorktree(t *testing.T) {
+	t.Parallel()
+
 	r := newComposeRig(t)
-	b := rootOf(t, r.worktree(t, "b", "feat/b"))
+	b := r.worktree(t, "b", "feat/b")
 	r.editIn(t, r.worktree(t, "c", "feat/c"))
 	r.churn(t, r.openReview(r.agent, true))
 
@@ -117,6 +141,8 @@ func TestComposeTargetsThePRModeWorktree(t *testing.T) {
 }
 
 func TestComposeBodyOpensAtItsStart(t *testing.T) {
+	t.Parallel()
+
 	r := newComposeRig(t)
 	r.mustOpen(t)
 
@@ -130,6 +156,8 @@ func TestComposeBodyOpensAtItsStart(t *testing.T) {
 }
 
 func TestComposePrefill(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name       string
 		setup      func(t *testing.T, r *composeRig)
@@ -177,6 +205,8 @@ func TestComposePrefill(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			r := newComposeRig(t)
 			tt.setup(t, r)
 
@@ -205,9 +235,10 @@ func TestComposePrefill(t *testing.T) {
 }
 
 func TestComposeFields(t *testing.T) {
+	t.Parallel()
+
 	r := newComposeRig(t)
-	// origin/mid holds the first commit, so main is two commits away and mid one.
-	gitIn(t, r.real, r.dir, "push", "-q", "origin", "HEAD~1:refs/heads/mid")
+	r.midBranch(t)
 
 	v := r.mustOpen(t)
 
@@ -294,6 +325,8 @@ func TestComposeFields(t *testing.T) {
 }
 
 func TestComposeCreates(t *testing.T) {
+	t.Parallel()
+
 	r := newComposeRig(t)
 	r.pushBranch(t)
 
@@ -324,8 +357,8 @@ func TestComposeCreates(t *testing.T) {
 		t.Error("the box is still open after the PR was created")
 	}
 
-	if r.notice != "opened #12" {
-		t.Errorf("notice = %q, want opened #12", r.notice)
+	if !strings.Contains(r.notice, prNumberText(12)) || r.noticeLevel() != levelSuccess {
+		t.Errorf("notice = %q at level %v, want a success naming %s", r.notice, r.noticeLevel(), prNumberText(12))
 	}
 
 	if refreshed := r.rec.refreshed(); len(refreshed) == 0 || refreshed[len(refreshed)-1].String() != composeRepo {
@@ -334,6 +367,8 @@ func TestComposeCreates(t *testing.T) {
 }
 
 func TestComposePushesFirst(t *testing.T) {
+	t.Parallel()
+
 	r := newComposeRig(t)
 	v := r.mustOpen(t)
 
@@ -347,8 +382,8 @@ func TestComposePushesFirst(t *testing.T) {
 
 	r.keys(t, keyCtrlS)
 
-	if r.pushCalls() != 1 {
-		t.Errorf("pushes = %d, want 1", r.pushCalls())
+	if got := r.pushes(); !slices.Equal(got, []string{"feat/x"}) {
+		t.Errorf("pushed %q, want feat/x once", got)
 	}
 
 	if refs := r.remoteRefs(t); !strings.Contains(refs, "refs/heads/feat/x") {
@@ -359,14 +394,18 @@ func TestComposePushesFirst(t *testing.T) {
 		t.Errorf("creates = %v, want one for feat/x after the push", got)
 	}
 
-	if r.compose != nil || r.notice != "opened #12" {
-		t.Errorf("box %v, notice %q; want it closed with opened #12", r.compose, r.notice)
+	if r.compose != nil || !strings.Contains(r.notice, prNumberText(12)) || r.noticeLevel() != levelSuccess {
+		t.Errorf("box %v, notice %q at level %v; want it closed with a success naming %s", r.compose, r.notice, r.noticeLevel(), prNumberText(12))
 	}
 }
 
 func TestComposeTargetIsFrozen(t *testing.T) {
+	t.Parallel()
+
 	for _, pushed := range []bool{false, true} {
 		t.Run(fmt.Sprintf("branch pushed=%v", pushed), func(t *testing.T) {
+			t.Parallel()
+
 			r := newComposeRig(t)
 			if pushed {
 				r.pushBranch(t)
@@ -374,7 +413,7 @@ func TestComposeTargetIsFrozen(t *testing.T) {
 
 			r.mustOpen(t)
 
-			gitIn(t, r.real, r.dir, "commit", "-q", "--allow-empty", "-m", "late commit")
+			r.repo.commit("late commit")
 			r.keys(t, keyCtrlS)
 
 			if got := r.acts.created(); len(got) != 0 {
@@ -401,6 +440,8 @@ func TestComposeTargetIsFrozen(t *testing.T) {
 }
 
 func TestComposeErrors(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name       string
 		setup      func(t *testing.T, r *composeRig)
@@ -424,10 +465,10 @@ func TestComposeErrors(t *testing.T) {
 			name: "a rejected push",
 			setup: func(t *testing.T, r *composeRig) {
 				t.Helper()
-				gitIn(t, r.real, r.dir, "config", "remote.origin.pushurl", "../missing.git")
+				r.origin.setBranch("feat/x", fakeOID("remote work"))
 			},
 			afterOpen:  func(t *testing.T, r *composeRig) { t.Helper() },
-			want:       "missing.git",
+			want:       git.ErrRejected.Error(),
 			wantPushes: 1,
 		},
 		{
@@ -440,6 +481,8 @@ func TestComposeErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			r := newComposeRig(t)
 			tt.setup(t, r)
 			r.mustOpen(t)
@@ -474,10 +517,14 @@ func TestComposeErrors(t *testing.T) {
 }
 
 func TestComposeNotices(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name  string
 		setup func(t *testing.T, r *composeRig)
-		want  string
+		want  noticeWant
+		// resolved checks the answer the notice came from; nil where no resolve state tells the row apart.
+		resolved func(t *testing.T, m composeResolvedMsg)
 	}{
 		{
 			name: "a branch with an open pull request",
@@ -488,20 +535,34 @@ func TestComposeNotices(t *testing.T) {
 					Open: []core.PRInfo{{Number: 9, HeadBranch: "feat/x", State: prOpenState}},
 				})
 			},
-			want: "feat/x already has #9",
+			want: carries("feat/x", prNumberText(9)),
 		},
 		{
 			name: "a remote that is not on GitHub",
 			setup: func(t *testing.T, r *composeRig) {
 				t.Helper()
-				gitIn(t, r.real, r.dir, "config", "remote.origin.url", "../remote.git")
+				r.splitURLs(t, pushRemoteURL)
 			},
-			want: "feat/x's remote is not on GitHub",
+			want: exactly(fmt.Sprintf(noticePRNotGitHub, "feat/x")),
+			resolved: func(t *testing.T, m composeResolvedMsg) {
+				t.Helper()
+
+				if !m.notGitHub {
+					t.Error("the answer does not say the remote is not on GitHub")
+				}
+			},
 		},
 		{
 			name:  "a detached HEAD",
-			setup: func(t *testing.T, r *composeRig) { t.Helper(); gitIn(t, r.real, r.dir, "checkout", "-q", "--detach") },
-			want:  "open a PR: HEAD is detached",
+			setup: func(t *testing.T, r *composeRig) { t.Helper(); r.repo.detach() },
+			want:  exactly(noticeComposeDetached),
+			resolved: func(t *testing.T, m composeResolvedMsg) {
+				t.Helper()
+
+				if m.state != pushDetached {
+					t.Errorf("state = %v, want pushDetached", m.state)
+				}
+			},
 		},
 		{
 			name: "no pull request writes",
@@ -510,28 +571,48 @@ func TestComposeNotices(t *testing.T) {
 
 				r.actions = nil
 			},
-			want: noticePRsOff,
+			want: exactly(noticePRsOff),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			r := newComposeRig(t)
 			tt.setup(t, r)
-			r.openCompose(t)
+			msgs := r.openComposeMsgs(t)
+
+			if tt.resolved != nil {
+				var got []composeResolvedMsg
+
+				for _, m := range msgs {
+					if res, ok := m.(composeResolvedMsg); ok {
+						got = append(got, res)
+					}
+				}
+
+				if len(got) != 1 {
+					t.Fatalf("%d composeResolvedMsg, want 1", len(got))
+				}
+
+				tt.resolved(t, got[0])
+			}
 
 			if r.compose != nil {
 				t.Errorf("the box opened:\n%s", r.text())
 			}
 
-			if r.notice != tt.want {
-				t.Errorf("notice = %q, want %q", r.notice, tt.want)
+			if !tt.want.matches(r.notice) || r.noticeLevel() != levelNotice {
+				t.Errorf("notice = %q at level %v, want %+v at the notice level", r.notice, r.noticeLevel(), tt.want)
 			}
 		})
 	}
 }
 
 func TestComposeBusyDropsKeys(t *testing.T) {
+	t.Parallel()
+
 	r := newComposeRig(t)
 	r.pushBranch(t)
 	r.acts.hold = true
@@ -561,6 +642,8 @@ func TestComposeBusyDropsKeys(t *testing.T) {
 }
 
 func TestComposeIgnoresStaleAnswer(t *testing.T) {
+	t.Parallel()
+
 	r := newComposeRig(t)
 
 	c, _ := r.reg.get("pr.open")
@@ -591,6 +674,8 @@ func composeScene(t *testing.T, r *composeRig, w, h int) string {
 }
 
 func TestComposeGolden(t *testing.T) {
+	t.Parallel()
+
 	for _, tc := range []struct {
 		name  string
 		setup func(t *testing.T, r *composeRig)
@@ -613,6 +698,8 @@ func TestComposeGolden(t *testing.T) {
 		{"small", func(t *testing.T, r *composeRig) { t.Helper() }, 80, 24},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			r := newComposeRig(t)
 			tc.setup(t, r)
 			r.mustOpen(t)
@@ -633,6 +720,8 @@ func TestComposeGolden(t *testing.T) {
 }
 
 func TestComposeSizes(t *testing.T) {
+	t.Parallel()
+
 	r := newComposeRig(t)
 	r.mustOpen(t)
 
@@ -656,8 +745,10 @@ func TestComposeSizes(t *testing.T) {
 }
 
 func TestComposeBaseChangeRecount(t *testing.T) {
+	t.Parallel()
+
 	r := newComposeRig(t)
-	gitIn(t, r.real, r.dir, "push", "-q", "origin", "HEAD~1:refs/heads/mid")
+	r.midBranch(t)
 
 	v := r.mustOpen(t)
 	if v.commits != 2 {
@@ -665,8 +756,18 @@ func TestComposeBaseChangeRecount(t *testing.T) {
 	}
 
 	// A base whose remote-tracking ref is gone has no commits, and that is no error.
-	gitIn(t, r.real, r.dir, "update-ref", "-d", "refs/remotes/origin/mid")
+	r.repo.track("origin", "mid", "")
 	r.churn(t, r.composeStep(v, 1))
+
+	// Log ran for mid and failed with errNoBaseRef, not an empty list.
+	logs := r.fake.calls("Log")
+	if len(logs) == 0 {
+		t.Fatal("no Log call was recorded for the new base")
+	}
+
+	if last := logs[len(logs)-1]; len(last.Args) == 0 || last.Args[0] != "origin/mid" {
+		t.Errorf("last Log call = %+v, want one for origin/mid", last)
+	}
 
 	if v.commits != 0 || v.status != "" || v.statusErr {
 		t.Errorf("a missing base: commits %d, status %q (err %v), want 0 and no status", v.commits, v.status, v.statusErr)
@@ -711,6 +812,8 @@ func TestReadBodyFileKeepsWholeRunes(t *testing.T) {
 }
 
 func TestComposeRemappedKeys(t *testing.T) {
+	t.Parallel()
+
 	r := newComposeRig(t)
 	r.pushBranch(t)
 	r.mustOpen(t)

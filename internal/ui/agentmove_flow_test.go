@@ -30,25 +30,27 @@ func fileRows(v *reviewView) []string {
 // a turn of its own.
 func TestAgentMovingIntoAWorktreeTakesTheRailAndDrawer(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f))
 
-	mainDir := newRepoDir(t)
+	main := f.repo(t, "")
+	mainDir := main.Root()
 	write(t, filepath.Join(mainDir, "a.txt"), "one\n")
 	write(t, filepath.Join(mainDir, "b.txt"), "one\n")
-	commitEverything(t, mainDir, "init")
+	main.commit("init")
 
 	parent, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	linked := filepath.Join(parent, "wt-x")
-	gitIn(t, "git", mainDir, "worktree", "add", "-q", "-b", "feat/x", linked)
+	wt := main.worktree(t, filepath.Join(parent, "wt-x"), "feat/x")
+	linked := wt.Root()
 
 	// The main checkout has a change of its own, so that the two directories differ.
 	write(t, filepath.Join(mainDir, "b.txt"), "one\nmain\n")
 
-	rootMain, rootLinked := rootOf(t, mainDir), rootOf(t, linked)
+	rootMain, rootLinked := mainDir, linked
 	id := r.agent(t, mainDir, "")
 
 	r.keys(keyLeader, keyRune('a'))
@@ -63,11 +65,11 @@ func TestAgentMovingIntoAWorktreeTakesTheRailAndDrawer(t *testing.T) {
 	}
 
 	// A turn starts before its snapshot exists; the drawer waits for it.
-	turnStart := func(dir string) {
+	turnStart := func(dir string, repo *fakeRepo) {
 		snapped := make(chan struct{})
 
 		send(harness.Event{Name: "UserPromptSubmit", TurnStart: true, State: core.AgentWorking, Cwd: dir, Snapped: snapped})
-		snapshotTurn(t, dir, testSession)
+		repo.turn(string(testSession))
 		close(snapped)
 	}
 
@@ -83,7 +85,7 @@ func TestAgentMovingIntoAWorktreeTakesTheRailAndDrawer(t *testing.T) {
 
 	send(harness.Event{Name: "SessionStart", Session: testSession, Start: true, State: core.AgentIdle, Cwd: mainDir})
 	r.until(t, "the card to show the main checkout", cardIs("main", 1))
-	turnStart(mainDir)
+	turnStart(mainDir, main)
 
 	r.open(t, id)
 
@@ -128,12 +130,12 @@ func TestAgentMovingIntoAWorktreeTakesTheRailAndDrawer(t *testing.T) {
 	r.keys(keyRune('t'))
 	r.idle(t)
 
-	if v := r.view(); !isBranchSource(v) || r.notice != "no turns yet" {
-		t.Errorf("t in the worktree gives source %T and notice %q, want the branch and %q", v.src, r.notice, "no turns yet")
+	if v := r.view(); !isBranchSource(v) || r.notice != noticeNoTurnsYet {
+		t.Errorf("t in the worktree gives source %T and notice %q, want the branch and %q", v.src, r.notice, noticeNoTurnsYet)
 	}
 
 	// The worktree's own turn starts, and the agent changes a file after it.
-	turnStart(linked)
+	turnStart(linked, wt)
 	write(t, filepath.Join(linked, "a.txt"), "one\ntwo\nthree\nfour\n")
 	r.until(t, "the worktree's turn to be counted", r.viewHolds(func(v *reviewView) bool { return v.turns == 1 && v.loaded && !v.loading }))
 
@@ -147,7 +149,7 @@ func TestAgentMovingIntoAWorktreeTakesTheRailAndDrawer(t *testing.T) {
 
 	r.keys(keyRune(','))
 
-	if want := "turn 1 is the first turn"; r.notice != want {
+	if want := noticeFirstTurn; r.notice != want {
 		t.Errorf("notice %q after ',', want %q", r.notice, want)
 	}
 

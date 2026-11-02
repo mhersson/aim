@@ -526,15 +526,17 @@ func TestBashChangedSubagent(t *testing.T) {
 }
 
 func TestBashChangedInLinkedWorktree(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
 
-	main := newRepoDir(t)
+	mainRepo := r.fake.repo(t, "")
+	main := mainRepo.Root()
 	write(t, filepath.Join(main, "a.txt"), "one\n")
-	commitEverything(t, main, "init")
+	mainRepo.commit("init")
 
 	// Inside the main checkout, as the worktree convention puts it.
-	linked := filepath.Join(main, ".worktrees", "feat")
-	gitIn(t, r.real, main, "worktree", "add", "-q", "-b", "feat", linked)
+	linked := mainRepo.worktree(t, filepath.Join(main, ".worktrees", "feat"), "feat").Root()
 
 	id := r.addAgent(t, false, main)
 
@@ -561,8 +563,10 @@ func TestBashChangedInLinkedWorktree(t *testing.T) {
 }
 
 func TestEditInLinkedWorktree(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
-	tr := newAgentTrees(t, r.real)
+	tr := r.trees(t)
 	id := r.addAgent(t, false, tr.main)
 
 	r.deliver(hook(r.App, harness.Event{Pane: id, Name: "PostToolUse", Edit: filepath.Join(tr.linked, "a.txt")}))

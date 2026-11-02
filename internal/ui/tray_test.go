@@ -365,6 +365,8 @@ func TestTrayPRModuleFollowsTheFocus(t *testing.T) {
 }
 
 func TestTrayShowsFollowedPR(t *testing.T) {
+	t.Parallel()
+
 	p := newPRApp(t)
 	agent, dirB := p.followRepos(t)
 

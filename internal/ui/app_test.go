@@ -34,7 +34,7 @@ func newThemedApp(t *testing.T, name string) *App {
 func newKeyedApp(t *testing.T, name string, keys core.KeysConfig) *App {
 	t.Helper()
 
-	app, err := New(Options{Logger: testLogger(), Icons: true, Keys: keys, Store: core.NewStore(core.State{Theme: name})})
+	app, err := New(Options{Logger: testLogger(), Git: newFakeGit(t), Icons: true, Keys: keys, Store: core.NewStore(core.State{Theme: name})})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -70,6 +70,15 @@ func TestNewRequiresStore(t *testing.T) {
 
 	if _, err := New(Options{Logger: testLogger()}); err == nil {
 		t.Error("New() without a store succeeded, want an error")
+	}
+}
+
+func TestNewRequiresGit(t *testing.T) {
+	t.Parallel()
+
+	store := core.NewStore(core.State{Theme: "catppuccin-mocha"})
+	if _, err := New(Options{Logger: testLogger(), Store: store}); err == nil {
+		t.Error("New() without a git succeeded, want an error")
 	}
 }
 

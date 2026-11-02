@@ -48,7 +48,7 @@ func newPlanRig(t *testing.T, w, h int) *planRig {
 		return testGetenv(k)
 	}
 
-	a, st, clk := kindApp(t, func(o *Options) { o.Getenv = getenv })
+	a, st, clk := kindApp(t, gitOf(newFakeGit(t)), func(o *Options) { o.Getenv = getenv })
 	f := &fakeOpen{}
 	a.openLink = f.open
 	chord(a, 'n')

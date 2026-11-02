@@ -24,9 +24,10 @@ quitting AIM ends its agents, and the next start resumes their sessions.
   copies, so an action replaces those maps and never edits them in place.
 - **Core is a pure reducer.** `internal/core` imports nothing of AIM but
   `internal/core/tiling`. Push, approve, merge, worktree creation and cleanup
-  are `tea.Cmd`s in `internal/ui` that call `internal/git` and
-  `internal/github`; core only records what they found (`SetRepoPRs`,
-  `SetBranchPR`, `NoteEdit` and the like).
+  are `tea.Cmd`s in `internal/ui` that call `internal/git` through the `ui.Git`
+  seam in `ui.Options`, which `cmd/aim` wires to `ui.SystemGit` (the UI's tests
+  wire an in-process fake), and `internal/github`; core only records what they
+  found (`SetRepoPRs`, `SetBranchPR`, `NoteEdit` and the like).
 - **The UI drives everything.** `ui.App` (`internal/ui/app.go`) owns the store,
   the panes and the overlays. Every service reports to its update loop as a
   message; the message's handler builds a `core.Action`, and `App.dispatch`
@@ -228,21 +229,31 @@ written. It lives in `cmd/aim` because it joins `internal/harness` and
 **Budgets.** A snapshot has 1.4 s from when the server read its line
 (`turnBudget`); the server holds the answer at most 1.5 s, and the hook command
 gives up at 2 s. A tree not written in time is cancelled. Once it exists, the
-commit and ref get their own 2 s (`refWriteBudget`), because a killed
-`update-ref` leaves its lock file behind. A turn without a snapshot gets a
-marker commit (the empty tree, trailer `Snapshot: none`), so numbering holds
-and the drawer says so instead of showing a wrong diff.
+commit and ref get their own 2 s (`refWriteBudget`), so the snapshot's deadline
+cannot stop `update-ref` halfway. A ref write past that budget is stopped as
+**Git calls** describes, and leaves its lock files behind only if git outlives
+SIGTERM's grace. The grace comes after the budget; the hold is the server's own
+timer, so it never holds a hook longer. A turn without a snapshot gets a marker
+commit (the empty tree, trailer `Snapshot: none`), so numbering holds and the
+drawer says so instead of showing a wrong diff.
 
 **The skip.** When the worktree is watched and its watcher's counter
 (`Watcher.Seq`) has not moved since the pane's last good snapshot there, the
 snapshot reuses that tree. A watcher that failed or overflowed reports itself
 unwatched, so the skip never trusts one that may have missed a change.
 
-**Git calls** each run in their own process group. Cancelling one kills the
+**Git calls** each run in their own process group. Cancelling a read kills the
 group and re-sends the kill for up to 100 ms, since on macOS a child forked
-during the kill can miss it (`internal/git/proc_unix.go`). Every call drops
-inherited repository-local `GIT_*` variables (`cleanEnv`, `run.go`), so it
-reads only the repository it was pointed at.
+during the kill can miss it. Any other call may hold lock files in the user's
+repository, which git removes on SIGTERM but not on SIGKILL. Cancelling one
+sends SIGTERM to the group, re-sent until the group is gone or 500 ms
+(`termGrace`) have passed, and only then the same kill
+(`internal/git/proc_unix.go`). A git that exits on SIGTERM stops as fast as a
+killed one, so the grace costs time only for a process that outlives it; a read
+takes no locks (`GIT_OPTIONAL_LOCKS=0`) and skips it. AIM never deletes a lock
+file itself, since one in the repository may be the user's own git at work.
+Every call drops inherited repository-local `GIT_*` variables (`cleanEnv`,
+`run.go`), so it reads only the repository it was pointed at.
 
 **Pruning.** The clean-up confirm's `enter` deletes the merged pull request's
 refs (`git.DeletePRRefs`, under the ref-write budget) whatever happens to the
@@ -262,8 +273,9 @@ holds and the pull requests any drawer shows or is fetching
 its newest `<n>` in the repository is over 14 days old (`staleAge`), and every
 other pull request's refs. Each delete carries the listed value. The turn refs and the pull
 request refs are deleted separately, and each in chunks of 500 (`deleteChunk`),
-one `update-ref` transaction per chunk, since a call killed by the ref-write
-budget leaves lock files in the user's repository, `packed-refs.lock` among them.
+one `update-ref` transaction per chunk, so each stays well inside the ref-write
+budget: a call stopped there that outlives SIGTERM's grace is killed and leaves
+lock files in the user's repository, `packed-refs.lock` among them.
 A pull request's head and base share a chunk. A ref that moved fails only its own
 chunk, so it cannot hold back the turn refs or the other chunks. There is no lock
 shared with a fetch: one that starts after the filter and writes an unchanged

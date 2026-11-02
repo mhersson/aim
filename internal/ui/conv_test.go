@@ -167,7 +167,7 @@ func TestConversationFromTheDrawer(t *testing.T) {
 			t.Error("the late answer opened the conversation")
 		}
 
-		if want := "#7 loaded; press i for the conversation"; r.notice != want {
+		if want := r.prLoadedNotice(7, thenConversation); r.notice != want {
 			t.Errorf("notice = %q, want %q", r.notice, want)
 		}
 	})
@@ -605,7 +605,7 @@ func TestConversationFailedReread(t *testing.T) {
 			t.Errorf("a failed re-read changed the view: same doc %v, cursor %d (was %d), err %q", v.doc == doc, v.view.cursor, cursor, v.err)
 		}
 
-		if want := "could not read the conversation: boom"; a.notice != want {
+		if want := fmt.Sprintf(convReadFailed, "boom"); a.notice != want {
 			t.Errorf("notice = %q, want %q", a.notice, want)
 		}
 

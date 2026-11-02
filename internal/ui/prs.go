@@ -94,10 +94,10 @@ type prState struct {
 	dirty  bool                 // a head result arrived since the last sync
 }
 
-func newPRState(src prSource, lookup PRLookup) prState {
+func newPRState(src prSource, lookup PRLookup, g Git) prState {
 	return prState{
 		src: src, lookup: lookup,
-		resolve: newPRResolver(github.NewResolver(github.ResolverOptions{})).resolve,
+		resolve: newPRResolver(g, github.NewResolver(github.ResolverOptions{})).resolve,
 		panes:   map[core.PaneID]*prPane{},
 		polled:  map[github.Repo]bool{},
 		looked:  map[prBranch]bool{},
@@ -111,7 +111,8 @@ type prRemote struct{ root, remote string }
 // prResolver finds the GitHub repository of a branch's push remote. It is safe
 // for concurrent use.
 type prResolver struct {
-	gh remoteResolver
+	git Git
+	gh  remoteResolver
 
 	mu    sync.Mutex
 	known map[prRemote]resolvedRemote
@@ -124,25 +125,25 @@ type resolvedRemote struct {
 	repo github.Repo
 }
 
-func newPRResolver(gh remoteResolver) *prResolver {
-	return &prResolver{gh: gh, known: map[prRemote]resolvedRemote{}}
+func newPRResolver(g Git, gh remoteResolver) *prResolver {
+	return &prResolver{git: g, gh: gh, known: map[prRemote]resolvedRemote{}}
 }
 
 // resolve returns the repository the push remote of branch in cwd's worktree
 // points at. A remote that is not on GitHub is github.ErrNotGitHub, and one that
 // does not exist is git.ErrNoRemote.
 func (r *prResolver) resolve(ctx context.Context, cwd, branch string) (github.Repo, error) {
-	wt, err := git.Open(ctx, cwd)
+	wt, err := r.git.Open(ctx, cwd)
 	if err != nil {
 		return github.Repo{}, err
 	}
 
-	remote, err := git.PushRemote(ctx, wt, branch)
+	remote, err := r.git.PushRemote(ctx, wt, branch)
 	if err != nil {
 		return github.Repo{}, fmt.Errorf("push remote of %s: %w", branch, err)
 	}
 
-	url, err := git.RemoteURL(ctx, wt, remote)
+	url, err := r.git.RemoteURL(ctx, wt, remote)
 	if err != nil {
 		return github.Repo{}, fmt.Errorf("remote %s: %w", remote, err)
 	}

@@ -143,13 +143,14 @@ func (a *App) push() tea.Cmd {
 		home   = a.getenv("HOME")
 		appCtx = a.ctx
 		log    = a.log
+		g      = a.git
 	)
 
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(appCtx, pushResolveTimeout)
 		defer cancel()
 
-		t, state, err := resolvePush(ctx, log, id, cwd, home)
+		t, state, err := resolvePush(ctx, g, log, id, cwd, home)
 
 		return pushResolvedMsg{seq: seq, pane: id, target: t, state: state, err: err}
 	}
@@ -157,8 +158,8 @@ func (a *App) push() tea.Cmd {
 
 // resolvePush reads what pushing the branch checked out in cwd would do. err is
 // a failure that is none of the states.
-func resolvePush(ctx context.Context, log *slog.Logger, pane core.PaneID, cwd, home string) (pushTarget, pushState, error) {
-	head, err := probeHeadOf(ctx, log, cwd, cwd)
+func resolvePush(ctx context.Context, g Git, log *slog.Logger, pane core.PaneID, cwd, home string) (pushTarget, pushState, error) {
+	head, err := probeHeadOf(ctx, g, log, cwd, cwd)
 
 	switch {
 	case err != nil:
@@ -174,14 +175,14 @@ func resolvePush(ctx context.Context, log *slog.Logger, pane core.PaneID, cwd, h
 		return t, pushUnborn, nil
 	}
 
-	r, err := git.Open(ctx, cwd)
+	r, err := g.Open(ctx, cwd)
 	if err != nil {
 		return pushTarget{}, pushFailed, err
 	}
 
 	t.root = r.Root
 
-	t.remote, err = git.PushRemote(ctx, r, t.branch)
+	t.remote, err = g.PushRemote(ctx, r, t.branch)
 
 	switch {
 	case errors.Is(err, git.ErrNoRemote):
@@ -190,7 +191,7 @@ func resolvePush(ctx context.Context, log *slog.Logger, pane core.PaneID, cwd, h
 		return pushTarget{}, pushFailed, err
 	}
 
-	if t.rawURLs, err = git.PushURLs(ctx, r, t.remote); err != nil {
+	if t.rawURLs, err = g.PushURLs(ctx, r, t.remote); err != nil {
 		return pushTarget{}, pushFailed, err
 	}
 
@@ -198,12 +199,12 @@ func resolvePush(ctx context.Context, log *slog.Logger, pane core.PaneID, cwd, h
 		t.urls = append(t.urls, remoteDisplay(raw, home))
 	}
 
-	if t.commits, err = git.Unpushed(ctx, r, t.remote); err != nil {
+	if t.commits, err = g.Unpushed(ctx, r, t.remote); err != nil {
 		return pushTarget{}, pushFailed, err
 	}
 
 	if t.commits == 0 {
-		onRemote, err := git.RemoteHasBranch(ctx, r, t.remote, t.branch)
+		onRemote, err := g.RemoteHasBranch(ctx, r, t.remote, t.branch)
 		if err != nil {
 			return pushTarget{}, pushFailed, err
 		}
@@ -215,14 +216,14 @@ func resolvePush(ctx context.Context, log *slog.Logger, pane core.PaneID, cwd, h
 		return t, pushUpToDate, nil
 	}
 
-	has, err := git.HasUpstream(ctx, r, t.branch)
+	has, err := g.HasUpstream(ctx, r, t.branch)
 	if err != nil {
 		return pushTarget{}, pushFailed, err
 	}
 
 	t.setsUpstream = !has
 
-	c, err := git.HeadCommit(ctx, r)
+	c, err := g.HeadCommit(ctx, r)
 	if err != nil {
 		return pushTarget{}, pushFailed, err
 	}
@@ -287,7 +288,7 @@ func (a *App) pushRun(t pushTarget) tea.Cmd {
 	a.pushing[t.root] = t.branch
 	a.notice = pushingNotice(t)
 
-	appCtx, resolve := a.ctx, a.prs.resolve
+	appCtx, resolve, g := a.ctx, a.prs.resolve, a.git
 
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(appCtx, pushTimeout)
@@ -295,7 +296,7 @@ func (a *App) pushRun(t pushTarget) tea.Cmd {
 
 		msg := pushedMsg{target: t}
 
-		msg.res, msg.err = runPush(ctx, t)
+		msg.res, msg.err = runPush(ctx, g, t)
 		if msg.err != nil || resolve == nil {
 			return msg
 		}
@@ -319,13 +320,13 @@ func pushingNotice(t pushTarget) string {
 
 // runPush pushes t's branch from its worktree unless the branch, its head, its
 // push remote or the remote's push URLs are not what the confirm named.
-func runPush(ctx context.Context, t pushTarget) (git.PushResult, error) {
-	r, err := git.Open(ctx, t.root)
+func runPush(ctx context.Context, g Git, t pushTarget) (git.PushResult, error) {
+	r, err := g.Open(ctx, t.root)
 	if err != nil {
 		return git.PushResult{}, err
 	}
 
-	h, err := git.Head(ctx, r)
+	h, err := g.Head(ctx, r)
 	if err != nil {
 		return git.PushResult{}, err
 	}
@@ -334,7 +335,7 @@ func runPush(ctx context.Context, t pushTarget) (git.PushResult, error) {
 		return git.PushResult{}, errPushChanged
 	}
 
-	remote, err := git.PushRemote(ctx, r, t.branch)
+	remote, err := g.PushRemote(ctx, r, t.branch)
 	if err != nil {
 		return git.PushResult{}, err
 	}
@@ -343,7 +344,7 @@ func runPush(ctx context.Context, t pushTarget) (git.PushResult, error) {
 		return git.PushResult{}, errPushChanged
 	}
 
-	urls, err := git.PushURLs(ctx, r, remote)
+	urls, err := g.PushURLs(ctx, r, remote)
 	if err != nil {
 		return git.PushResult{}, err
 	}
@@ -352,7 +353,7 @@ func runPush(ctx context.Context, t pushTarget) (git.PushResult, error) {
 		return git.PushResult{}, errPushURLChanged
 	}
 
-	return git.Push(ctx, r, t.branch)
+	return g.Push(ctx, r, t.branch)
 }
 
 // onPushed shows what a push did and, after one that reached the remote, probes

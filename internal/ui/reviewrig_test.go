@@ -1,10 +1,8 @@
 package ui
 
 import (
-	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -23,30 +21,6 @@ const (
 	otherSession core.SessionID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
 )
 
-// newRepoDir is an empty repository on main in a temp dir without symlinks.
-func newRepoDir(t *testing.T) string {
-	t.Helper()
-
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not installed")
-	}
-
-	dir, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	gitIn(t, "git", dir, "init", "-q", "-b", "main")
-
-	return dir
-}
-
-func commitEverything(t *testing.T, dir, msg string) {
-	t.Helper()
-	gitIn(t, "git", dir, "add", "-A")
-	gitIn(t, "git", dir, "commit", "-q", "-m", msg)
-}
-
 func numberedLines(prefix string, n int) string {
 	var b strings.Builder
 	for i := 1; i <= n; i++ {
@@ -56,56 +30,26 @@ func numberedLines(prefix string, n int) string {
 	return b.String()
 }
 
-// snapshotTurn takes the session's next turn in dir's worktree. Like the next
-// prompt, it ends the worktree's latest turn when that is open.
-func snapshotTurn(t *testing.T, dir string, session core.SessionID) {
-	t.Helper()
-
-	opts := git.SnapshotOptions{TempDir: t.TempDir()}
-
-	r, err := git.Open(context.Background(), dir)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-
-	if turns, err := git.Turns(context.Background(), r, string(session)); err == nil && len(turns) > 0 {
-		if last := turns[len(turns)-1]; last.EndCommit == "" && !last.Missing {
-			opts.Ends = last.N
-		}
-	}
-
-	if _, err := git.Snapshot(context.Background(), dir, string(session), opts); err != nil {
-		t.Fatalf("Snapshot: %v", err)
-	}
-}
-
-func missingTurn(t *testing.T, dir string, session core.SessionID) {
-	t.Helper()
-
-	if _, err := git.MarkMissing(context.Background(), dir, string(session), 0, false); err != nil {
-		t.Fatalf("MarkMissing: %v", err)
-	}
-}
-
 // threeTurnRepo has three turns of testSession: turn 1 edits a.txt, turn 2
 // edits b.txt, deletes d.txt and adds an untracked file, and turn 3 edits
 // dir/c.txt and commits.
-func threeTurnRepo(t *testing.T) string {
+func threeTurnRepo(t *testing.T, f *fakeGit) *fakeRepo {
 	t.Helper()
 
-	dir := newRepoDir(t)
+	r := f.repo(t, "")
+	dir := r.Root()
 	write(t, filepath.Join(dir, "a.txt"), "a\n")
 	write(t, filepath.Join(dir, "b.txt"), "b\n")
 	write(t, filepath.Join(dir, "dir/c.txt"), "c\n")
-	commitEverything(t, dir, "init")
+	r.commit("init")
 	write(t, filepath.Join(dir, "d.txt"), "d\n")
 	write(t, filepath.Join(dir, "e.txt"), "e\n")
-	commitEverything(t, dir, "more")
+	r.commit("more")
 
-	snapshotTurn(t, dir, testSession)
+	r.turn(string(testSession))
 	write(t, filepath.Join(dir, "a.txt"), "turn one\n")
 
-	snapshotTurn(t, dir, testSession)
+	r.turn(string(testSession))
 	write(t, filepath.Join(dir, "b.txt"), "turn two\n")
 
 	if err := os.Remove(filepath.Join(dir, "d.txt")); err != nil {
@@ -114,24 +58,24 @@ func threeTurnRepo(t *testing.T) string {
 
 	write(t, filepath.Join(dir, "new.txt"), "untracked\n")
 
-	snapshotTurn(t, dir, testSession)
+	r.turn(string(testSession))
 	write(t, filepath.Join(dir, "dir/c.txt"), "turn three\n")
-	commitEverything(t, dir, "agent commit")
+	r.commit("agent commit")
 
-	return dir
+	return r
 }
 
 // editedRepo has f.txt of 60 lines committed on main with lines 5 and 50
 // edited in the working tree: two hunks.
-func editedRepo(t *testing.T) string {
+func editedRepo(t *testing.T, f *fakeGit) *fakeRepo {
 	t.Helper()
 
-	dir := newRepoDir(t)
-	write(t, filepath.Join(dir, "f.txt"), numberedLines("line", 60))
-	commitEverything(t, dir, "init")
-	write(t, filepath.Join(dir, "f.txt"), editedF(0))
+	r := f.repo(t, "")
+	write(t, filepath.Join(r.Root(), "f.txt"), numberedLines("line", 60))
+	r.commit("init")
+	write(t, filepath.Join(r.Root(), "f.txt"), editedF(0))
 
-	return dir
+	return r
 }
 
 // editedF is f.txt with lines 5 and 50 edited, under n inserted lines.
@@ -179,43 +123,58 @@ func (h *heldTicks) fire() []tea.Msg {
 
 func (h *heldTicks) scheduled(d time.Duration) bool { return slices.Contains(h.delays, d) }
 
-// drawerRig is an app with a diff engine and a real watch set. A pump stands
-// in for the Bubble Tea runtime, so loads run off the test's goroutine.
+// drawerRig is an app with a diff engine on a fake git and its watch set. A pump
+// stands in for the Bubble Tea runtime, so loads run off the test's goroutine.
 type drawerRig struct {
 	*App
 	ticks *heldTicks
 	clk   *fakeClock
 	pm    *pump
-	set   *git.WatchSet
+	fake  *fakeGit      // nil on the bench's real git
 	wait  time.Duration // how long until gives up
-
-	reported map[string]bool // the paths, absolute, that watcher batches fed to step named
 }
 
 // turnFirst makes a new drawer open in turn mode when its pane has turns; the
 // rig's zero [diff] config opens in branch mode.
 func turnFirst(o *Options) { o.Diff.Mode = string(core.ReviewTurn) }
 
+// newDrawerRig is a drawer rig on the fake git opts carry (gitOf), else a fresh one.
 func newDrawerRig(t *testing.T, opts ...func(*Options)) *drawerRig {
 	t.Helper()
 
-	return newDrawerRigWatching(t, git.WatchOptions{Debounce: 20 * time.Millisecond}, opts...)
+	// The options run twice, here and in kindApp, so they must be pure.
+	var probe Options
+
+	for _, f := range opts {
+		f(&probe)
+	}
+
+	if _, ok := probe.Git.(*fakeGit); !ok {
+		opts = append([]func(*Options){gitOf(newFakeGit(t))}, opts...)
+	}
+
+	return startDrawerRig(t, opts...)
 }
 
-func newDrawerRigWatching(t *testing.T, wo git.WatchOptions, opts ...func(*Options)) *drawerRig {
+// startDrawerRig builds the rig over whatever git the options carry.
+func startDrawerRig(t *testing.T, opts ...func(*Options)) *drawerRig {
 	t.Helper()
 
-	set := git.NewWatchSet(context.Background(), wo)
+	var probe Options
 
-	t.Cleanup(func() { _ = set.Close() })
+	for _, f := range opts {
+		f(&probe)
+	}
+
+	fake, _ := probe.Git.(*fakeGit)
 
 	// The app's wiring: a run directory for temporary indexes and a cache of
 	// refreshed index copies.
 	tmp, cache := t.TempDir(), t.TempDir()
-	set0 := func(o *Options) { o.GitTempDir, o.IndexCache, o.Watches = tmp, cache, set }
+	set0 := func(o *Options) { o.GitTempDir, o.IndexCache = tmp, cache }
 
 	a, _, clk := kindApp(t, append([]func(*Options){set0}, opts...)...)
-	r := &drawerRig{App: a, ticks: &heldTicks{}, clk: clk, pm: newPump(t), set: set, wait: watchWait, reported: map[string]bool{}}
+	r := &drawerRig{App: a, ticks: &heldTicks{}, clk: clk, pm: newPump(t), fake: fake, wait: watchWait}
 	r.pm.stopWith(t, a)
 	a.tick = r.ticks.tick
 
@@ -225,45 +184,10 @@ func newDrawerRigWatching(t *testing.T, wo git.WatchOptions, opts ...func(*Optio
 	return r
 }
 
-// probesEndFirst checks, after the cleanups registered later and before
-// t.TempDir removes its dirs, that no probe of the app handed to watch still
-// runs: one that does writes its temporary index into a dir being removed.
-func probesEndFirst(t *testing.T) (watch func(*App)) {
-	t.Helper()
-
-	// The first TempDir registers the removal of every one, so this cleanup runs ahead of it.
-	t.TempDir()
-
-	var a *App
-
-	t.Cleanup(func() {
-		if a != nil && len(a.probeSem) > 0 {
-			t.Errorf("%d probes still ran as the temporary dirs were removed", len(a.probeSem))
-		}
-	})
-
-	return func(app *App) { a = app }
-}
-
 func (r *drawerRig) step(msg tea.Msg) tea.Cmd {
-	if w, ok := msg.(watchMsg); ok {
-		for _, p := range w.Batch.Paths {
-			r.reported[filepath.Join(w.Root, p)] = true
-		}
-	}
-
 	_, cmd := r.Update(msg)
 
 	return cmd
-}
-
-// reportedAll is a condition: watcher batches fed to step have named every one
-// of paths. A watcher reports a write only after its debounce, so a test that
-// must not see that report later waits for it first.
-func (r *drawerRig) reportedAll(paths ...string) func() bool {
-	return func() bool {
-		return !slices.ContainsFunc(paths, func(p string) bool { return !r.reported[p] })
-	}
 }
 
 func (r *drawerRig) run(cmd tea.Cmd) { r.pm.run(cmd) }
@@ -357,9 +281,7 @@ func (r *drawerRig) held(id core.PaneID) string {
 }
 
 func (r *drawerRig) watched(root string) bool {
-	_, ok := r.set.Seq(root)
-
-	return ok
+	return r.fake.watches.holds(root) > 0
 }
 
 // watching waits until the pane's worktree is watched.
@@ -371,17 +293,6 @@ func (r *drawerRig) watching(t *testing.T, id core.PaneID, root string) {
 // batch hands the app a watcher batch as the set would.
 func (r *drawerRig) batch(root string, b git.Batch) tea.Cmd {
 	return r.onWatch(watchMsg{Root: root, Batch: b})
-}
-
-func rootOf(t *testing.T, dir string) string {
-	t.Helper()
-
-	repo, err := git.Open(context.Background(), dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	return repo.Root
 }
 
 // paths are the sorted paths of the diff the view holds.
@@ -452,24 +363,15 @@ func mustRect(t *testing.T, r *drawerRig) core.Rect {
 	return rect
 }
 
-// quiet feeds messages until nothing arrives for d and no load is pending.
-func (r *drawerRig) quiet(t *testing.T, d time.Duration) {
+// settled feeds queued messages until the active view has no load running or
+// queued. It passes on the first poll when the view is already idle, so it never
+// proves an absence that depends on a message still in flight.
+func (r *drawerRig) settled(t *testing.T) {
 	t.Helper()
 
-	deadline := time.Now().Add(r.wait)
+	r.until(t, "the drawer to settle", func() bool {
+		v := r.view()
 
-	for {
-		select {
-		case m := <-r.pm.msgs:
-			r.run(r.step(m))
-		case <-time.After(d):
-			if v := r.view(); !v.loading && v.queued == nil {
-				return
-			}
-		}
-
-		if time.Now().After(deadline) {
-			t.Fatal("the drawer never went quiet")
-		}
-	}
+		return v != nil && !v.loading && v.queued == nil
+	})
 }

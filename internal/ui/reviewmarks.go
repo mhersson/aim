@@ -43,7 +43,7 @@ func (j reviewJob) marked(ctx context.Context, msg *reviewLoadedMsg) {
 
 	common := j.common
 	if j.commonRoot != j.root || common == "" {
-		r, err := git.Open(ctx, j.root)
+		r, err := j.git.Open(ctx, j.root)
 		if err != nil {
 			j.log.Debug("review: marks", "root", j.root, "err", err)
 

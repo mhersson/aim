@@ -141,6 +141,18 @@ Dependency rules:
 - Tests check behavior. A test that fails only when someone rewords text no code
   reads is not a test: don't write it, and delete it when found. Rendering
   goldens are behavior.
+- A test of a notice asserts that it shows, its level and the values the code
+  put in, or compares with the constant or helper the code builds it from;
+  never the sentence around them.
+- Every test checks one feature or behaviour. Don't write, and delete when
+  found, a test that is a duplicate, the same feature tested again by an
+  obscure route, an insane edge case, or a sweep where a few chosen cases check
+  the same thing (pick the chosen cases, the boundaries included).
+- A hostile-input test (escape bytes, bidi characters, huge lines, deep
+  nesting) uses the smallest input that still proves the limit.
+- `internal/ui` tests never start git: they use the fake in
+  `internal/ui/fakegit_test.go`, and the package's `TestMain` fails the run
+  when one does, outside the `bench` tag. Real git is tested in `internal/git`.
 - New tests call `t.Parallel()` unless they use `t.Setenv`, change the
   process's working directory, or count process-wide resources such as open
   descriptors or goroutines.
@@ -151,8 +163,8 @@ Dependency rules:
 - Rendering: golden files under `testdata/` (`-update` flag to regenerate);
   `teatest` for Bubble Tea flows.
 - Diff engine: golden-file tests for hunks, word spans and full-file view.
-- Git: tests run against temporary repos created in `t.TempDir()`, never the
-  real repo.
+- `internal/git`: tests run against temporary repos created in `t.TempDir()`,
+  never the real repo.
 - GitHub: recorded fixtures with `httptest`; no network in unit tests. Live
   tests behind a build tag.
 - VT: feed recorded byte streams (including real Claude Code output) and assert

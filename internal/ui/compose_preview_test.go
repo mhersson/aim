@@ -101,8 +101,12 @@ func assertToggle(t *testing.T, r *previewRig, scene, word string, shown bool) {
 }
 
 func TestComposePreviewToggle(t *testing.T) {
-	for _, from := range []composeField{composeTitle, composeBase, composeDraft, composeBody} {
+	t.Parallel()
+
+	for _, from := range []composeField{composeTitle, composeBody} {
 		t.Run(from.String(), func(t *testing.T) {
+			t.Parallel()
+
 			r := newPreviewRig(t, 120, 40)
 			r.setBody("one\ntwo\nthree")
 			r.v.focus(from)
@@ -137,6 +141,8 @@ func TestComposePreviewToggle(t *testing.T) {
 }
 
 func TestComposePreviewDebounce(t *testing.T) {
+	t.Parallel()
+
 	r := newPreviewRig(t, 120, 40)
 	r.setBody("")
 	r.ticks.delays = nil
@@ -187,6 +193,8 @@ func TestComposePreviewDebounce(t *testing.T) {
 }
 
 func TestComposePreviewImmediate(t *testing.T) {
+	t.Parallel()
+
 	r := newPreviewRig(t, 120, 40)
 	r.setBody("first body")
 
@@ -225,6 +233,8 @@ func TestComposePreviewImmediate(t *testing.T) {
 }
 
 func TestComposePreviewScroll(t *testing.T) {
+	t.Parallel()
+
 	r := newPreviewRig(t, 120, 40)
 	r.setBody(listBody(60))
 	r.v.body.row = 39
@@ -306,6 +316,8 @@ func TestComposePreviewScroll(t *testing.T) {
 }
 
 func TestComposePreviewDrops(t *testing.T) {
+	t.Parallel()
+
 	setup := func(t *testing.T) *previewRig {
 		t.Helper()
 
@@ -372,6 +384,8 @@ func TestComposePreviewDrops(t *testing.T) {
 }
 
 func TestComposePreviewEditor(t *testing.T) {
+	t.Parallel()
+
 	r := newEditorRig(t)
 	sized(t, r.App, 120, 40)
 	r.churn(t, press(r.App, keyCtrlP))
@@ -394,6 +408,8 @@ func TestComposePreviewEditor(t *testing.T) {
 }
 
 func TestComposePreviewLate(t *testing.T) {
+	t.Parallel()
+
 	r := newPreviewRig(t, 120, 40)
 	cmd := press(r.App, keyCtrlP)
 	late := msgOf(t, cmd)
@@ -430,6 +446,8 @@ func TestComposePreviewLate(t *testing.T) {
 }
 
 func TestComposePreviewHints(t *testing.T) {
+	t.Parallel()
+
 	r := newPreviewRig(t, 120, 40)
 
 	if text := r.text(); !strings.Contains(text, "ctrl+p preview") || strings.Contains(text, "ctrl+p write") {
@@ -444,6 +462,8 @@ func TestComposePreviewHints(t *testing.T) {
 }
 
 func TestComposePreviewGolden(t *testing.T) {
+	t.Parallel()
+
 	body := "# Release notes\n\nThis fixes the `parser` and adds:\n\n- faster startup\n- better errors\n\n```\nfunc main() {\n\trun()\n}\n```\n\nSee the docs."
 
 	for _, tc := range []struct {
@@ -454,6 +474,8 @@ func TestComposePreviewGolden(t *testing.T) {
 		{"compose-preview-80x24", 80, 24},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			r := newPreviewRig(t, tc.w, tc.h)
 			r.setBody(body)
 			r.churn(t, press(r.App, keyCtrlP))
@@ -476,6 +498,8 @@ func TestComposePreviewGolden(t *testing.T) {
 // Entering Preview while the shown doc is older than the body puts the cursor's
 // source line on top only once the doc for the body has landed.
 func TestComposePreviewStaleDoc(t *testing.T) {
+	t.Parallel()
+
 	r := newPreviewRig(t, 120, 40)
 	r.setBody("short")
 	r.churn(t, press(r.App, keyCtrlP))
@@ -505,6 +529,8 @@ func TestComposePreviewStaleDoc(t *testing.T) {
 }
 
 func TestComposePreviewEditorReturnScroll(t *testing.T) {
+	t.Parallel()
+
 	r := newEditorRig(t)
 	sized(t, r.App, 120, 40)
 	r.v.body = newTextArea(listBody(60), maxComposeBody)
@@ -546,6 +572,8 @@ func TestComposePreviewEditorReturnScroll(t *testing.T) {
 }
 
 func TestComposePreviewResize(t *testing.T) {
+	t.Parallel()
+
 	r := newPreviewRig(t, 120, 40)
 	r.setBody(listBody(60))
 	r.churn(t, press(r.App, keyCtrlP))
@@ -567,6 +595,8 @@ func composeBoxOrigin(r *previewRig, lines int) (x, y int) {
 }
 
 func TestComposePreviewPicture(t *testing.T) {
+	t.Parallel()
+
 	r := newPreviewRig(t, 120, 40)
 	jobs := picturesOn(t, r.App)
 
@@ -637,6 +667,8 @@ func TestComposePreviewPicture(t *testing.T) {
 }
 
 func TestComposePreviewPictureKeepsTop(t *testing.T) {
+	t.Parallel()
+
 	r := newPreviewRig(t, 120, 40)
 	jobs := picturesOn(t, r.App)
 
@@ -669,6 +701,8 @@ func TestComposePreviewPictureKeepsTop(t *testing.T) {
 }
 
 func TestComposePreviewRelativeImage(t *testing.T) {
+	t.Parallel()
+
 	r := newPreviewRig(t, 120, 40)
 	jobs := picturesOn(t, r.App)
 

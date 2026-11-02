@@ -6,6 +6,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -18,6 +20,28 @@ import (
 	"github.com/mhersson/aim/internal/git"
 	"github.com/mhersson/aim/internal/term"
 )
+
+// quiet feeds messages until nothing arrives for d and no load is pending.
+func (r *drawerRig) quiet(t *testing.T, d time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(r.wait)
+
+	for {
+		select {
+		case m := <-r.pm.msgs:
+			r.run(r.step(m))
+		case <-time.After(d):
+			if v := r.view(); !v.loading && v.queued == nil {
+				return
+			}
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatal("the drawer never went quiet")
+		}
+	}
+}
 
 // scrollHunks is how many hunks the long diff has; each is 40 lines of which 20
 // are changed, so the file is 10,000 lines with half of them changed.
@@ -270,6 +294,64 @@ func hunkHolds(v *reviewView, path, text string) bool {
 	return false
 }
 
+// gitFileOnly limits git to local transports, so no bench can reach a network.
+const gitFileOnly = "GIT_ALLOW_PROTOCOL=file"
+
+// gitIn runs git in dir, with an identity and a config that need nothing from the host.
+func gitIn(t *testing.T, dir string, args ...string) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	cfg := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(cfg, []byte("[maintenance]\n\tauto = false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = dir
+
+	cmd.Env = append(os.Environ(),
+		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+cfg,
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t", gitFileOnly)
+
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+// newRepoDir is an empty repository on main in a temp dir without symlinks.
+func newRepoDir(t *testing.T) string {
+	t.Helper()
+
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gitIn(t, dir, "init", "-q", "-b", "main")
+
+	return dir
+}
+
+func commitEverything(t *testing.T, dir, msg string) {
+	t.Helper()
+	gitIn(t, dir, "add", "-A")
+	gitIn(t, dir, "commit", "-q", "-m", msg)
+}
+
+func rootOf(t *testing.T, dir string) string {
+	t.Helper()
+
+	repo, err := git.Open(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return repo.Root
+}
+
 // saveToPaneCeiling bounds the median save-to-pane time the test asserts. The
 // 300 ms gate is read from the logged median on a quiet machine.
 const saveToPaneCeiling = time.Second
@@ -285,7 +367,11 @@ func TestReviewSaveToPane(t *testing.T) {
 		saves = 20
 	)
 
-	r := newDrawerRigWatching(t, git.WatchOptions{})
+	set := git.NewWatchSet(context.Background(), git.WatchOptions{})
+
+	t.Cleanup(func() { _ = set.Close() })
+
+	r := startDrawerRig(t, func(o *Options) { o.Git, o.Watches = SystemGit{}, set })
 	r.wait = 60 * time.Second
 
 	dir := newRepoDir(t)
@@ -294,18 +380,22 @@ func TestReviewSaveToPane(t *testing.T) {
 	}
 
 	commitEverything(t, dir, "base")
-	gitIn(t, "git", dir, "checkout", "-q", "-b", "feature")
+	gitIn(t, dir, "checkout", "-q", "-b", "feature")
 
 	// Files written in the same second as the index are racily clean: git must
 	// hash them again until the index is written once the second has passed.
 	time.Sleep(1500 * time.Millisecond)
-	gitIn(t, "git", dir, "status", "--porcelain")
+	gitIn(t, dir, "status", "--porcelain")
 
 	root := rootOf(t, dir)
 	id := r.shell(t, dir)
 
 	v := r.open(t, id)
-	r.watching(t, id, root)
+	r.until(t, "the worktree to be watched", func() bool {
+		_, ok := set.Seq(root)
+
+		return r.held(id) == root && ok
+	})
 	r.quiet(t, 400*time.Millisecond)
 
 	if len(v.res.Files) != 0 {

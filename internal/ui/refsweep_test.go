@@ -4,33 +4,67 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
-	"github.com/mhersson/aim/internal/core"
 	"github.com/mhersson/aim/internal/git"
-)
 
-var sweepNow = time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
+	"github.com/mhersson/aim/internal/core"
+)
 
 const (
 	sweepKeyA = "0123456789abcdef"
 	sweepKeyB = "fedcba9876543210"
 
-	sessH = "aaaaaaaa-0000-4000-8000-00000000000a" // held by a pane, old
-	sessU = "bbbbbbbb-0000-4000-8000-00000000000b" // unheld, old
-	sessR = "cccccccc-0000-4000-8000-00000000000c" // unheld, recent
+	sessH = "aaaaaaaa-0000-4000-8000-00000000000a" // held by a pane
+	sessU = "bbbbbbbb-0000-4000-8000-00000000000b" // unheld
 )
 
-func turnRefName(session, key string, at time.Time) string {
-	return fmt.Sprintf("refs/aim/turns/%s/%s/%d/start", session, key, at.UnixMilli())
+func turnRefName(session, key string, n int) string {
+	return fmt.Sprintf("refs/aim/turns/%s/%s/%d/start", session, key, n)
 }
 
-// sweepRepo is a repository with two commits and a clock set to sweepNow.
+// sweepGit is the fake whose listing records the time the app asks it to judge
+// staleness at; the fake's own listing ignores it.
+type sweepGit struct {
+	*fakeGit
+	mu   sync.Mutex
+	nows []time.Time
+}
+
+type nowRecorder struct {
+	StaleRefs
+	g *sweepGit
+}
+
+func (n nowRecorder) Stale(now time.Time, held func(string) bool, shown func(int) bool) git.Sweep {
+	n.g.mu.Lock()
+	n.g.nows = append(n.g.nows, now)
+	n.g.mu.Unlock()
+
+	return n.StaleRefs.Stale(now, held, shown)
+}
+
+func (g *sweepGit) ListAimRefs(ctx context.Context, r git.Repo) (StaleRefs, error) {
+	refs, err := g.fakeGit.ListAimRefs(ctx, r)
+	if err != nil {
+		return nil, err
+	}
+
+	return nowRecorder{StaleRefs: refs, g: g}, nil
+}
+
+// sweepRepo is a fake repository with two commits.
 type sweepRepo struct {
 	*drawerRig
+	sg           *sweepGit
+	f            *fakeGit
+	rp           *fakeRepo
 	dir          string
 	first, other string
 }
@@ -38,75 +72,81 @@ type sweepRepo struct {
 func newSweepRig(t *testing.T) *sweepRepo {
 	t.Helper()
 
-	dir := newRepoDir(t)
-	write(t, filepath.Join(dir, "a.txt"), "a\n")
-	commitEverything(t, dir, "one")
+	f := newFakeGit(t)
+	rp := f.repo(t, "")
+	dir := rp.Root()
 
-	first := gitRead(t, "git", dir, "rev-parse", "HEAD")
+	write(t, filepath.Join(dir, "a.txt"), "a\n")
+
+	first := rp.commit("one")
 
 	write(t, filepath.Join(dir, "a.txt"), "b\n")
-	commitEverything(t, dir, "two")
 
-	other := gitRead(t, "git", dir, "rev-parse", "HEAD")
+	other := rp.commit("two")
 
-	r := newKeysRig(t, dir)
-	r.clock = &fakeClock{t: sweepNow}
+	r := newKeysRig(t, dir, gitOf(f))
+	sg := &sweepGit{fakeGit: f}
+	r.git = sg
+	r.clk.Advance(36 * time.Hour)
 
-	return &sweepRepo{drawerRig: r, dir: dir, first: first, other: other}
+	return &sweepRepo{drawerRig: r, sg: sg, f: f, rp: rp, dir: dir, first: first, other: other}
 }
 
-func (s *sweepRepo) ref(t *testing.T, name, oid string) {
-	t.Helper()
-	gitIn(t, "git", s.dir, "update-ref", name, oid)
+func (s *sweepRepo) ref(name, oid string) { s.rp.aimRef(name, oid) }
+
+// refs are the refs under refs/aim/ the fake holds, by name.
+func (s *sweepRepo) refs() map[string]string {
+	out := map[string]string{}
+
+	s.f.edit(func() { maps.Copy(out, s.rp.c.aimRefs) })
+
+	return out
 }
 
-func (s *sweepRepo) has(t *testing.T, name string) bool {
-	t.Helper()
-
-	return gitRead(t, "git", s.dir, "for-each-ref", "--format=%(refname)", name) != ""
-}
-
-func (s *sweepRepo) repo(t *testing.T) git.Repo {
-	t.Helper()
-
-	r, err := git.Open(context.Background(), s.dir)
-	if err != nil {
-		t.Fatal(err)
+func (s *sweepRepo) has(prefix string) bool {
+	for name := range s.refs() {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
 	}
 
-	return r
+	return false
 }
 
-func (s *sweepRepo) seed(t *testing.T) {
+// deleted are the names of the refs the app asked to delete, with their listed values.
+func (s *sweepRepo) deleted(t *testing.T) map[string]string {
 	t.Helper()
 
-	old := sweepNow.Add(-30 * 24 * time.Hour)
-	recent := sweepNow.Add(-24 * time.Hour)
+	out := map[string]string{}
 
-	s.ref(t, turnRefName(sessH, sweepKeyA, old), s.first)
-	s.ref(t, turnRefName(sessU, sweepKeyA, old), s.first)
-	s.ref(t, turnRefName(sessU, sweepKeyB, old), s.first)
-	s.ref(t, turnRefName(sessR, sweepKeyA, recent), s.first)
+	for _, c := range s.f.calls("DeleteRefs") {
+		for _, arg := range c.Args {
+			name, oid, _ := strings.Cut(arg, " ")
+			if !strings.HasPrefix(name, "refs/aim/") {
+				t.Errorf("a delete named %q, outside refs/aim/", name)
+			}
+
+			out[name] = oid
+		}
+	}
+
+	return out
+}
+
+func (s *sweepRepo) seed() {
+	s.ref(turnRefName(sessH, sweepKeyA, 1), s.first)
+	s.ref(turnRefName(sessU, sweepKeyA, 1), s.first)
+	s.ref(turnRefName(sessU, sweepKeyB, 1), s.first)
 
 	for _, n := range []int{5, 6, 8} {
-		s.ref(t, fmt.Sprintf("refs/aim/pr/%d/head", n), s.first)
-		s.ref(t, fmt.Sprintf("refs/aim/pr/%d/base", n), s.first)
+		s.ref(fmt.Sprintf("refs/aim/pr/%d/head", n), s.first)
+		s.ref(fmt.Sprintf("refs/aim/pr/%d/base", n), s.first)
 	}
-
-	s.ref(t, "refs/tags/keep", s.first)
 }
 
-func (s *sweepRepo) turnsOf(t *testing.T, session string) bool {
-	t.Helper()
+func (s *sweepRepo) turnsOf(session string) bool { return s.has("refs/aim/turns/" + session + "/") }
 
-	return s.has(t, "refs/aim/turns/"+session+"/")
-}
-
-func (s *sweepRepo) prRefs(t *testing.T, n int) bool {
-	t.Helper()
-
-	return s.has(t, fmt.Sprintf("refs/aim/pr/%d/", n))
-}
+func (s *sweepRepo) prRefs(n int) bool { return s.has(fmt.Sprintf("refs/aim/pr/%d/", n)) }
 
 func (s *sweepRepo) list(t *testing.T) refsListedMsg {
 	t.Helper()
@@ -117,7 +157,7 @@ func (s *sweepRepo) list(t *testing.T) refsListedMsg {
 
 	s.sweepRefs = true
 
-	cmd := s.refSweep(s.repo(t))
+	cmd := s.refSweep(s.rp.Repo())
 	if cmd == nil {
 		t.Fatal("refSweep returned no Cmd")
 	}
@@ -139,7 +179,7 @@ func TestRefSweepKeepsWhatPanesAndDrawersHold(t *testing.T) {
 		core.ShowReviewPR{Repo: "github.com/o/r", Number: 5, Root: s.dir})
 
 	s.drawer.fetching = map[int]int{6: 1}
-	s.seed(t)
+	s.seed()
 
 	msg := s.list(t)
 	flatten(s.onRefsListed(msg))
@@ -149,18 +189,36 @@ func TestRefSweepKeepsWhatPanesAndDrawersHold(t *testing.T) {
 		got  bool
 		want bool
 	}{
-		{"held session", s.turnsOf(t, sessH), true},
-		{"recent session", s.turnsOf(t, sessR), true},
-		{"unheld old session", s.turnsOf(t, sessU), false},
-		{"shown PR", s.prRefs(t, 5), true},
-		{"fetching PR", s.prRefs(t, 6), true},
-		{"other PR", s.prRefs(t, 8), false},
-		{"branch", s.has(t, "refs/heads/main"), true},
-		{"tag", s.has(t, "refs/tags/keep"), true},
+		{"held session", s.turnsOf(sessH), true},
+		{"unheld session", s.turnsOf(sessU), false},
+		{"shown PR", s.prRefs(5), true},
+		{"fetching PR", s.prRefs(6), true},
+		{"other PR", s.prRefs(8), false},
 	} {
 		if c.got != c.want {
 			t.Errorf("%s present = %v, want %v", c.name, c.got, c.want)
 		}
+	}
+
+	// The sweep judges age at the app's clock.
+	s.sg.mu.Lock()
+	nows := slices.Clone(s.sg.nows)
+	s.sg.mu.Unlock()
+
+	if want := []time.Time{s.clk.Now()}; !slices.Equal(nows, want) {
+		t.Errorf("Stale was asked at %v, want the app clock %v", nows, want)
+	}
+
+	// What the app asked to delete is the stale refs with the values it listed.
+	want := map[string]string{
+		turnRefName(sessU, sweepKeyA, 1): s.first,
+		turnRefName(sessU, sweepKeyB, 1): s.first,
+		"refs/aim/pr/8/head":             s.first,
+		"refs/aim/pr/8/base":             s.first,
+	}
+
+	if got := s.deleted(t); !maps.Equal(got, want) {
+		t.Errorf("deleted %v, want %v", got, want)
 	}
 }
 
@@ -168,7 +226,7 @@ func TestRefSweepFiltersAtTheAnswer(t *testing.T) {
 	t.Parallel()
 
 	s := newSweepRig(t)
-	s.seed(t)
+	s.seed()
 
 	msg := s.list(t)
 
@@ -177,39 +235,45 @@ func TestRefSweepFiltersAtTheAnswer(t *testing.T) {
 
 	flatten(s.onRefsListed(msg))
 
-	if !s.turnsOf(t, sessU) {
+	if !s.turnsOf(sessU) {
 		t.Error("a session taken after the listing lost its refs")
 	}
 
-	if !s.prRefs(t, 8) {
+	if !s.prRefs(8) {
 		t.Error("a pull request fetched after the listing lost its refs")
 	}
 
-	if s.prRefs(t, 5) {
+	if s.prRefs(5) {
 		t.Error("an unshown pull request kept its refs")
 	}
 }
 
+// A moved PR ref fails its delete and keeps the PR's base with it, one
+// transaction; the unheld turn refs go regardless, in a call of their own.
 func TestRefSweepTurnsGoWhenAPRRefMoved(t *testing.T) {
 	t.Parallel()
 
 	s := newSweepRig(t)
-	s.seed(t)
+	s.seed()
 
 	msg := s.list(t)
 
-	s.ref(t, "refs/aim/pr/8/head", s.other)
+	s.ref("refs/aim/pr/8/head", s.other)
 	flatten(s.onRefsListed(msg))
 
-	if got := gitRead(t, "git", s.dir, "rev-parse", "refs/aim/pr/8/head"); got != s.other {
+	if got := s.refs()["refs/aim/pr/8/head"]; got != s.other {
 		t.Errorf("moved head = %s, want it kept at %s", got, s.other)
 	}
 
-	if !s.has(t, "refs/aim/pr/8/base") {
+	if !s.has("refs/aim/pr/8/base") {
 		t.Error("base of the moved pull request is gone, want it kept with its head")
 	}
 
-	if s.turnsOf(t, sessU) {
+	if got := s.deleted(t)["refs/aim/pr/8/head"]; got != s.first {
+		t.Errorf("the delete carried the head at %s, want the listed %s", got, s.first)
+	}
+
+	if s.turnsOf(sessU) {
 		t.Error("unheld turn refs stayed behind a moved PR ref")
 	}
 }
@@ -217,51 +281,45 @@ func TestRefSweepTurnsGoWhenAPRRefMoved(t *testing.T) {
 func TestRefSweepOncePerRepository(t *testing.T) {
 	t.Parallel()
 
-	mainDir := newRepoDir(t)
-	write(t, filepath.Join(mainDir, "a.txt"), "a\n")
-	commitEverything(t, mainDir, "one")
+	// repos are a main checkout, a linked worktree of it and another repository, on one fake git.
+	repos := func(t *testing.T) (f *fakeGit, mainRepo, linked, elsewhere *fakeRepo) {
+		t.Helper()
 
-	linked := filepath.Join(t.TempDir(), "wt")
-	gitIn(t, "git", mainDir, "worktree", "add", "-q", "-b", "side", linked)
+		f = newFakeGit(t)
+		mainRepo = f.repo(t, "")
+		write(t, filepath.Join(mainRepo.Root(), "a.txt"), "a\n")
+		mainRepo.commit("one")
 
-	linked, err := filepath.EvalSymlinks(linked)
-	if err != nil {
-		t.Fatal(err)
-	}
+		linked = mainRepo.worktree(t, filepath.Join(t.TempDir(), "wt"), "side")
 
-	elsewhere := newRepoDir(t)
-	write(t, filepath.Join(elsewhere, "a.txt"), "a\n")
-	commitEverything(t, elsewhere, "one")
+		elsewhere = f.repo(t, "")
+		write(t, filepath.Join(elsewhere.Root(), "a.txt"), "a\n")
+		elsewhere.commit("one")
 
-	open := func(dir string) git.Repo {
-		r, err := git.Open(context.Background(), dir)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		return r
+		return f, mainRepo, linked, elsewhere
 	}
 
 	t.Run("refSweep", func(t *testing.T) {
 		t.Parallel()
 
-		r := newKeysRig(t, mainDir)
+		f, mainRepo, linked, elsewhere := repos(t)
+		r := newKeysRig(t, mainRepo.Root(), gitOf(f))
 		r.sweepRefs = true
 
-		if r.refSweep(open(mainDir)) == nil {
+		if r.refSweep(mainRepo.Repo()) == nil {
 			t.Error("the first resolution of a repository started no sweep")
 		}
 
-		if r.refSweep(open(linked)) != nil {
+		if r.refSweep(linked.Repo()) != nil {
 			t.Error("a linked worktree of a swept repository started another sweep")
 		}
 
-		if r.refSweep(open(elsewhere)) == nil {
+		if r.refSweep(elsewhere.Repo()) == nil {
 			t.Error("another repository started no sweep")
 		}
 
-		off := newKeysRig(t, mainDir)
-		if off.refSweep(open(mainDir)) != nil {
+		off := newKeysRig(t, mainRepo.Root(), gitOf(f))
+		if off.refSweep(mainRepo.Repo()) != nil {
 			t.Error("a sweep started with SweepRefs off")
 		}
 	})
@@ -269,19 +327,21 @@ func TestRefSweepOncePerRepository(t *testing.T) {
 	t.Run("onPaneRepo", func(t *testing.T) {
 		t.Parallel()
 
-		r := newKeysRig(t, mainDir)
+		f, mainRepo, linked, _ := repos(t)
+		mainDir, linkedDir := mainRepo.Root(), linked.Root()
+		r := newKeysRig(t, mainDir, gitOf(f))
 		first := r.agent(t, mainDir, "")
-		second := r.agent(t, linked, "")
+		second := r.agent(t, linkedDir, "")
 		r.watches.panes[first] = &paneWatch{cwd: mainDir}
-		r.watches.panes[second] = &paneWatch{cwd: linked}
+		r.watches.panes[second] = &paneWatch{cwd: linkedDir}
 		r.sweepRefs = true
 
-		cmd := r.onPaneRepo(paneRepoMsg{id: first, cwd: mainDir, repo: open(mainDir)})
+		cmd := r.onPaneRepo(paneRepoMsg{id: first, cwd: mainDir, repo: mainRepo.Repo()})
 		if n := countOf[refsListedMsg](flatten(cmd)); n != 1 {
 			t.Errorf("first agent started %d listings, want 1", n)
 		}
 
-		cmd = r.onPaneRepo(paneRepoMsg{id: second, cwd: linked, repo: open(linked)})
+		cmd = r.onPaneRepo(paneRepoMsg{id: second, cwd: linkedDir, repo: linked.Repo()})
 		if n := countOf[refsListedMsg](flatten(cmd)); n != 0 {
 			t.Errorf("second agent in a linked worktree started %d listings, want 0", n)
 		}
@@ -300,7 +360,7 @@ func TestRefSweepAnswersThatDeleteNothing(t *testing.T) {
 			name: "a listing error",
 			msg: func(t *testing.T, s *sweepRepo) refsListedMsg {
 				t.Helper()
-				s.seed(t)
+				s.seed()
 
 				msg := s.list(t)
 				msg.err = errors.New("listing failed")
@@ -313,11 +373,12 @@ func TestRefSweepAnswersThatDeleteNothing(t *testing.T) {
 			name: "nothing stale",
 			msg: func(t *testing.T, s *sweepRepo) refsListedMsg {
 				t.Helper()
-				s.ref(t, turnRefName(sessR, sweepKeyA, sweepNow.Add(-24*time.Hour)), s.first)
+				s.agent(t, s.dir, core.SessionID(sessH))
+				s.ref(turnRefName(sessH, sweepKeyA, 1), s.first)
 
 				return s.list(t)
 			},
-			kept: "refs/aim/turns/" + sessR + "/",
+			kept: "refs/aim/turns/" + sessH + "/",
 		},
 	}
 
@@ -328,17 +389,21 @@ func TestRefSweepAnswersThatDeleteNothing(t *testing.T) {
 			s := newSweepRig(t)
 			msg := tc.msg(t, s)
 
-			before := gitRead(t, "git", s.dir, "for-each-ref", "--format=%(refname)", "refs/aim/")
+			before := s.refs()
 
 			if cmd := s.onRefsListed(msg); cmd != nil {
 				t.Error("onRefsListed returned a Cmd, want nil")
 			}
 
-			if after := gitRead(t, "git", s.dir, "for-each-ref", "--format=%(refname)", "refs/aim/"); after != before {
-				t.Errorf("refs changed:\n%s\nwant\n%s", after, before)
+			if after := s.refs(); !maps.Equal(after, before) {
+				t.Errorf("refs changed:\n%v\nwant\n%v", after, before)
 			}
 
-			if !s.has(t, tc.kept) {
+			if n := s.f.count("DeleteRefs"); n != 0 {
+				t.Errorf("%d deletes, want none", n)
+			}
+
+			if !s.has(tc.kept) {
 				t.Errorf("%s is gone", tc.kept)
 			}
 		})

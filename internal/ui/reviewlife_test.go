@@ -23,9 +23,10 @@ func (r *drawerRig) holdCount() int {
 // flash alone.
 func TestNoOpReloadKeepsTheFlash(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
-	dir := editedRepo(t)
-	root := rootOf(t, dir)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f))
+	dir := editedRepo(t, f).Root()
+	root := dir
 	id := r.shell(t, dir)
 
 	v := r.open(t, id)
@@ -50,21 +51,23 @@ func TestNoOpReloadKeepsTheFlash(t *testing.T) {
 // files around, and falls to the nearest index when it leaves the diff.
 func TestTreeSelFollowsItsFile(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
-	dir := newRepoDir(t)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f))
+	fr := f.repo(t, "")
+	dir := fr.Root()
 	files := []string{"b.txt", "c.txt", "d.txt"}
 
 	for _, f := range files {
 		write(t, filepath.Join(dir, f), "one\n")
 	}
 
-	commitEverything(t, dir, "init")
+	fr.commit("init")
 
 	for _, f := range files {
 		write(t, filepath.Join(dir, f), "two\n")
 	}
 
-	root := rootOf(t, dir)
+	root := dir
 	id := r.shell(t, dir)
 
 	v := r.open(t, id)
@@ -106,8 +109,9 @@ func TestTreeSelFollowsItsFile(t *testing.T) {
 // not run on.
 func TestFullFileReadsEndWithTheirView(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
-	id := r.shell(t, editedRepo(t))
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f))
+	id := r.shell(t, editedRepo(t, f).Root())
 
 	v := r.open(t, id)
 	v.cursor = rowWith(t, v, "f.txt")
@@ -138,8 +142,9 @@ func TestFullFileReadsEndWithTheirView(t *testing.T) {
 // arrives after the drawer reopened names an older epoch.
 func TestLateAnswersAfterCloseAreDropped(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
-	id := r.shell(t, editedRepo(t))
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f))
+	id := r.shell(t, editedRepo(t, f).Root())
 
 	r.open(t, id)
 
@@ -179,9 +184,10 @@ func TestClosePaneAndMoveReleaseTheDrawersWatch(t *testing.T) {
 	setup := func(t *testing.T) (*drawerRig, string, core.PaneID, core.PaneID) {
 		t.Helper()
 
-		r := newDrawerRig(t)
-		dir := editedRepo(t)
-		root := rootOf(t, dir)
+		f := newFakeGit(t)
+		r := newDrawerRig(t, gitOf(f))
+		dir := editedRepo(t, f).Root()
+		root := dir
 		agent := r.agent(t, dir, "")
 		shell := r.shell(t, dir)
 
@@ -233,8 +239,9 @@ func TestClosePaneAndMoveReleaseTheDrawersWatch(t *testing.T) {
 // has taken its place, and its answer does not end the newer read.
 func TestCancelledFullReadDoesNotShadowTheNewOne(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
-	id := r.shell(t, editedRepo(t))
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f))
+	id := r.shell(t, editedRepo(t, f).Root())
 
 	v := r.open(t, id)
 	v.cursor = rowWith(t, v, "f.txt")

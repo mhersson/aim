@@ -3,8 +3,6 @@ package ui
 import (
 	"bytes"
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -34,14 +32,7 @@ type flowApp struct {
 func newFlowApp(t *testing.T) *flowApp {
 	t.Helper()
 
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\nexit 128\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	t.Setenv("PATH", bin)
-
-	a, st, clk := kindApp(t)
+	a, st, clk := kindApp(t, gitOf(newFakeGit(t)))
 	f := &flowApp{App: a, st: st, clk: clk, ticks: &tickRec{}}
 	a.tick = f.ticks.tick
 
@@ -157,6 +148,8 @@ func (f *flowApp) cardXY(t *testing.T, id core.PaneID) (int, int) {
 }
 
 func TestRailToggleCases(t *testing.T) {
+	t.Parallel()
+
 	t.Run("closed opens and takes the keyboard", func(t *testing.T) {
 		f := newFlowApp(t)
 		f.open(t)
@@ -245,6 +238,8 @@ func TestRailToggleCases(t *testing.T) {
 }
 
 func TestRailRoutesKeys(t *testing.T) {
+	t.Parallel()
+
 	f := newFlowApp(t)
 	f.twoTabs(t)
 	f.open(t)
@@ -277,6 +272,8 @@ func TestRailRoutesKeys(t *testing.T) {
 }
 
 func TestRailToastGoesWithTheFirstKey(t *testing.T) {
+	t.Parallel()
+
 	f := newFlowApp(t)
 	f.open(t)
 
@@ -289,6 +286,8 @@ func TestRailToastGoesWithTheFirstKey(t *testing.T) {
 }
 
 func TestRailMoveStopsAtTheEnds(t *testing.T) {
+	t.Parallel()
+
 	f := newFlowApp(t)
 	f.twoTabs(t)
 	f.open(t)
@@ -309,6 +308,8 @@ func TestRailMoveStopsAtTheEnds(t *testing.T) {
 }
 
 func TestRailSearchKeys(t *testing.T) {
+	t.Parallel()
+
 	f := newFlowApp(t)
 	f.twoTabs(t)
 	f.open(t)
@@ -371,6 +372,8 @@ func TestRailSearchKeys(t *testing.T) {
 }
 
 func TestRailSearchEscWhileTyping(t *testing.T) {
+	t.Parallel()
+
 	f := newFlowApp(t)
 	f.twoTabs(t)
 	f.open(t)
@@ -394,6 +397,8 @@ func TestRailSearchEscWhileTyping(t *testing.T) {
 }
 
 func TestRailPaste(t *testing.T) {
+	t.Parallel()
+
 	f := newFlowApp(t)
 	f.twoTabs(t)
 	f.open(t)
@@ -415,6 +420,8 @@ func TestRailPaste(t *testing.T) {
 }
 
 func TestRailJump(t *testing.T) {
+	t.Parallel()
+
 	t.Run("into a hidden tab", func(t *testing.T) {
 		f := newFlowApp(t)
 		f.twoTabs(t)
@@ -558,6 +565,8 @@ func (f *flowApp) Update2(msg tea.Msg) tea.Cmd {
 }
 
 func TestRailFlashDrawsTheFrame(t *testing.T) {
+	t.Parallel()
+
 	f := newFlowApp(t)
 	f.twoTabs(t)
 	f.open(t)
@@ -576,6 +585,8 @@ func rgb(h theme.Hex) string {
 }
 
 func TestRailMouse(t *testing.T) {
+	t.Parallel()
+
 	t.Run("click selects, focuses the rail and never reaches a pane", func(t *testing.T) {
 		f := newFlowApp(t)
 		f.twoTabs(t)
@@ -689,6 +700,8 @@ func TestRailMouse(t *testing.T) {
 }
 
 func TestRailKeepsKeyboardThroughModals(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		open func(f *flowApp)
@@ -737,6 +750,8 @@ func TestRailKeepsKeyboardThroughModals(t *testing.T) {
 }
 
 func TestRailPulseArming(t *testing.T) {
+	t.Parallel()
+
 	f := newFlowApp(t)
 	f.twoTabs(t)
 	f.ticks.delays = nil
@@ -779,6 +794,8 @@ func TestRailPulseArming(t *testing.T) {
 }
 
 func TestRailPulseStopsAndRestarts(t *testing.T) {
+	t.Parallel()
+
 	f := newFlowApp(t)
 	f.twoTabs(t)
 	f.ticks.delays = nil
@@ -812,6 +829,8 @@ func TestRailPulseStopsAndRestarts(t *testing.T) {
 }
 
 func TestRailIdleCost(t *testing.T) {
+	t.Parallel()
+
 	t.Run("idle shells", func(t *testing.T) {
 		f := newFlowApp(t)
 		chord(f.App, 'v')
@@ -916,6 +935,8 @@ func TestRailWhichKeyPopup(t *testing.T) {
 }
 
 func TestRailManyAgentsStayWhole(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
 	openIn(t, r.App, core.ClosePane{ID: "p1"})
 
@@ -1026,6 +1047,8 @@ func TestRailFlow(t *testing.T) {
 }
 
 func TestRailKeyboardAfterLeaderCommands(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		key      rune
@@ -1074,6 +1097,8 @@ func TestRailKeyboardAfterLeaderCommands(t *testing.T) {
 }
 
 func TestRailPulseResetsWhenItStops(t *testing.T) {
+	t.Parallel()
+
 	f := newFlowApp(t)
 	f.twoTabs(t)
 
@@ -1091,6 +1116,8 @@ func TestRailPulseResetsWhenItStops(t *testing.T) {
 }
 
 func TestRailIgnoresInputUnderModals(t *testing.T) {
+	t.Parallel()
+
 	t.Run("wheel under an overlay", func(t *testing.T) {
 		f := newFlowApp(t)
 		f.twoTabs(t)
@@ -1121,6 +1148,8 @@ func TestRailIgnoresInputUnderModals(t *testing.T) {
 }
 
 func TestRailKeyboardAfterPaletteCommands(t *testing.T) {
+	t.Parallel()
+
 	for id, stays := range map[string]bool{"tab.next": false, "pane.focus.left": false, "pane.zoom": true} {
 		t.Run(id, func(t *testing.T) {
 			f := newFlowApp(t)
@@ -1137,6 +1166,8 @@ func TestRailKeyboardAfterPaletteCommands(t *testing.T) {
 }
 
 func TestRailKeyboardAfterUserFocusChanges(t *testing.T) {
+	t.Parallel()
+
 	t.Run("a click on another tab", func(t *testing.T) {
 		f := newFlowApp(t)
 		f.twoTabs(t)
@@ -1221,6 +1252,8 @@ func TestRailKeyboardAfterUserFocusChanges(t *testing.T) {
 }
 
 func TestRailLosingTheKeyboardEndsTyping(t *testing.T) {
+	t.Parallel()
+
 	f := newFlowApp(t)
 	f.twoTabs(t)
 	f.open(t)

@@ -21,28 +21,27 @@ import (
 // worktree. Both a.txt and b.txt are committed with one line.
 type agentTrees struct{ main, linked, sub string }
 
-func newAgentTrees(t *testing.T, bin string) agentTrees {
+func newAgentTrees(t *testing.T, f *fakeGit) agentTrees {
 	t.Helper()
 
-	main := newRepoDir(t)
-	write(t, filepath.Join(main, "a.txt"), "one\n")
-	write(t, filepath.Join(main, "b.txt"), "one\n")
-	commitEverything(t, main, "init")
+	main := f.repo(t, "")
+	write(t, filepath.Join(main.Root(), "a.txt"), "one\n")
+	write(t, filepath.Join(main.Root(), "b.txt"), "one\n")
+	main.commit("init")
 
 	parent, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	linked := filepath.Join(parent, "feat-wt")
-	gitIn(t, bin, main, "worktree", "add", "-q", "-b", "feat", linked)
+	linked := main.worktree(t, filepath.Join(parent, "feat-wt"), "feat")
 
-	sub := filepath.Join(linked, "pkg")
+	sub := filepath.Join(linked.Root(), "pkg")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	return agentTrees{main: main, linked: linked, sub: sub}
+	return agentTrees{main: main.Root(), linked: linked.Root(), sub: sub}
 }
 
 // cwdHook is a hook event that carries only a working directory.
@@ -65,8 +64,10 @@ func probedCwds(msgs []tea.Msg) (heads, stats []string) {
 }
 
 func TestHookRecordsTheAgentCwd(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
-	tr := newAgentTrees(t, r.real)
+	tr := newAgentTrees(t, r.fake)
 	id := r.addAgent(t, false, tr.main)
 	elsewhere := t.TempDir()
 
@@ -92,8 +93,10 @@ func TestHookRecordsTheAgentCwd(t *testing.T) {
 }
 
 func TestHookCwdOfAPaneThatIsNotAnAgentChangesNothing(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
-	tr := newAgentTrees(t, r.real)
+	tr := newAgentTrees(t, r.fake)
 
 	closed := r.addAgent(t, false, tr.main)
 	demoted := r.addAgent(t, false, tr.main)
@@ -121,8 +124,10 @@ func TestHookCwdOfAPaneThatIsNotAnAgentChangesNothing(t *testing.T) {
 }
 
 func TestFocusedCwdAndTabNameFollowTheAgent(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
-	tr := newAgentTrees(t, r.real)
+	tr := newAgentTrees(t, r.fake)
 	id := r.addAgent(t, false, tr.main)
 
 	if got := r.store.State().Tab().Focus; got != id {
@@ -157,8 +162,10 @@ func TestFocusedCwdAndTabNameFollowTheAgent(t *testing.T) {
 }
 
 func TestRailFollowsTheAgentCwd(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, true)
-	tr := newAgentTrees(t, r.real)
+	tr := newAgentTrees(t, r.fake)
 	write(t, filepath.Join(tr.linked, "a.txt"), "one\ntwo\n")
 
 	id := r.addAgent(t, false, tr.main)
@@ -185,8 +192,10 @@ func TestRailFollowsTheAgentCwd(t *testing.T) {
 }
 
 func TestRailShowsAnAgentDirectoryOutsideARepository(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, true)
-	tr := newAgentTrees(t, r.real)
+	tr := newAgentTrees(t, r.fake)
 	elsewhere := filepath.Join(t.TempDir(), "scratch")
 
 	if err := os.Mkdir(elsewhere, 0o755); err != nil {
@@ -204,8 +213,10 @@ func TestRailShowsAnAgentDirectoryOutsideARepository(t *testing.T) {
 }
 
 func TestRailCwdChangesAreThrottled(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, true)
-	tr := newAgentTrees(t, r.real)
+	tr := newAgentTrees(t, r.fake)
 	id := r.addAgent(t, false, tr.main)
 	r.openRail()
 	r.clk.Advance(11 * time.Second)
@@ -254,9 +265,11 @@ func TestRailCwdChangesAreThrottled(t *testing.T) {
 }
 
 func TestWatchFollowsTheAgentCwd(t *testing.T) {
+	t.Parallel()
+
 	w := newWatchApp(t, false)
-	tr := newAgentTrees(t, w.real)
-	rootMain, rootLinked := rootOf(t, tr.main), rootOf(t, tr.linked)
+	tr := newAgentTrees(t, w.fake)
+	rootMain, rootLinked := tr.main, tr.linked
 	id := w.addAgent(t, false, tr.main)
 
 	w.pm.run(w.settle())
@@ -273,9 +286,11 @@ func TestWatchFollowsTheAgentCwd(t *testing.T) {
 }
 
 func TestWatchSettlesWhenTheAgentCwdFlips(t *testing.T) {
+	t.Parallel()
+
 	w := newWatchApp(t, false)
-	tr := newAgentTrees(t, w.real)
-	rootMain, rootLinked := rootOf(t, tr.main), rootOf(t, tr.linked)
+	tr := newAgentTrees(t, w.fake)
+	rootMain, rootLinked := tr.main, tr.linked
 	id := w.addAgent(t, false, tr.main)
 
 	w.pm.run(w.settle())
@@ -297,8 +312,9 @@ func TestWatchSettlesWhenTheAgentCwdFlips(t *testing.T) {
 
 func TestDrawerOpensOnTheAgentCwd(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
-	tr := newAgentTrees(t, "git")
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f))
+	tr := newAgentTrees(t, f)
 	write(t, filepath.Join(tr.main, "b.txt"), "one\nmain\n")
 	write(t, filepath.Join(tr.linked, "a.txt"), "one\nlinked\n")
 
@@ -308,7 +324,7 @@ func TestDrawerOpensOnTheAgentCwd(t *testing.T) {
 
 	v := r.open(t, id)
 
-	if want := (git.BranchSource{Worktree: rootOf(t, tr.linked)}); v.src != want {
+	if want := (git.BranchSource{Worktree: tr.linked}); v.src != want {
 		t.Errorf("source = %+v, want %+v", v.src, want)
 	}
 
@@ -317,35 +333,11 @@ func TestDrawerOpensOnTheAgentCwd(t *testing.T) {
 	}
 }
 
-func TestOpenDrawerFollowsTheAgentCwd(t *testing.T) {
-	t.Parallel()
-	r := newDrawerRig(t)
-	tr := newAgentTrees(t, "git")
-	write(t, filepath.Join(tr.main, "b.txt"), "one\nmain\n")
-	write(t, filepath.Join(tr.linked, "a.txt"), "one\nlinked\n")
-
-	id := r.agent(t, tr.main, "")
-
-	if v := r.open(t, id); !slices.Equal(viewPaths(v), []string{"b.txt"}) {
-		t.Fatalf("drawer shows %v before the move, want b.txt", viewPaths(v))
-	}
-
-	rootLinked := rootOf(t, tr.linked)
-
-	r.run(hook(r.App, cwdHook(id, tr.sub)))
-	r.until(t, "the drawer to follow the agent", r.viewHolds(func(v *reviewView) bool {
-		return v.root == rootLinked && v.loaded && !v.loading
-	}))
-
-	if v := r.view(); !slices.Equal(viewPaths(v), []string{"a.txt"}) || v.branch != "feat" {
-		t.Errorf("drawer shows %v on %q, want a.txt on feat", viewPaths(v), v.branch)
-	}
-}
-
 func TestOpenAnswerForTheDirectoryTheAgentLeftIsDropped(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
-	tr := newAgentTrees(t, "git")
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f))
+	tr := newAgentTrees(t, f)
 	id := r.agent(t, tr.main, "")
 
 	msg := r.openReview(id, true)()
@@ -357,7 +349,7 @@ func TestOpenAnswerForTheDirectoryTheAgentLeftIsDropped(t *testing.T) {
 		t.Error("a drawer opened for the directory the agent had left")
 	}
 
-	if v := r.open(t, id); v.src != (git.BranchSource{Worktree: rootOf(t, tr.linked)}) {
+	if v := r.open(t, id); v.src != (git.BranchSource{Worktree: tr.linked}) {
 		t.Errorf("source = %+v, want the worktree", v.src)
 	}
 }

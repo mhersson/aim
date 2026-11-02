@@ -17,7 +17,7 @@ const refSweepTimeout = 10 * time.Second
 // refsListedMsg is the answer of listing a repository's refs/aim.
 type refsListedMsg struct {
 	repo git.Repo
-	refs git.AimRefs
+	refs StaleRefs
 	err  error
 }
 
@@ -40,7 +40,7 @@ func (a *App) refSweep(r git.Repo) tea.Cmd {
 		ctx, cancel := context.WithTimeout(ctx, refSweepTimeout)
 		defer cancel()
 
-		refs, err := git.ListAimRefs(ctx, r)
+		refs, err := a.git.ListAimRefs(ctx, r)
 
 		return refsListedMsg{repo: r, refs: refs, err: err}
 	}
@@ -94,12 +94,12 @@ func (a *App) onRefsListed(msg refsListedMsg) tea.Cmd {
 		ctx, cancel := context.WithTimeout(appCtx, refSweepTimeout)
 		defer cancel()
 
-		turnCount, err := git.DeleteRefs(ctx, repo, sweep.Turns)
+		turnCount, err := a.git.DeleteRefs(ctx, repo, sweep.Turns)
 		if err != nil {
 			log.Warn("sweep turn refs", "repo", repo.CommonDir, "err", err)
 		}
 
-		prCount, err := git.DeleteRefs(ctx, repo, sweep.PRs)
+		prCount, err := a.git.DeleteRefs(ctx, repo, sweep.PRs)
 		if err != nil {
 			log.Warn("sweep pull request refs", "repo", repo.CommonDir, "err", err)
 		}
