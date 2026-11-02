@@ -202,6 +202,30 @@ func (r *pushRig) ask(t *testing.T) []tea.Msg {
 	return r.churnMsgs(t, r.leaderP())
 }
 
+// askNotice asks and checks that the answer carried state, opened no confirm and
+// raised a notice at the notice level; it returns the notice.
+func (r *pushRig) askNotice(t *testing.T, state pushState) string {
+	t.Helper()
+
+	for _, m := range r.ask(t) {
+		if res, ok := m.(pushResolvedMsg); ok {
+			if res.state != state || res.err != nil {
+				t.Errorf("resolved state %v (err %v), want %v", res.state, res.err, state)
+			}
+
+			if r.confirm != nil || r.noticeLevel() != levelNotice {
+				t.Errorf("confirm %v, notice %q at level %v, want no confirm and a notice", r.confirm != nil, r.notice, r.noticeLevel())
+			}
+
+			return r.notice
+		}
+	}
+
+	t.Fatal("no pushResolvedMsg after leader g P")
+
+	return ""
+}
+
 // askOpen asks and fails unless the push confirm is open.
 func (r *pushRig) askOpen(t *testing.T) {
 	t.Helper()
@@ -605,7 +629,11 @@ func pushOther(t *testing.T, f *fakeGit, name, branch string) string {
 	r := f.repo(t, name)
 	write(t, filepath.Join(r.Root(), "a.txt"), "one\n")
 	r.commit("init")
-	r.branch(branch)
+
+	if branch != "main" {
+		r.branch(branch)
+	}
+
 	write(t, filepath.Join(r.Root(), "a.txt"), "one\ntwo\n")
 
 	return r.Root()
@@ -717,10 +745,8 @@ func TestPushTargetsTheFollowedPlace(t *testing.T) {
 	r := newPushRig(t)
 	r.agentOnMain(t)
 
-	r.ask(t)
-
-	if r.confirm != nil || r.notice != "main is up to date on origin" {
-		t.Fatalf("confirm %v, toast %q before the edit, want main up to date", r.confirm != nil, r.notice)
+	if got := r.askNotice(t, pushUpToDate); !strings.Contains(got, "main") || !strings.Contains(got, "origin") {
+		t.Fatalf("toast %q before the edit, want main named up to date on origin", got)
 	}
 
 	r.editIn(t, r.dir)
@@ -892,12 +918,12 @@ func TestPushNothingToSend(t *testing.T) {
 	tests := []struct {
 		name  string
 		setup func(t *testing.T, r *pushRig)
-		want  string
+		want  pushState
 	}{
-		{"the remote has the branch", func(t *testing.T, r *pushRig) { r.publish(t) }, "feat/x is up to date on origin"},
+		{"the remote has the branch", func(t *testing.T, r *pushRig) { r.publish(t) }, pushUpToDate},
 		{"the remote lacks the branch", func(t *testing.T, r *pushRig) {
 			r.repo.reset(r.branchTip("main"))
-		}, "feat/x has nothing to push to origin"},
+		}, pushNothing},
 	}
 
 	for _, tt := range tests {
@@ -907,14 +933,8 @@ func TestPushNothingToSend(t *testing.T) {
 			r := newPushRig(t)
 			tt.setup(t, r)
 
-			r.ask(t)
-
-			if r.confirm != nil {
-				t.Error("a confirm opened with nothing to push")
-			}
-
-			if r.notice != tt.want || r.noticeLevel() != levelNotice {
-				t.Errorf("toast = %q at level %v, want %q at the notice level", r.notice, r.noticeLevel(), tt.want)
+			if got := r.askNotice(t, tt.want); !strings.Contains(got, "feat/x") || !strings.Contains(got, "origin") {
+				t.Errorf("notice %q lacks the branch or the remote", got)
 			}
 
 			if n := r.pushCalls(); n != 0 {
@@ -965,10 +985,8 @@ func TestPushDetached(t *testing.T) {
 	r := newPushRig(t)
 	r.repo.detach()
 
-	r.ask(t)
-
-	if r.confirm != nil || r.notice != "push: HEAD is detached" || r.noticeLevel() != levelNotice {
-		t.Errorf("confirm %v, toast %q at level %v, want the detached notice", r.confirm != nil, r.notice, r.noticeLevel())
+	if got := r.askNotice(t, pushDetached); got != noticePushDetached {
+		t.Errorf("notice = %q, want %q", got, noticePushDetached)
 	}
 
 	if n := r.pushCalls(); n != 0 {
@@ -982,10 +1000,8 @@ func TestPushNotRepo(t *testing.T) {
 	r := newPushRig(t)
 	openIn(t, r.App, core.NewTab{Kind: core.KindShell, Cwd: t.TempDir()})
 
-	r.ask(t)
-
-	if r.confirm != nil || r.notice != "push: not a git repository" {
-		t.Errorf("confirm %v, toast %q, want the not-a-repository notice", r.confirm != nil, r.notice)
+	if got := r.askNotice(t, pushNotRepo); got != noticePushNotRepo {
+		t.Errorf("notice = %q, want %q", got, noticePushNotRepo)
 	}
 }
 
@@ -997,10 +1013,8 @@ func TestPushUnborn(t *testing.T) {
 	empty := r.fake.repo(t, "empty")
 	openIn(t, r.App, core.NewTab{Kind: core.KindShell, Cwd: empty.Root()})
 
-	r.ask(t)
-
-	if r.confirm != nil || r.notice != "push: main has no commits yet" {
-		t.Errorf("confirm %v, toast %q, want the no-commits notice", r.confirm != nil, r.notice)
+	if got := r.askNotice(t, pushUnborn); !strings.Contains(got, "main") {
+		t.Errorf("notice = %q, want the branch named", got)
 	}
 }
 
@@ -1011,10 +1025,8 @@ func TestPushNoRemote(t *testing.T) {
 	solo := pushOther(t, r.fake, "solo", "main")
 	openIn(t, r.App, core.NewTab{Kind: core.KindShell, Cwd: solo})
 
-	r.ask(t)
-
-	if r.confirm != nil || r.notice != "push: main has no remote to push to" {
-		t.Errorf("confirm %v, toast %q, want the no-remote notice", r.confirm != nil, r.notice)
+	if got := r.askNotice(t, pushNoRemote); !strings.Contains(got, "main") {
+		t.Errorf("notice = %q, want the branch named", got)
 	}
 }
 

@@ -50,12 +50,19 @@ func newComposeRig(t *testing.T) *composeRig {
 func (r *composeRig) openCompose(t *testing.T) {
 	t.Helper()
 
+	r.openComposeMsgs(t)
+}
+
+// openComposeMsgs is openCompose that returns every message it fed back.
+func (r *composeRig) openComposeMsgs(t *testing.T) []tea.Msg {
+	t.Helper()
+
 	c, ok := r.reg.get("pr.open")
 	if !ok {
 		t.Fatal("no pr.open command")
 	}
 
-	r.churn(t, c.run(r.App))
+	return r.churnMsgs(t, c.run(r.App))
 }
 
 func (r *composeRig) mustOpen(t *testing.T) *composeView {
@@ -516,6 +523,8 @@ func TestComposeNotices(t *testing.T) {
 		name  string
 		setup func(t *testing.T, r *composeRig)
 		want  string
+		// resolved checks the answer the notice came from; nil where no resolve state tells the row apart.
+		resolved func(t *testing.T, m composeResolvedMsg)
 	}{
 		{
 			name: "a branch with an open pull request",
@@ -534,12 +543,26 @@ func TestComposeNotices(t *testing.T) {
 				t.Helper()
 				r.splitURLs(t, pushRemoteURL)
 			},
-			want: "feat/x's remote is not on GitHub",
+			want: fmt.Sprintf(noticePRNotGitHub, "feat/x"),
+			resolved: func(t *testing.T, m composeResolvedMsg) {
+				t.Helper()
+
+				if !m.notGitHub {
+					t.Error("the answer does not say the remote is not on GitHub")
+				}
+			},
 		},
 		{
 			name:  "a detached HEAD",
 			setup: func(t *testing.T, r *composeRig) { t.Helper(); r.repo.detach() },
-			want:  "open a PR: HEAD is detached",
+			want:  noticeComposeDetached,
+			resolved: func(t *testing.T, m composeResolvedMsg) {
+				t.Helper()
+
+				if m.state != pushDetached {
+					t.Errorf("state = %v, want pushDetached", m.state)
+				}
+			},
 		},
 		{
 			name: "no pull request writes",
@@ -558,7 +581,23 @@ func TestComposeNotices(t *testing.T) {
 
 			r := newComposeRig(t)
 			tt.setup(t, r)
-			r.openCompose(t)
+			msgs := r.openComposeMsgs(t)
+
+			if tt.resolved != nil {
+				var got []composeResolvedMsg
+
+				for _, m := range msgs {
+					if res, ok := m.(composeResolvedMsg); ok {
+						got = append(got, res)
+					}
+				}
+
+				if len(got) != 1 {
+					t.Fatalf("%d composeResolvedMsg, want 1", len(got))
+				}
+
+				tt.resolved(t, got[0])
+			}
 
 			if r.compose != nil {
 				t.Errorf("the box opened:\n%s", r.text())
@@ -719,6 +758,12 @@ func TestComposeBaseChangeRecount(t *testing.T) {
 	// A base whose remote-tracking ref is gone has no commits, and that is no error.
 	r.repo.track("origin", "mid", "")
 	r.churn(t, r.composeStep(v, 1))
+
+	// Log ran for mid and failed with errNoBaseRef, not an empty list.
+	logs := r.fake.calls("Log")
+	if last := logs[len(logs)-1]; len(last.Args) == 0 || last.Args[0] != "origin/mid" {
+		t.Errorf("last Log call = %+v, want one for origin/mid", last)
+	}
 
 	if v.commits != 0 || v.status != "" || v.statusErr {
 		t.Errorf("a missing base: commits %d, status %q (err %v), want 0 and no status", v.commits, v.status, v.statusErr)
