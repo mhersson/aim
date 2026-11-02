@@ -30,6 +30,9 @@ func newThemedApp(t *testing.T, name string) *App {
 	return newKeyedApp(t, name, core.KeysConfig{})
 }
 
+// testDrawCaches is the one lexer and theme cache every test app shares.
+var testDrawCaches = &drawCaches{}
+
 // newKeyedApp is a test app with the [keys] config keys.
 func newKeyedApp(t *testing.T, name string, keys core.KeysConfig) *App {
 	t.Helper()
@@ -51,6 +54,12 @@ func newKeyedApp(t *testing.T, name string, keys core.KeysConfig) *App {
 	return app
 }
 
+func newTestApp(t *testing.T) *App {
+	t.Helper()
+
+	return newThemedApp(t, "catppuccin-mocha")
+}
+
 func TestLeaderWaitsOnTheAppTick(t *testing.T) {
 	t.Parallel()
 
@@ -64,15 +73,13 @@ func TestLeaderWaitsOnTheAppTick(t *testing.T) {
 		t.Fatalf("tick delays = %v, want %v", rec.delays, want)
 	}
 
+	if len(rec.msgs) == 0 {
+		t.Fatalf("the leader press recorded no tick message (delays %v)", rec.delays)
+	}
+
 	if got := rec.msgs[0]; got != (whichKeyMsg{seq: a.seq}) {
 		t.Errorf("tick message = %#v, want whichKeyMsg for seq %d", got, a.seq)
 	}
-}
-
-func newTestApp(t *testing.T) *App {
-	t.Helper()
-
-	return newThemedApp(t, "catppuccin-mocha")
 }
 
 func TestNewRequiresLogger(t *testing.T) {
@@ -138,9 +145,6 @@ func TestNewRequiresGit(t *testing.T) {
 		t.Error("New() without a git succeeded, want an error")
 	}
 }
-
-// testDrawCaches is the one lexer and theme cache every test app shares.
-var testDrawCaches = &drawCaches{}
 
 var (
 	keyLeader = tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl}

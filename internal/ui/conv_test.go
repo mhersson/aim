@@ -582,7 +582,7 @@ func TestConversationStale(t *testing.T) {
 	t.Run("after the overlay reopened on another pull request", func(t *testing.T) {
 		t.Parallel()
 
-		a, _ := convApp(t, true, 160, 48)
+		a, reads := convApp(t, true, 160, 48)
 		first := convReadsOf(press(a, keyRune('i')))
 		repo, number := a.conv.repo, a.conv.number
 
@@ -593,10 +593,16 @@ func TestConversationStale(t *testing.T) {
 			t.Fatalf("answers = %d, want 1", len(first))
 		}
 
+		calls := len(reads.convReads())
+
 		a.Update(first[0])
 
 		if v := a.conv; v == nil || v.number != number+1 || v.doc != nil || !v.loading {
 			t.Errorf("the first view's answer changed the reopened overlay: %+v", v)
+		}
+
+		if got := len(reads.convReads()); got != calls {
+			t.Errorf("the stale answer issued reads: %d, want %d", got, calls)
 		}
 	})
 }

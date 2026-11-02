@@ -804,6 +804,10 @@ func TestCwdTracking(t *testing.T) {
 		t.Errorf("trailing check delays = %v, want %v", rec.delays, want)
 	}
 
+	if len(rec.msgs) == 0 {
+		t.Fatalf("the throttled probe recorded no tick message (delays %v)", rec.delays)
+	}
+
 	if m, ok := rec.msgs[0].(paneCwdDueMsg); !ok || m.id != "p1" {
 		t.Errorf("trailing check message = %#v, want paneCwdDueMsg for p1", rec.msgs[0])
 	}

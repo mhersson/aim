@@ -469,8 +469,8 @@ func TestDrawerRowsAreExactWidth(t *testing.T) {
 	t.Parallel()
 
 	// A drawer that covers the body whole (40 to 59), the 60-column floor and one past it,
-	// and the half of a body of 120.
-	exactWidths := []int{40, 47, 53, 59, 60, 61, 120}
+	// and 121, the narrowest body whose half (61) is wider than the floor.
+	exactWidths := []int{40, 47, 53, 59, 60, 61, 121}
 
 	for _, icons := range []bool{true, false} {
 		for _, vr := range rowWidthVariants() {
@@ -746,7 +746,7 @@ func TestDrawerKeyHints(t *testing.T) {
 	t.Parallel()
 
 	// build draws the drawer h rows high with the keyboard in the diff and returns the frame
-	// and the bound keys of the diff hints.
+	// and the bound keys of the diff hints, the first with its label.
 	build := func(h int, tree bool) (text string, keys []string) {
 		s := reviewScene{theme: "catppuccin-mocha", icons: false, w: 330, h: h, res: turn4Result(), turn: 4, turns: 4, focused: true, tree: tree}
 		s.tune = func(t *testing.T, a *App, v *reviewView) { a.drawer.tree = false }
@@ -758,7 +758,7 @@ func TestDrawerKeyHints(t *testing.T) {
 		}
 
 		keys = []string{
-			d.bind.hint("review.line.next", "review.line.prev"),
+			d.bind.hint("review.line.next", "review.line.prev") + " line",
 			d.bind.hint("review.hunk.next", "review.hunk.prev"),
 			d.bind.hint("review.mode.branch", "review.mode.turn"),
 		}

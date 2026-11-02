@@ -130,7 +130,7 @@ func TestMarkdownNotice(t *testing.T) {
 			t.Parallel()
 
 			got := markdownNotice(root, tt.path, home, tt.err)
-			if !refusal(got, tt.shown) || !strings.Contains(got, tt.reason) {
+			if !refusal(got, tt.shown) || (tt.reason != "" && !strings.Contains(got, tt.reason)) {
 				t.Errorf("notice = %q, want it to name %q and carry %q", got, tt.shown, tt.reason)
 			}
 

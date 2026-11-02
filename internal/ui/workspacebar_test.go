@@ -306,17 +306,14 @@ func TestWorkspaceBarPlan(t *testing.T) {
 	}
 }
 
+// The omit stage never takes the active tab: every edge of the narrow bar, on
+// both sides, still holds it.
 func TestWorkspaceBarPlanActiveStays(t *testing.T) {
 	t.Parallel()
 
 	for _, icons := range []bool{true, false} {
-		widths := []int{1, 4, 8, 12}
-		if !icons {
-			widths = []int{1, 3, 7, 11}
-		}
-
 		for active := range 3 {
-			for _, w := range widths {
+			for _, w := range planEdges(planTabs(), active, testModules(), icons, 14) {
 				p := planBar(planTabs(), active, testModules(), w, icons)
 
 				found := false

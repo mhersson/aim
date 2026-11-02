@@ -34,7 +34,11 @@ func TestSysLoadMemory(t *testing.T) {
 		t.Errorf("readVMPages = %+v, want free and file-backed pages", pages)
 	}
 
-	s := newSysLoad(slog.New(slog.DiscardHandler)).(*sysLoad)
+	s, ok := newSysLoad(slog.New(slog.DiscardHandler)).(*sysLoad)
+	if !ok {
+		t.Fatalf("newSysLoad returned %T, want *sysLoad", newSysLoad(slog.New(slog.DiscardHandler)))
+	}
+
 	s.warm = noWarm
 
 	got, err := s.Sample(t.Context())
@@ -125,7 +129,13 @@ func TestSysLoadTicks(t *testing.T) {
 
 	var logged bytes.Buffer
 
-	s := newSysLoad(slog.New(slog.NewTextHandler(&logged, nil))).(*sysLoad)
+	sampler := newSysLoad(slog.New(slog.NewTextHandler(&logged, nil)))
+
+	s, ok := sampler.(*sysLoad)
+	if !ok {
+		t.Fatalf("newSysLoad returned %T, want *sysLoad", sampler)
+	}
+
 	s.warm = noWarm
 
 	for range 2 {

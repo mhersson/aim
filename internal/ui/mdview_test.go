@@ -558,7 +558,7 @@ func TestMDViewCursorColumn(t *testing.T) {
 	}
 }
 
-func TestMDViewHugeDoc(t *testing.T) {
+func TestMDViewDeepQuotes(t *testing.T) {
 	t.Parallel()
 
 	// 64 levels is past md's maxDepth of 32.
