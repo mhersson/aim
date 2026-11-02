@@ -247,9 +247,8 @@ func (r *drawerRig) step(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
-// reportedAll is a condition: watcher batches fed to step have named every one
-// of paths. A watcher reports a write only after its debounce, so a test that
-// must not see that report later waits for it first.
+// reportedAll is a condition: batches fed to step have named every one of
+// paths. A test that must not see a batch later waits until it has reached step.
 func (r *drawerRig) reportedAll(paths ...string) func() bool {
 	return func() bool {
 		return !slices.ContainsFunc(paths, func(p string) bool { return !r.reported[p] })
