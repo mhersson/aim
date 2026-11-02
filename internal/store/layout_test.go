@@ -112,6 +112,7 @@ func TestDecodeLayoutRejects(t *testing.T) {
 	}{
 		{"unknown split", `{"split":"diagonal","ratio":0.5,"children":[{"pane":"p1"},{"pane":"p2"}]}`, two},
 		{"one child", `{"split":"vertical","ratio":0.5,"children":[{"pane":"p1"}]}`, two},
+		{"leaf with children", `{"pane":"p1","children":[{"pane":"p2"}]}`, []core.PaneID{"p1"}},
 		{"outside pane", `{"split":"vertical","ratio":0.5,"children":[{"pane":"p1"},{"pane":"p9"}]}`, two},
 		{"pane twice", `{"split":"vertical","ratio":0.5,"children":[{"pane":"p1"},{"pane":"p1"}]}`, two},
 		{"missing leaf", `{"pane":"p1"}`, two},
@@ -141,15 +142,22 @@ func TestDecodeLayoutRejects(t *testing.T) {
 func TestDecodeLayoutDeepNesting(t *testing.T) {
 	const depth = 1030 // just over maxLayoutDepth
 
-	// The nesting runs down the first child, so the depth check trips before
-	// any repeated leaf can.
-	raw := strings.Repeat(`{"split":"vertical","ratio":0.5,"children":[`, depth) +
-		`{"pane":"p2"}` + strings.Repeat(`,{"pane":"p1"}]}`, depth)
+	// The nesting runs down the first child; every pane is distinct, so only
+	// the depth limit can reject the tree.
+	panes := []core.PaneID{"p0"}
 
-	_, err := decodeLayout(json.RawMessage(raw), []core.PaneID{"p1", "p2"})
-	if err == nil || !strings.Contains(err.Error(), "nested too deeply") {
-		t.Fatalf("err = %v, want the depth limit", err)
+	var tail strings.Builder
+
+	for i := 1; i <= depth; i++ {
+		id := "p" + strconv.Itoa(i)
+		panes = append(panes, core.PaneID(id))
+		tail.WriteString(`,{"pane":"` + id + `"}]}`)
 	}
+
+	raw := strings.Repeat(`{"split":"vertical","ratio":0.5,"children":[`, depth) + `{"pane":"p0"}` + tail.String()
+
+	_, err := decodeLayout(json.RawMessage(raw), panes)
+	wantErr(t, err)
 }
 
 func TestDefaultLayout(t *testing.T) {
