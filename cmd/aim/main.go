@@ -98,8 +98,18 @@ func run(ctx context.Context, env core.Env, configPath, recordDir string, fresh 
 		return fmt.Errorf("config %s: %w", configPath, err)
 	}
 
-	f, err := openLog(core.StateDir(env))
+	stateDir := core.StateDir(env)
+
+	// The lock comes first, so a second instance never moves the holder's log.
+	held, unlock, err := lockState(stateDir)
 	if err != nil {
+		return err
+	}
+
+	f, err := openLog(stateDir, held, os.Getpid())
+	if err != nil {
+		_ = unlock()
+
 		return err
 	}
 	defer func() {
@@ -109,7 +119,16 @@ func run(ctx context.Context, env core.Env, configPath, recordDir string, fresh 
 	}()
 
 	logger := slog.New(slog.NewTextHandler(f, nil))
-	stateDir := core.StateDir(env)
+	// Held until the end of the run: a dropped unlock lets the finalizer release the lock.
+	defer func() {
+		if uerr := unlock(); uerr != nil {
+			logger.Warn("release state lock", "err", uerr)
+		}
+	}()
+
+	if held {
+		sweepLogs(logger, stateDir, time.Now(), pidAlive)
+	}
 
 	indexCache := indexCacheDir(logger)
 
@@ -131,16 +150,7 @@ func run(ctx context.Context, env core.Env, configPath, recordDir string, fresh 
 	hooks := startHooks(logger, stateDir, indexCache, watches, places)
 	defer hooks.Stop()
 
-	st, saver, notices, unlock, err := openState(logger, stateDir, cfg, fresh)
-	if err != nil {
-		return err
-	}
-	// Held until the end of the run: a dropped unlock lets the finalizer release the lock.
-	defer func() {
-		if uerr := unlock(); uerr != nil {
-			logger.Warn("release state lock", "err", uerr)
-		}
-	}()
+	st, saver, notices := openState(logger, stateDir, cfg, fresh, held)
 
 	// A second instance that does not save keeps no mark files either.
 	var marks *store.MarkFiles
@@ -251,19 +261,31 @@ func run(ctx context.Context, env core.Env, configPath, recordDir string, fresh 
 	return nil
 }
 
-// openState takes the state lock and loads the saved state. When another
-// instance holds the lock this one starts fresh and gets no saver. The caller
-// keeps unlock reachable until the run ends.
-func openState(logger *slog.Logger, stateDir string, cfg core.Config, fresh bool) (st core.State, saver *store.Saver, notices []string, unlock func() error, err error) {
+// lockState creates stateDir if needed and takes the state lock in it. held is
+// false when another instance holds the lock, and unlock is then a no-op. The
+// caller keeps unlock reachable until the run ends.
+func lockState(stateDir string) (held bool, unlock func() error, err error) {
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		return false, nil, fmt.Errorf("state dir: %w", err)
+	}
+
 	unlock, err = store.Lock(stateDir)
 	if errors.Is(err, store.ErrLocked) {
-		logger.Warn("state is locked by another instance")
-
-		return core.InitialState(cfg), nil, []string{noticeSecondInstance}, func() error { return nil }, nil
+		return false, func() error { return nil }, nil
 	}
 
 	if err != nil {
-		return core.State{}, nil, nil, nil, fmt.Errorf("state lock: %w", err)
+		return false, nil, fmt.Errorf("state lock: %w", err)
+	}
+
+	return true, unlock, nil
+}
+
+// openState loads the saved state when this instance holds the state lock.
+// Otherwise it starts fresh and gets no saver.
+func openState(logger *slog.Logger, stateDir string, cfg core.Config, fresh, held bool) (st core.State, saver *store.Saver, notices []string) {
+	if !held {
+		return core.InitialState(cfg), nil, []string{noticeSecondInstance}
 	}
 
 	statePath := filepath.Join(stateDir, "state.json")
@@ -275,7 +297,7 @@ func openState(logger *slog.Logger, stateDir string, cfg core.Config, fresh bool
 	st, resume = checkResume(st, transcriptExists)
 	notices = append(notices, resume...)
 
-	return st, store.NewSaver(statePath, logger), notices, unlock, nil
+	return st, store.NewSaver(statePath, logger), notices
 }
 
 // markFilesOf returns m as the UI's interface, or nil (not a typed nil) when

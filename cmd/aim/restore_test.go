@@ -388,6 +388,10 @@ func TestRunSecondInstanceStartsFresh(t *testing.T) {
 	doc := stateDoc("2", goodLayout)
 	writeFile(t, path, doc)
 
+	holderLog := filepath.Join(dir, "aim.log")
+	writeFile(t, holderLog, "the holder's run")
+	writeFile(t, holderLog+".1", "the holder's previous run")
+
 	s := startSession(t, env, cfg, false)
 
 	waitFor(t, func() bool { return s.out.contains("another AIM is running; this one does not save its layout") })
@@ -403,6 +407,44 @@ func TestRunSecondInstanceStartsFresh(t *testing.T) {
 
 	if exists(path + ".bad") {
 		t.Error("the second instance set the state file aside")
+	}
+
+	if got := readFile(t, holderLog); got != "the holder's run" {
+		t.Errorf("aim.log = %q, want the holder's log untouched", got)
+	}
+
+	if got := readFile(t, holderLog+".1"); got != "the holder's previous run" {
+		t.Errorf("aim.log.1 = %q, want the holder's previous log untouched", got)
+	}
+
+	if !exists(filepath.Join(dir, "aim-"+strconv.Itoa(os.Getpid())+".log")) {
+		t.Error("the second instance wrote no log of its own")
+	}
+}
+
+func TestRunSweepsDeadSecondInstanceLogs(t *testing.T) {
+	env, cfg := testEnv(t)
+	dir := core.StateDir(env)
+
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	old := time.Now().Add(-secondLogKeep - time.Hour)
+	stale := filepath.Join(dir, "aim-"+strconv.Itoa(deadPid(t))+".log")
+	writeFile(t, stale, "a crashed second instance")
+
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	s := startSession(t, env, cfg, false)
+
+	waitFor(t, func() bool { return s.out.len() > 0 })
+	s.stop(t)
+
+	if exists(stale) {
+		t.Error("the lock holder kept a dead second instance's old log")
 	}
 }
 

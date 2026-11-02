@@ -169,8 +169,8 @@ If the saved layout cannot be read, AIM keeps it as `state.json.bad` and starts 
 
 ### Two AIMs
 
-Only one AIM saves. A second one started while the first runs starts fresh, never saves, and shows `another AIM is running; this one does not save its layout`.
+Only one AIM saves. A second one started while the first runs starts fresh, never saves, and shows `another AIM is running; this one does not save its layout`. It logs to `aim-<pid>.log` and leaves the first AIM's log alone.
 
 ### Where it lives
 
-The state is in `$XDG_STATE_HOME/aim` (`~/.local/state/aim` when unset or relative) on Linux and `~/Library/Application Support/aim` on macOS. `state.json` is the layout and `aim.log` is the log.
+The state is in `$XDG_STATE_HOME/aim` (`~/.local/state/aim` when unset or relative) on Linux and `~/Library/Application Support/aim` on macOS. `state.json` is the layout and `aim.log` is the log; a second AIM writes `aim-<pid>.log` ([Config](config.md) says how long each log stays).
