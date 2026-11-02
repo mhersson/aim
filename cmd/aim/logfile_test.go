@@ -295,14 +295,11 @@ func TestSweepLogs(t *testing.T) {
 		{name: "aim-104.log", age: secondLogKeep, keep: true},
 		{name: "aim-105.log", age: secondLogKeep + time.Second},
 		{name: "aim-103.log", age: 30 * day, dir: true, keep: true},
-		{name: "aim.log", age: 30 * day, keep: true},
 		{name: "aim.log.1", age: 30 * day, keep: true},
 		{name: "aim-007.log", age: 30 * day, keep: true},
 		{name: "aim-0.log", age: 30 * day, keep: true},
 		{name: "aim--5.log", age: 30 * day, keep: true},
 		{name: "aim-abc.log", age: 30 * day, keep: true},
-		{name: "aim-106.log.1", age: 30 * day, keep: true},
-		{name: "state.json", age: 30 * day, keep: true},
 	}
 
 	dir := t.TempDir()

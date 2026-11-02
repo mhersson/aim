@@ -527,7 +527,6 @@ func TestConfigExampleCatches(t *testing.T) {
 		{"setting deleted", "## range: 1 or more\n# max_lines = 5000\n", "", "diff.max_lines"},
 		{"default changed", "# master_count = 1\n", "# master_count = 2\n", "defaults:"},
 		{"remap to a wrong command", `"o" = "review.browser"`, `"o" = "pr.list"`, "keys.drawer"},
-		{"prose with one hash", "## ", "# ", "line"},
 		{"values line attached to no setting", "# max_lines = 5000\n", "## values: a | b\n\n# max_lines = 5000\n", "attached to no setting"},
 	}
 

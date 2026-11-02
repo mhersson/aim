@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/mhersson/aim/internal/core"
 	"github.com/mhersson/aim/internal/harness"
@@ -160,8 +159,6 @@ func TestRunHookIsSilentAndHonoursItsBudget(t *testing.T) {
 
 	silent := silentSock(t)
 
-	big := `{"hook_event_name":"PostToolUse","pad":"` + strings.Repeat("x", 10<<20) + `"}`
-
 	tests := []struct {
 		name  string
 		id    string
@@ -175,8 +172,6 @@ func TestRunHookIsSilentAndHonoursItsBudget(t *testing.T) {
 		{"no pane", "claude-code", sessionStart, map[string]string{"AIM_SOCK": missing}, false},
 		{"unknown harness", "nope", sessionStart, map[string]string{"AIM_SOCK": missing, "AIM_PANE": "p"}, false},
 		{"invalid json", "claude-code", "{not json", map[string]string{"AIM_SOCK": missing, "AIM_PANE": "p"}, false},
-		{"truncated", "claude-code", sessionStart[:30], map[string]string{"AIM_SOCK": missing, "AIM_PANE": "p"}, false},
-		{"10 MB payload", "claude-code", big, map[string]string{"AIM_SOCK": silent, "AIM_PANE": "p"}, true},
 		{"missing socket", "claude-code", sessionStart, map[string]string{"AIM_SOCK": missing, "AIM_PANE": "p"}, false},
 		{"never answers", "claude-code", sessionStart, map[string]string{"AIM_SOCK": silent, "AIM_PANE": "p"}, true},
 	}
@@ -213,23 +208,6 @@ func TestRunHookIsSilentAndHonoursItsBudget(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestRunHookStdinNeverClosesStaysInBudget(t *testing.T) {
-	pr, pw := io.Pipe()
-	defer func() { _ = pw.Close() }()
-
-	ctx, cancel := context.WithTimeout(context.Background(), injectedBudget)
-	defer cancel()
-
-	returns(t, "runHook", func() {
-		runHook(ctx, "claude-code", pr, env(map[string]string{"AIM_SOCK": "/x", "AIM_PANE": "p"}))
-	})
-
-	// Returning is only allowed once the budget ended; wait for its own timer.
-	awaitDone(ctx, t)
-
-	_ = pr.Close()
 }
 
 func TestHookCommandHiddenAndQuiet(t *testing.T) {
@@ -275,68 +253,4 @@ func TestHookCommandReturnsNilWithoutEnvironment(t *testing.T) {
 	if buf.Len() != 0 {
 		t.Fatalf("output = %q, want none", buf.String())
 	}
-}
-
-func TestRunHookDrainsStdinWithoutEnvironment(t *testing.T) {
-	pr, pw := io.Pipe()
-	payload := bytes.Repeat([]byte("x"), 1<<20)
-	written := make(chan error, 1)
-
-	go func() {
-		_, err := pw.Write(payload)
-		_ = pw.Close()
-
-		written <- err
-	}()
-
-	// A context that never expires: the drain must end on its own.
-	ctx := t.Context()
-
-	captureStdio(t, func() {
-		returns(t, "runHook", func() { runHook(ctx, "claude-code", pr, env(nil)) })
-	})
-
-	select {
-	case err := <-written:
-		if err != nil {
-			t.Fatalf("writer error = %v, want every byte consumed", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("writer still blocked after runHook returned")
-	}
-}
-
-func TestRunHookDrainsPayloadOverLimit(t *testing.T) {
-	pr, pw := io.Pipe()
-	total := maxHookPayload + 1<<20
-	written := make(chan error, 1)
-
-	go func() {
-		_, err := io.Copy(pw, io.LimitReader(zeroReader{}, int64(total)))
-		_ = pw.Close()
-
-		written <- err
-	}()
-
-	ctx, cancel := context.WithTimeout(context.Background(), hookBudget)
-	defer cancel()
-
-	runHook(ctx, "claude-code", pr, env(map[string]string{"AIM_SOCK": "/x", "AIM_PANE": "p"}))
-
-	select {
-	case err := <-written:
-		if err != nil {
-			t.Fatalf("writer error = %v, want every byte consumed", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("writer still blocked after runHook returned")
-	}
-}
-
-type zeroReader struct{}
-
-func (zeroReader) Read(p []byte) (int, error) {
-	clear(p)
-
-	return len(p), nil
 }

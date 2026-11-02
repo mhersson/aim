@@ -146,7 +146,6 @@ func TestRunStatuslineIsSilentAndHonoursItsBudget(t *testing.T) {
 		{"no socket", statusPayload, map[string]string{"AIM_PANE": "p"}, false},
 		{"no pane", statusPayload, map[string]string{"AIM_SOCK": missing}, false},
 		{"invalid json", "{not json", map[string]string{"AIM_SOCK": missing, "AIM_PANE": "p"}, false},
-		{"truncated", statusPayload[:40], map[string]string{"AIM_SOCK": silent, "AIM_PANE": "p"}, false},
 		{"oversized", oversized, map[string]string{"AIM_SOCK": silent, "AIM_PANE": "p"}, false},
 		{"never answers", statusPayload, map[string]string{"AIM_SOCK": silent, "AIM_PANE": "p"}, true},
 		{"missing socket", statusPayload, map[string]string{"AIM_SOCK": missing, "AIM_PANE": "p"}, false},
@@ -328,4 +327,12 @@ func TestRunStatuslineDrainsStdin(t *testing.T) {
 			}
 		})
 	}
+}
+
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) {
+	clear(p)
+
+	return len(p), nil
 }

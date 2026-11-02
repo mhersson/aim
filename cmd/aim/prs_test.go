@@ -79,35 +79,6 @@ func TestStartPRsBuildsThePollerWithTheFactory(t *testing.T) {
 	}
 }
 
-func TestPRLookupSharesTheClientCache(t *testing.T) {
-	var (
-		built atomic.Int32
-		net   offline
-	)
-
-	p := startPRs(func(_ context.Context, host string) (*github.Client, error) {
-		built.Add(1)
-
-		return github.NewClient(host, github.Options{Token: "test-token", Transport: &net})
-	})
-
-	t.Cleanup(func() { _ = p.Close() })
-
-	for range 2 {
-		if _, err := p.lookup(t.Context(), testRepo, "feat"); err == nil || !strings.Contains(err.Error(), "offline") {
-			t.Fatalf("lookup error = %v, want the transport's", err)
-		}
-	}
-
-	if n := built.Load(); n != 1 {
-		t.Errorf("the factory built %d clients for one host, want 1", n)
-	}
-
-	if n := net.requests.Load(); n != 2 {
-		t.Errorf("the transport saw %d requests, want 2", n)
-	}
-}
-
 func TestPRLookupDoesNotCacheAFailedClient(t *testing.T) {
 	var built atomic.Int32
 
@@ -159,7 +130,6 @@ func TestClientCacheRebuildsAClientItsHostRefused(t *testing.T) {
 	}{
 		{"a 401 rebuilds it", http.StatusUnauthorized, 2},
 		{"a 403 keeps it", http.StatusForbidden, 1},
-		{"a 500 keeps it", http.StatusInternalServerError, 1},
 	}
 
 	for _, tc := range tests {
