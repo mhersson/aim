@@ -103,8 +103,8 @@ func newPRApp(t *testing.T) *prApp {
 	t.Helper()
 
 	p := &prApp{railApp: newRailApp(t, false), src: newFakePRs(), found: map[string]github.PR{}}
-	p.prs = newPRState(p.src, p.lookup)
-	p.prs.resolve = newPRResolver(textResolver{calls: &p.resolves}).resolve
+	p.prs = newPRState(p.src, p.lookup, SystemGit{})
+	p.prs.resolve = newPRResolver(SystemGit{}, textResolver{calls: &p.resolves}).resolve
 
 	return p
 }

@@ -24,9 +24,10 @@ quitting AIM ends its agents, and the next start resumes their sessions.
   copies, so an action replaces those maps and never edits them in place.
 - **Core is a pure reducer.** `internal/core` imports nothing of AIM but
   `internal/core/tiling`. Push, approve, merge, worktree creation and cleanup
-  are `tea.Cmd`s in `internal/ui` that call `internal/git` and
-  `internal/github`; core only records what they found (`SetRepoPRs`,
-  `SetBranchPR`, `NoteEdit` and the like).
+  are `tea.Cmd`s in `internal/ui` that call `internal/git` through the
+  `ui.Git` seam in `ui.Options` (`cmd/aim` wires `ui.SystemGit`; the UI's tests
+  wire an in-process fake) and `internal/github`; core only records what they
+  found (`SetRepoPRs`, `SetBranchPR`, `NoteEdit` and the like).
 - **The UI drives everything.** `ui.App` (`internal/ui/app.go`) owns the store,
   the panes and the overlays. Every service reports to its update loop as a
   message; the message's handler builds a `core.Action`, and `App.dispatch`

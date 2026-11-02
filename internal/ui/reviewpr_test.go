@@ -659,14 +659,14 @@ func TestPRPlaceErrors(t *testing.T) {
 
 	resolve := func(context.Context, string, string) (github.Repo, error) { return prRepo, nil }
 
-	if _, err := resolvePRPlace(context.Background(), resolve, t.TempDir()); !errors.Is(err, errPRNoRepo) {
+	if _, err := resolvePRPlace(context.Background(), SystemGit{}, resolve, t.TempDir()); !errors.Is(err, errPRNoRepo) {
 		t.Errorf("outside a repository: err = %v, want %v", err, errPRNoRepo)
 	}
 
 	dir := prFeatureRepo(t)
 	gitIn(t, "git", dir, "switch", "-q", "-c", "feat/y")
 
-	if _, err := resolvePRPlace(context.Background(), resolve, dir); !errors.Is(err, errPRNoRemote) {
+	if _, err := resolvePRPlace(context.Background(), SystemGit{}, resolve, dir); !errors.Is(err, errPRNoRemote) {
 		t.Errorf("with no remote: err = %v, want %v", err, errPRNoRemote)
 	}
 }

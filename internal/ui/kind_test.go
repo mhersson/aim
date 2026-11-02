@@ -18,6 +18,7 @@ func kindApp(t *testing.T, opts ...func(*Options)) (*App, *starts, *fakeClock) {
 
 	o := Options{
 		Logger: testLogger(),
+		Git:    SystemGit{},
 		Store:  core.NewStore(core.InitialState(core.Config{Theme: "catppuccin-mocha"})),
 		Getenv: testGetenv,
 		Cwd:    testCwd,

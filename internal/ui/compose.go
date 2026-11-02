@@ -8,7 +8,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"os/exec"
 	"slices"
 	"strings"
 	"sync"
@@ -327,13 +326,14 @@ func (a *App) composeCommand() tea.Cmd {
 		appCtx  = a.ctx
 		log     = a.log
 		resolve = a.prs.resolve
+		g       = a.git
 	)
 
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(appCtx, pushResolveTimeout)
 		defer cancel()
 
-		msg := resolveCompose(ctx, log, resolve, id, cwd, home)
+		msg := resolveCompose(ctx, g, log, resolve, id, cwd, home)
 		msg.seq, msg.pane = seq, id
 
 		return msg
@@ -343,10 +343,10 @@ func (a *App) composeCommand() tea.Cmd {
 // resolveCompose reads the branch checked out in cwd, where it would be pushed
 // and the GitHub repository that is, the remote's branches and the first pull
 // request template.
-func resolveCompose(ctx context.Context, log *slog.Logger, resolve func(ctx context.Context, cwd, branch string) (github.Repo, error),
+func resolveCompose(ctx context.Context, g Git, log *slog.Logger, resolve func(ctx context.Context, cwd, branch string) (github.Repo, error),
 	pane core.PaneID, cwd, home string,
 ) composeResolvedMsg {
-	pt, state, err := resolvePush(ctx, log, pane, cwd, home)
+	pt, state, err := resolvePush(ctx, g, log, pane, cwd, home)
 	msg := composeResolvedMsg{state: state, err: err}
 
 	switch state {
@@ -381,21 +381,21 @@ func resolveCompose(ctx context.Context, log *slog.Logger, resolve func(ctx cont
 		return msg
 	}
 
-	r, err := git.Open(ctx, t.root)
+	r, err := g.Open(ctx, t.root)
 	if err != nil {
 		msg.err = err
 
 		return msg
 	}
 
-	if t.bases, err = git.RemoteBranches(ctx, r, t.remote); err != nil {
+	if t.bases, err = g.RemoteBranches(ctx, r, t.remote); err != nil {
 		msg.err = err
 
 		return msg
 	}
 
 	// A repository without a usable default is one the poll names or none.
-	if def, err := git.DefaultBranch(ctx, r); err == nil {
+	if def, err := g.DefaultBranch(ctx, r); err == nil {
 		msg.gitBase = strings.TrimPrefix(def, t.remote+"/")
 	}
 
@@ -528,7 +528,7 @@ func (a *App) composeLog(v *composeView, seq, logSeq int, opening bool, tmpl *gi
 
 		msg := composeLogMsg{seq: seq, logSeq: logSeq, open: open, box: v, tmpl: tmpl}
 
-		r, err := git.Open(ctx, t.root)
+		r, err := a.git.Open(ctx, t.root)
 		if err != nil {
 			msg.err = err
 
@@ -536,9 +536,9 @@ func (a *App) composeLog(v *composeView, seq, logSeq int, opening bool, tmpl *gi
 		}
 
 		// A base the remote-tracking ref of which is gone has no commits to list.
-		cs, err := git.Log(ctx, r, base)
+		cs, err := a.git.Log(ctx, r, base)
 		if err != nil {
-			if !baseRefMissing(err) {
+			if !errors.Is(err, errNoBaseRef) {
 				msg.err = err
 			}
 
@@ -551,14 +551,6 @@ func (a *App) composeLog(v *composeView, seq, logSeq int, opening bool, tmpl *gi
 
 		return msg
 	}
-}
-
-// baseRefMissing reports whether err is git saying the base ref does not
-// exist: rev-parse --verify --quiet exits 1 and says nothing.
-func baseRefMissing(err error) bool {
-	var ee *exec.ExitError
-
-	return errors.As(err, &ee) && ee.ExitCode() == 1
 }
 
 // onComposeLog opens the box with the commits it starts from, or recounts a
@@ -783,31 +775,31 @@ func (a *App) composeSubmit(v *composeView) tea.Cmd {
 		a.pushing[t.root] = t.branch
 	}
 
-	appCtx := a.ctx
+	appCtx, g := a.ctx, a.git
 
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(appCtx, pushTimeout)
 		defer cancel()
 
-		return composePushedMsg{v: v, pr: pr, err: composePush(ctx, t)}
+		return composePushedMsg{v: v, pr: pr, err: composePush(ctx, g, t)}
 	}
 }
 
 // composePush checks that the worktree is still on the branch and head t names
 // and pushes the branch when the remote lacks commits. It never forces.
-func composePush(ctx context.Context, t composeTarget) error {
+func composePush(ctx context.Context, g Git, t composeTarget) error {
 	if t.unpushed > 0 {
-		_, err := runPush(ctx, pushTarget{root: t.root, branch: t.branch, oid: t.oid, remote: t.remote, rawURLs: t.urls})
+		_, err := runPush(ctx, g, pushTarget{root: t.root, branch: t.branch, oid: t.oid, remote: t.remote, rawURLs: t.urls})
 
 		return err
 	}
 
-	r, err := git.Open(ctx, t.root)
+	r, err := g.Open(ctx, t.root)
 	if err != nil {
 		return err
 	}
 
-	h, err := git.Head(ctx, r)
+	h, err := g.Head(ctx, r)
 	if err != nil {
 		return err
 	}

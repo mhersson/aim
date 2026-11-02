@@ -619,7 +619,7 @@ func TestProbeHeadOf(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := probeHeadOf(context.Background(), r.log, tt.dir, tt.own)
+			got, err := probeHeadOf(context.Background(), SystemGit{}, r.log, tt.dir, tt.own)
 			if err != nil {
 				t.Fatalf("probeHeadOf: %v", err)
 			}

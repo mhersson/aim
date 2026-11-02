@@ -77,7 +77,7 @@ func (a *App) openReview(pane core.PaneID, focus bool) tea.Cmd {
 
 		msg := reviewOpenMsg{tab: tabID, pane: pane, cwd: cwd, focus: focus}
 
-		if msg.repo, msg.err = git.Open(ctx, cwd); msg.err != nil {
+		if msg.repo, msg.err = a.git.Open(ctx, cwd); msg.err != nil {
 			// A pinned worktree that went still opens a drawer, which says so.
 			if pinned && !usableDir(cwd) {
 				msg.err = errWorktreeRemoved{root: cwd}

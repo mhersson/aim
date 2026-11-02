@@ -101,6 +101,7 @@ func TestShellFlow(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	app, err := New(Options{
+		Git:    SystemGit{},
 		Logger: testLogger(),
 		Store:  core.NewStore(core.InitialState(core.Config{Theme: "catppuccin-mocha"})),
 		Getenv: shellGetenv,
@@ -183,6 +184,7 @@ func TestTabFlow(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	app, err := New(Options{
+		Git:    SystemGit{},
 		Logger: testLogger(),
 		Store:  core.NewStore(core.InitialState(core.Config{Theme: "catppuccin-mocha"})),
 		Getenv: shellGetenv,

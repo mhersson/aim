@@ -180,7 +180,7 @@ func TestWorktreeListRows(t *testing.T) {
 			in := f.input()
 			tt.setup(t, f, &in)
 
-			rows, now, err := listPlaces(context.Background(), in)
+			rows, now, err := listPlaces(context.Background(), SystemGit{}, in)
 			if err != nil {
 				t.Fatalf("listPlaces() error = %v", err)
 			}
@@ -241,7 +241,7 @@ func TestWorktreeListRowFields(t *testing.T) {
 	t.Parallel()
 	f := newWtFix(t)
 
-	rows, _, err := listPlaces(context.Background(), f.input())
+	rows, _, err := listPlaces(context.Background(), SystemGit{}, f.input())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +275,7 @@ func TestWorktreeListPinnedElsewhere(t *testing.T) {
 	f := newWtFix(t)
 	in := wtInput{own: f.a, followed: f.a, pin: f.rootB, agent: "A"}
 
-	rows, now, err := listPlaces(context.Background(), in)
+	rows, now, err := listPlaces(context.Background(), SystemGit{}, in)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +307,7 @@ func TestWorktreeListOwnDirOutsideRepo(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			in := wtInput{own: own, followed: f.rootB, agent: "x", edits: []core.Edit{{Root: f.rootB, Seq: 1}}}
 
-			rows, _, err := listPlaces(context.Background(), in)
+			rows, _, err := listPlaces(context.Background(), SystemGit{}, in)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -327,7 +327,7 @@ func TestWorktreeListStopsWithItsContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if _, _, err := listPlaces(ctx, f.input()); err == nil {
+	if _, _, err := listPlaces(ctx, SystemGit{}, f.input()); err == nil {
 		t.Error("listPlaces() under a cancelled context returned no error")
 	}
 }
@@ -338,7 +338,7 @@ func TestDetachedBranchesShowTheCommit(t *testing.T) {
 	gitIn(t, "git", f.featA, "checkout", "-q", "--detach")
 	gitIn(t, "git", f.featB, "checkout", "-q", "--detach")
 
-	rows, _, err := listPlaces(context.Background(), wtInput{own: f.a, followed: f.a, agent: "A", edits: []core.Edit{{Root: f.rootFeatA, Seq: 1}}})
+	rows, _, err := listPlaces(context.Background(), SystemGit{}, wtInput{own: f.a, followed: f.a, agent: "A", edits: []core.Edit{{Root: f.rootFeatA, Seq: 1}}})
 	if err != nil {
 		t.Fatal(err)
 	}

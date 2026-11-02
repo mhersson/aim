@@ -94,6 +94,7 @@ func lifeApp(t *testing.T) (*App, *starts) {
 	t.Helper()
 
 	a, err := New(Options{
+		Git:    SystemGit{},
 		Logger: testLogger(),
 		Store:  core.NewStore(core.InitialState(core.Config{Theme: "catppuccin-mocha"})),
 		Getenv: testGetenv,
@@ -884,6 +885,7 @@ func newRealApp(t *testing.T, scripts ...string) *realApp {
 	t.Helper()
 
 	a, err := New(Options{
+		Git:    SystemGit{},
 		Logger: testLogger(),
 		Store:  core.NewStore(core.InitialState(core.Config{Theme: "catppuccin-mocha"})),
 		Getenv: shellGetenv,
@@ -1463,6 +1465,7 @@ func TestCloseBoundsLoaderWait(t *testing.T) {
 	f := &blockFetcher{started: make(chan struct{}, 1), release: make(chan struct{})}
 
 	a, err := New(Options{
+		Git:      SystemGit{},
 		Logger:   testLogger(),
 		Store:    core.NewStore(core.InitialState(core.Config{Theme: "catppuccin-mocha"})),
 		Getenv:   testGetenv,

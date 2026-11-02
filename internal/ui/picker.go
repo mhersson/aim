@@ -138,8 +138,8 @@ func (a *App) newAgent() tea.Cmd {
 		defer cancel()
 
 		msg := pickerOpenMsg{seq: seq, tab: tab, pane: pane, cwd: cwd}
-		if msg.repo, msg.err = git.Open(ctx, cwd); msg.err == nil {
-			msg.trees, msg.err = git.ListWorktrees(ctx, msg.repo)
+		if msg.repo, msg.err = a.git.Open(ctx, cwd); msg.err == nil {
+			msg.trees, msg.err = a.git.ListWorktrees(ctx, msg.repo)
 		}
 
 		return msg
@@ -385,7 +385,7 @@ func (a *App) pickerShowForm(p *picker) tea.Cmd {
 		defer cancel()
 
 		msg := pickerPageMsg{seq: seq}
-		msg.base, msg.baseErr = git.DefaultBranch(ctx, repo)
+		msg.base, msg.baseErr = a.git.DefaultBranch(ctx, repo)
 
 		// Only the inside root puts a worktree where these tools look.
 		if main, err := repo.MainRoot(); err == nil && !sibling {
@@ -466,7 +466,7 @@ func (a *App) pickerCreate(p *picker) tea.Cmd {
 		ctx, cancel := context.WithTimeout(a.ctx, pickerCreateTimeout)
 		defer cancel()
 
-		created, err := git.CreateWorktree(ctx, repo, nw)
+		created, err := a.git.CreateWorktree(ctx, repo, nw)
 
 		return pickerCreatedMsg{seq: seq, created: created, err: err}
 	}
