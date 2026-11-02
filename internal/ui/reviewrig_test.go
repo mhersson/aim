@@ -244,6 +244,7 @@ func newDrawerRig(t *testing.T, opts ...func(*Options)) *drawerRig {
 func newDrawerRigWatching(t *testing.T, wo git.WatchOptions, opts ...func(*Options)) *drawerRig {
 	t.Helper()
 
+	// The options run twice, here and in kindApp, so they must be pure.
 	var probe Options
 
 	for _, f := range opts {

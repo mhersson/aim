@@ -1,12 +1,18 @@
 package ui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
+
+	"github.com/mhersson/aim/internal/git"
 
 	"github.com/mhersson/aim/internal/core"
 )
@@ -23,9 +29,40 @@ func turnRefName(session, key string, n int) string {
 	return fmt.Sprintf("refs/aim/turns/%s/%s/%d/start", session, key, n)
 }
 
+// sweepGit is the fake whose listing records the time the app asks it to judge
+// staleness at; the fake's own listing ignores it.
+type sweepGit struct {
+	*fakeGit
+	mu   sync.Mutex
+	nows []time.Time
+}
+
+type nowRecorder struct {
+	StaleRefs
+	g *sweepGit
+}
+
+func (n nowRecorder) Stale(now time.Time, held func(string) bool, shown func(int) bool) git.Sweep {
+	n.g.mu.Lock()
+	n.g.nows = append(n.g.nows, now)
+	n.g.mu.Unlock()
+
+	return n.StaleRefs.Stale(now, held, shown)
+}
+
+func (g *sweepGit) ListAimRefs(ctx context.Context, r git.Repo) (StaleRefs, error) {
+	refs, err := g.fakeGit.ListAimRefs(ctx, r)
+	if err != nil {
+		return nil, err
+	}
+
+	return nowRecorder{StaleRefs: refs, g: g}, nil
+}
+
 // sweepRepo is a fake repository with two commits.
 type sweepRepo struct {
 	*drawerRig
+	sg           *sweepGit
 	f            *fakeGit
 	rp           *fakeRepo
 	dir          string
@@ -47,7 +84,12 @@ func newSweepRig(t *testing.T) *sweepRepo {
 
 	other := rp.commit("two")
 
-	return &sweepRepo{drawerRig: newKeysRig(t, dir, gitOf(f)), f: f, rp: rp, dir: dir, first: first, other: other}
+	r := newKeysRig(t, dir, gitOf(f))
+	sg := &sweepGit{fakeGit: f}
+	r.git = sg
+	r.clk.Advance(36 * time.Hour)
+
+	return &sweepRepo{drawerRig: r, sg: sg, f: f, rp: rp, dir: dir, first: first, other: other}
 }
 
 func (s *sweepRepo) ref(name, oid string) { s.rp.aimRef(name, oid) }
@@ -158,6 +200,15 @@ func TestRefSweepKeepsWhatPanesAndDrawersHold(t *testing.T) {
 		}
 	}
 
+	// The sweep judges age at the app's clock.
+	s.sg.mu.Lock()
+	nows := slices.Clone(s.sg.nows)
+	s.sg.mu.Unlock()
+
+	if want := []time.Time{s.clk.Now()}; !slices.Equal(nows, want) {
+		t.Errorf("Stale was asked at %v, want the app clock %v", nows, want)
+	}
+
 	// What the app asked to delete is the stale refs with the values it listed.
 	want := map[string]string{
 		turnRefName(sessU, sweepKeyA, 1): s.first,
@@ -197,6 +248,8 @@ func TestRefSweepFiltersAtTheAnswer(t *testing.T) {
 	}
 }
 
+// A moved PR ref fails its delete; the unheld turn refs go regardless. That the
+// PR's head and base fail together is git.DeleteRefs's chunk, tested in internal/git.
 func TestRefSweepTurnsGoWhenAPRRefMoved(t *testing.T) {
 	t.Parallel()
 
