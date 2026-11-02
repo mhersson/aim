@@ -35,7 +35,7 @@ An invalid TOML or wrong-type error adds the line number: `line 1: theme: cannot
 
 Fix the line and start again.
 
-When something goes wrong after the start, look in the log. It is `aim.log` in AIM's state directory, `$XDG_STATE_HOME/aim` (`~/.local/state/aim` when that is unset or relative) on Linux and `~/Library/Application Support/aim` on macOS. Each start keeps the previous run's log as `aim.log.1`, replacing any older one. A [second AIM](agents.md#two-aims) leaves both alone and writes `aim-<pid>.log`, whose first line names the first AIM's log. An AIM that saves removes such a log as it starts, once the AIM that wrote it has ended and the log has not been written for 7 days. A config error is printed instead of logged, because it stops AIM before the log opens.
+When something goes wrong after the start, look in the log. It is `aim.log` in AIM's state directory, `$XDG_STATE_HOME/aim` (`~/.local/state/aim` when that is unset or relative) on Linux and `~/Library/Application Support/aim` on macOS. Each start keeps the previous run's log as `aim.log.1`, replacing any older one. A [second AIM](agents.md#two-aims) leaves both alone and appends to `aim-<pid>.log`, starting each run with a line that names the first AIM's log. An AIM that saves removes such a log as it starts, once the AIM that wrote it has ended and the log has not been written for 7 days. A config error is printed instead of logged, because it stops AIM before the log opens.
 
 ## Remapping keys
 
