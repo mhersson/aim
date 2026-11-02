@@ -192,6 +192,24 @@ func TestWheelIgnoredOutsideContent(t *testing.T) {
 	}
 }
 
+func TestButtonlessMotionOverAShellSendsNothing(t *testing.T) {
+	t.Parallel()
+	a, procs := twoShells(t)
+	x, y := centre(a, "p1")
+
+	a.Update(tea.MouseMotionMsg{X: x, Y: y})
+
+	for id, fp := range procs {
+		if got := sentAfterMark(t, a.panes[id], fp); got != markOf(a.panes[id]) {
+			t.Errorf("%s was sent %q, want only the marker", id, got)
+		}
+	}
+
+	if got := a.store.State().Tab().Focus; got != "p2" {
+		t.Errorf("focus = %q, want p2 (hovering does not focus)", got)
+	}
+}
+
 func TestKeyToScrolledPaneReturnsLive(t *testing.T) {
 	t.Parallel()
 	a, _ := twoShells(t)
