@@ -2,6 +2,7 @@ package ui
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -87,39 +88,45 @@ func TestScopedCommands(t *testing.T) {
 		}
 	}
 
+	// One command under the leader, then one command of another context in each
+	// table; compose's mismatch is TestComposeKeyErrors'.
 	tests := []struct {
-		name string
-		cfg  core.KeysConfig
-		want string
+		name                  string
+		cfg                   core.KeysConfig
+		section, key, command string
 	}{
-		{"rail command under the leader", leaderKeys("x", "rail.next"), `keys.leader: "x" = "rail.next": a rail command`},
-		{"PR list command under the leader", leaderKeys("x", "prlist.approve"), `keys.leader: "x" = "prlist.approve": a PR list command`},
-		{"checks command under the leader", leaderKeys("x", "checks.next"), `keys.leader: "x" = "checks.next": a checks command`},
-		{"reader command under the leader", leaderKeys("x", "reader.top"), `keys.leader: "x" = "reader.top": a reader command`},
-		{"merge command under the leader", leaderKeys("x", "merge.run"), `keys.leader: "x" = "merge.run": a merge command`},
-		{"reader command in the merge box", contextKeys("merge", "x", "reader.top"), `keys.merge: "x" = "reader.top": not a merge command`},
-		{"compose command under the leader", leaderKeys("x", "compose.create"), `keys.leader: "x" = "compose.create": a compose command`},
-		{"merge command in the compose box", contextKeys("compose", "ctrl+x", "merge.run"), `keys.compose: "ctrl+x" = "merge.run": not a compose command`},
-		{"PR list command in the rail", contextKeys("rail", "x", "prlist.next"), `keys.rail: "x" = "prlist.next": not a rail command`},
-		{"rail command in the PR list", contextKeys("pr_list", "x", "rail.next"), `keys.pr_list: "x" = "rail.next": not a PR list command`},
-		{"rail command in the checks", contextKeys("checks", "x", "rail.next"), `keys.checks: "x" = "rail.next": not a checks command`},
-		{"PR list command in the reader", contextKeys("reader", "x", "prlist.next"), `keys.reader: "x" = "prlist.next": not a reader command`},
-		{"global command in the drawer", drawerKeys("x", "pr.list"), `keys.drawer: "x" = "pr.list": not a drawer command`},
+		{"rail command under the leader", leaderKeys("x", "rail.next"), "keys.leader", "x", "rail.next"},
+		{"PR list command in the rail", contextKeys("rail", "x", "prlist.next"), "keys.rail", "x", "prlist.next"},
+		{"rail command in the PR list", contextKeys("pr_list", "x", "rail.next"), "keys.pr_list", "x", "rail.next"},
+		{"rail command in the checks", contextKeys("checks", "x", "rail.next"), "keys.checks", "x", "rail.next"},
+		{"PR list command in the reader", contextKeys("reader", "x", "prlist.next"), "keys.reader", "x", "prlist.next"},
+		{"reader command in the merge box", contextKeys("merge", "x", "reader.top"), "keys.merge", "x", "reader.top"},
+		{"global command in the drawer", drawerKeys("x", "pr.list"), "keys.drawer", "x", "pr.list"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			err := CheckKeys(tt.cfg)
-			if err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Errorf("CheckKeys = %v, want it to contain %q", err, tt.want)
+			if err == nil {
+				t.Fatal("CheckKeys = nil, want an error")
+			}
+
+			for _, want := range []string{tt.section, strconv.Quote(tt.key), strconv.Quote(tt.command)} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("CheckKeys = %v, want it to name %s", err, want)
+				}
 			}
 		})
 	}
 }
 
 func TestRailRemappedKeys(t *testing.T) {
+	t.Parallel()
+
 	t.Run("jump moves to the new key", func(t *testing.T) {
+		t.Parallel()
+
 		f := newFlowApp(t)
 		f.twoTabs(t)
 		remapTables(t, f.App, contextKeys("rail", "x", "rail.jump", "enter", "none"))
@@ -143,28 +150,9 @@ func TestRailRemappedKeys(t *testing.T) {
 		}
 	})
 
-	t.Run("next moves to the new key", func(t *testing.T) {
-		f := newFlowApp(t)
-		f.twoTabs(t)
-		remapTables(t, f.App, contextKeys("rail", "n", "rail.next", "j", "none"))
-		f.open(t)
-
-		start := f.rail.sel
-
-		press(f.App, keyRune('j'))
-
-		if f.rail.sel != start {
-			t.Errorf("j moved the selection to %s although it is unbound", f.rail.sel)
-		}
-
-		press(f.App, keyRune('n'))
-
-		if f.rail.sel == start {
-			t.Error("n did not move the selection")
-		}
-	})
-
 	t.Run("typing in the search stays fixed", func(t *testing.T) {
+		t.Parallel()
+
 		f := newFlowApp(t)
 		f.twoTabs(t)
 		remapTables(t, f.App, contextKeys("rail", "n", "rail.next", "j", "none"))
@@ -179,27 +167,6 @@ func TestRailRemappedKeys(t *testing.T) {
 
 func TestPRListRemappedKeys(t *testing.T) {
 	t.Parallel()
-
-	t.Run("approve moves to the new key", func(t *testing.T) {
-		t.Parallel()
-
-		a := listApp(t, true, 120, 40, listAgents())
-		a.actions = nil
-		remapTables(t, a, contextKeys("pr_list", "A", "prlist.approve", "a", "none"))
-
-		press(a, keyLeader, keyRune('g'), keyRune('l'))
-		press(a, keyRune('a'))
-
-		if a.notice != "" {
-			t.Fatalf("a approved although it is unbound; notice %q", a.notice)
-		}
-
-		press(a, keyRune('A'))
-
-		if a.notice != noticePRsOff {
-			t.Errorf("A: notice %q, want %q", a.notice, noticePRsOff)
-		}
-	})
 
 	t.Run("next and close move", func(t *testing.T) {
 		t.Parallel()

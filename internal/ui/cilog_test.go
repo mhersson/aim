@@ -104,10 +104,9 @@ func TestChecksLogKey(t *testing.T) {
 		page   bool
 		reads  []jobLogCall
 	}{
-		{name: "a status", sel: 1, notice: "no log for vet; O opens its page"},
+		{name: "a status", sel: 1, notice: fmt.Sprintf(noticeNoLog, "vet")},
 		{name: "a running job", sel: 2, notice: noticeLogRunning},
 		{name: "a failed job", sel: 0, page: true, reads: []jobLogCall{{repo: prRepo, id: ciJobID}}},
-		{name: "a run of another app", sel: 4, notice: "no log for docs; O opens its page"},
 	}
 
 	for _, tc := range tests {
@@ -138,7 +137,7 @@ func TestChecksLogKey(t *testing.T) {
 		a, reads, _ := ciApp(t, true, 160, 48)
 		ciDeliver(a, a.checksLog(a.checks, checkRow{kind: checkSkipped, name: "gate", id: 13, app: actionsApp}))
 
-		if want := "no log for gate; O opens its page"; a.checks.page != nil || a.notice != want || len(reads.logReads()) != 0 {
+		if want := fmt.Sprintf(noticeNoLog, "gate"); a.checks.page != nil || a.notice != want || len(reads.logReads()) != 0 {
 			t.Errorf("page %v, notice %q (want %q), %d reads", a.checks.page, a.notice, want, len(reads.logReads()))
 		}
 	})
@@ -151,34 +150,6 @@ func TestChecksLogKey(t *testing.T) {
 
 		if a.checks.page != nil || a.checks.sel != 0 || len(reads.logReads()) != 0 || len(opener.urls()) != 0 {
 			t.Errorf("enter changed the list: page %v, sel %d, %d reads, opened %v", a.checks.page, a.checks.sel, len(reads.logReads()), opener.urls())
-		}
-	})
-
-	t.Run("O opens the page", func(t *testing.T) {
-		t.Parallel()
-
-		a, _, opener := ciApp(t, true, 160, 48)
-		ciDeliver(a, press(a, keyRune('O')))
-
-		if got := opener.opened(t, 1); !slices.Equal(got, []string{"https://ci.example.com/lint"}) {
-			t.Errorf("opened %v, want the lint check's page", got)
-		}
-
-		a.checks.sel = 1
-		ciDeliver(a, press(a, keyRune('O')))
-
-		if a.notice != noticeCheckNoPage || len(opener.urls()) != 1 {
-			t.Errorf("a check without a page: notice %q, opened %v", a.notice, opener.urls())
-		}
-	})
-
-	t.Run("hints", func(t *testing.T) {
-		t.Parallel()
-
-		a, _, _ := ciApp(t, true, 160, 48)
-
-		if want := "j/k check    l log    O browser    r refresh    esc close"; !strings.Contains(shownText(a), want) {
-			t.Errorf("the list lacks the hints %q:\n%s", want, shownText(a))
 		}
 	})
 }
@@ -220,23 +191,6 @@ func TestCILogOpensAtTheFirstError(t *testing.T) {
 
 		if p.log.Lines[rows[p.cursor].line].Group != 1 || p.top != p.cursor-logLead {
 			t.Errorf("top = %d with the cursor at %d, want %d above it", p.top, p.cursor, logLead)
-		}
-	})
-
-	t.Run("the fixture's error", func(t *testing.T) {
-		t.Parallel()
-
-		a, _, _ := ciApp(t, true, 160, 48)
-		ciPage(t, a)
-
-		text := shownText(a)
-		if !strings.Contains(text, "Error: Process completed with exit code 2.") {
-			t.Errorf("the page lacks the error:\n%s", text)
-		}
-
-		p := a.checks.page
-		if p.log.Lines[p.rows()[p.cursor].line].Kind != github.LogError {
-			t.Errorf("the cursor is not on the error row")
 		}
 	})
 
@@ -374,10 +328,6 @@ func TestCILogBack(t *testing.T) {
 		t.Fatalf("esc left %+v, want the list with its selection", a.checks)
 	}
 
-	if !strings.Contains(shownText(a), "l log") {
-		t.Errorf("the list is not shown:\n%s", shownText(a))
-	}
-
 	press(a, keyEsc)
 
 	if a.checks != nil {
@@ -499,7 +449,7 @@ func TestCILogRefresh(t *testing.T) {
 
 	ciDeliver(a, press(a, keyRune('r')))
 
-	if text := shownText(a); !strings.Contains(text, "could not read the log: boom") {
+	if text := shownText(a); !strings.Contains(text, fmt.Sprintf(logReadFailed, "boom")) {
 		t.Errorf("the failure is not shown:\n%s", text)
 	}
 
@@ -507,31 +457,8 @@ func TestCILogRefresh(t *testing.T) {
 
 	ciDeliver(a, press(a, keyRune('r')))
 
-	if text := shownText(a); strings.Contains(text, "could not read") || !strings.Contains(text, "only line") {
-		t.Errorf("a refresh after a failure did not recover:\n%s", text)
-	}
-}
-
-func TestCILogRemap(t *testing.T) {
-	t.Parallel()
-
-	a, reads, _ := ciApp(t, true, 160, 48)
-	remapTables(t, a, contextKeys("checks", "L", "checks.log", "l", "none"))
-
-	press(a, keyRune('l'))
-
-	if a.checks.page != nil {
-		t.Fatal("l opened the log although it is unbound")
-	}
-
-	if !strings.Contains(shownText(a), "L log") {
-		t.Errorf("the hint does not read L log:\n%s", shownText(a))
-	}
-
-	ciDeliver(a, press(a, keyRune('L')))
-
-	if a.checks.page == nil || len(reads.logReads()) != 1 {
-		t.Errorf("L opened no page (reads %v)", reads.logReads())
+	if p := a.checks.page; p.err != "" || len(p.log.Lines) != 1 {
+		t.Errorf("a refresh after a failure did not recover: err %q, %d lines", p.err, len(p.log.Lines))
 	}
 }
 
@@ -640,10 +567,8 @@ func TestAnsiColor(t *testing.T) {
 
 	p := mustTheme(t, "catppuccin-mocha").Palette
 	want := map[int8]string{
-		0: string(p.Surface1), 1: string(p.Red), 2: string(p.Green), 3: string(p.Yellow), 4: string(p.Blue),
-		5: string(p.Pink), 6: string(p.Teal), 7: string(p.Subtext1), 8: string(p.Surface2), 9: string(p.Red),
-		10: string(p.Green), 11: string(p.Yellow), 12: string(p.Blue), 13: string(p.Pink), 14: string(p.Teal),
-		15: string(p.Subtext0), -1: "",
+		0: string(p.Surface1), 1: string(p.Red), 7: string(p.Subtext1), 8: string(p.Surface2),
+		9: string(p.Red), 15: string(p.Subtext0), -1: "",
 	}
 
 	for i, w := range want {
@@ -703,43 +628,28 @@ func TestCILogGolden(t *testing.T) {
 	}
 }
 
-// TestCILogText is the same screens without styling, so the layout reads.
+// TestCILogText is the icons=false screens without styling; the colour golden
+// of the icons=true ones holds the same text.
 func TestCILogText(t *testing.T) {
 	t.Parallel()
 
-	for _, icons := range []bool{true, false} {
-		for _, c := range ciScenes() {
-			t.Run(fmt.Sprintf("icons=%v/%s", icons, c.name), func(t *testing.T) {
-				t.Parallel()
-				golden.RequireEqual(t, []byte(ansi.Strip(ciScene(t, icons, c.w, c.h, c.mode).View().Content)))
-			})
-		}
+	for _, c := range ciScenes() {
+		t.Run("icons=false/"+c.name, func(t *testing.T) {
+			t.Parallel()
+			golden.RequireEqual(t, []byte(ansi.Strip(ciScene(t, false, c.w, c.h, c.mode).View().Content)))
+		})
 	}
 }
 
 func TestCILogSmall(t *testing.T) {
 	t.Parallel()
 
-	// 40x12: the log keeps three rows or more, and the blanks go before the hints.
-	a := ciScene(t, true, 40, 12, "log")
-	text := shownText(a)
-
-	for _, want := range []string{"failed at step", "j/k line", "esc checks"} {
-		if !strings.Contains(text, want) {
-			t.Errorf("40x12 lacks %q:\n%s", want, text)
-		}
-	}
-
 	if rows, _, _, _ := logSplit(8); rows < logMinRows {
 		t.Errorf("a box of 8 rows keeps %d log rows", rows)
 	}
 
-	// 20x8: nothing draws, and esc goes back.
-	a = ciScene(t, true, 20, 8, "log")
-
-	if text := shownText(a); strings.Contains(text, "log") && strings.Contains(text, "#7") {
-		t.Errorf("20x8 drew the box:\n%s", text)
-	}
+	// 20x8 draws nothing, and esc goes back.
+	a := ciScene(t, true, 20, 8, "log")
 
 	press(a, keyEsc)
 

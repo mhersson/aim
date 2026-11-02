@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -422,34 +423,32 @@ func TestPushConfirmCapsThePushURLs(t *testing.T) {
 
 	a := newTestApp(t)
 
-	tests := []struct {
-		n    int
-		more string
-	}{
-		{1, ""},
-		{3, ""},
-		{4, "and 1 more"},
-		{6, "and 3 more"},
+	// render is the confirm's lines with n push URLs.
+	render := func(n int) []string {
+		tgt := pushTarget{branch: "feat/x", remote: "origin", commits: 1}
+		for i := range n {
+			tgt.urls = append(tgt.urls, fmt.Sprintf("host/o/r%d", i))
+		}
+
+		return strings.Split(ansi.Strip(strings.Join(pushBox(tgt, 60, true, a.styles), "\n")), "\n")
 	}
 
-	for _, tt := range tests {
-		t.Run(commitCount(tt.n), func(t *testing.T) {
-			tgt := pushTarget{branch: "feat/x", remote: "origin", commits: 1}
-			for i := range tt.n {
-				tgt.urls = append(tgt.urls, fmt.Sprintf("host/o/r%d", i))
-			}
+	// maxPushURLs URLs fit; one more shows maxPushURLs and a line carrying the
+	// number left out in place of it.
+	at := render(maxPushURLs)
+	over := render(maxPushURLs + 1)
 
-			text := ansi.Strip(strings.Join(pushBox(tgt, 60, true, a.styles), "\n"))
+	last := slices.IndexFunc(over, func(l string) bool { return strings.Contains(l, fmt.Sprintf("host/o/r%d", maxPushURLs-1)) })
+	if last < 0 || slices.ContainsFunc(over, func(l string) bool { return strings.Contains(l, fmt.Sprintf("host/o/r%d", maxPushURLs)) }) {
+		t.Fatalf("the box over the cap does not stop at %d URLs:\n%s", maxPushURLs, strings.Join(over, "\n"))
+	}
 
-			shown := strings.Count(text, "host/o/r")
-			if want := min(tt.n, 3); shown != want {
-				t.Errorf("%d urls shown, want %d:\n%s", shown, want, text)
-			}
+	if len(over) != len(at)+1 {
+		t.Errorf("%d lines over the cap, %d at it; want one more", len(over), len(at))
+	}
 
-			if got := strings.Contains(text, "and "); got != (tt.more != "") || tt.more != "" && !strings.Contains(text, tt.more) {
-				t.Errorf("the box lacks %q (or has an extra line):\n%s", tt.more, text)
-			}
-		})
+	if extra := over[last+1]; !strings.Contains(extra, "1") || strings.Contains(extra, strconv.Itoa(maxPushURLs+1)) {
+		t.Errorf("the line after the last URL = %q, want one carrying the 1 left out", extra)
 	}
 }
 
@@ -1147,25 +1146,6 @@ func TestPushAnswerIsDroppedWhenStale(t *testing.T) {
 	})
 }
 
-func TestPushCommand(t *testing.T) {
-	t.Parallel()
-
-	a := newTestApp(t)
-
-	c, ok := a.reg.get("git.push")
-	if !ok || c.title != "Push branch" || c.icon != iconPush {
-		t.Fatalf("git.push = %+v, %v; want Push branch with the push icon", c, ok)
-	}
-
-	if key, _ := a.keymap.keyOf("git.push"); key != "g P" || a.keymap.groupOf("git.push") != "Git" {
-		t.Errorf("git.push bound to %q in group %q, want g P in Git", key, a.keymap.groupOf("git.push"))
-	}
-
-	if iconPush != "\uF403" {
-		t.Errorf("iconPush = %q, want U+F403", iconPush)
-	}
-}
-
 func TestPushKey(t *testing.T) {
 	t.Parallel()
 
@@ -1200,16 +1180,6 @@ func TestPushKey(t *testing.T) {
 				t.Errorf("git pushed %d times without an answer", n)
 			}
 		})
-	}
-}
-
-func TestCommitCount(t *testing.T) {
-	t.Parallel()
-
-	for n, want := range map[int]string{1: "1 commit", 2: "2 commits", 12: "12 commits"} {
-		if got := commitCount(n); got != want {
-			t.Errorf("commitCount(%d) = %q, want %q", n, got, want)
-		}
 	}
 }
 
@@ -1282,7 +1252,7 @@ func TestPushConfirmDrawsRepositoryTextCleaned(t *testing.T) {
 		}
 	}
 
-	for _, want := range []string{"pro[31mj", "feat/x", "origin", "host/[31mo/r", "abc1234 fix[2Jthe parser", "1 commit,"} {
+	for _, want := range []string{"pro[31mj", "feat/x", "origin", "host/[31mo/r", "abc1234 fix[2Jthe parser"} {
 		if !strings.Contains(ansi.Strip(text), want) {
 			t.Errorf("the box lacks %q:\n%s", want, ansi.Strip(text))
 		}

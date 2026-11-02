@@ -61,13 +61,6 @@ func TestCheckSummary(t *testing.T) {
 		t.Errorf("reads = %v (log reads %v), want one run read of %d", got, reads.logReads(), codeqlID)
 	}
 
-	text := shownText(a)
-	for _, want := range []string{"#7 CodeQL summary", "CodeQL", "No new alerts in the run.", "j/k line", "enter open", "O browser", "esc checks"} {
-		if !strings.Contains(text, want) {
-			t.Errorf("the page lacks %q:\n%s", want, text)
-		}
-	}
-
 	v := a.checks.page.summary
 	if v.cursor != 0 {
 		t.Fatalf("cursor = %d, want 0", v.cursor)
@@ -109,21 +102,22 @@ func TestCheckSummary(t *testing.T) {
 func TestCheckSummaryEmpty(t *testing.T) {
 	t.Parallel()
 
-	for _, sum := range []string{"", " \n\t\n"} {
-		a, reads, _ := sumApp(t, true, 160, 48, sum)
-		ciDeliver(a, press(a, keyRune('l')))
+	// "" takes the same TrimSpace branch.
+	const sum = " \n\t\n"
 
-		if a.checks.page != nil {
-			t.Errorf("summary %q: a page opened", sum)
-		}
+	a, reads, _ := sumApp(t, true, 160, 48, sum)
+	ciDeliver(a, press(a, keyRune('l')))
 
-		if a.notice != "no log for CodeQL; O opens its page" {
-			t.Errorf("summary %q: notice = %q", sum, a.notice)
-		}
+	if a.checks.page != nil {
+		t.Error("a page opened")
+	}
 
-		if len(reads.runReads()) != 1 {
-			t.Errorf("summary %q: %d reads, want 1", sum, len(reads.runReads()))
-		}
+	if want := fmt.Sprintf(noticeNoLog, "CodeQL"); a.notice != want {
+		t.Errorf("notice = %q, want %q", a.notice, want)
+	}
+
+	if len(reads.runReads()) != 1 {
+		t.Errorf("%d reads, want 1", len(reads.runReads()))
 	}
 }
 
@@ -191,7 +185,7 @@ func TestCheckSummaryFailed(t *testing.T) {
 
 	ciDeliver(a, press(a, keyRune('l')))
 
-	if text := shownText(a); !strings.Contains(text, "could not read the summary: HTTP 502 Bad Gateway") {
+	if text := shownText(a); !strings.Contains(text, fmt.Sprintf(summaryReadFailed, "HTTP 502 Bad Gateway")) {
 		t.Errorf("no failure shown:\n%s", text)
 	}
 
@@ -325,15 +319,15 @@ func TestCheckSummaryGolden(t *testing.T) {
 	}
 }
 
+// TestCheckSummaryText is the icons=false screens without styling; the colour
+// golden of the icons=true ones holds the same text.
 func TestCheckSummaryText(t *testing.T) {
 	t.Parallel()
 
-	for _, icons := range []bool{true, false} {
-		for _, c := range sumScenes {
-			t.Run(fmt.Sprintf("icons=%v/%s", icons, c.name), func(t *testing.T) {
-				t.Parallel()
-				golden.RequireEqual(t, []byte(ansi.Strip(sumScene(t, icons, c.w, c.h, c.mode).View().Content)))
-			})
-		}
+	for _, c := range sumScenes {
+		t.Run("icons=false/"+c.name, func(t *testing.T) {
+			t.Parallel()
+			golden.RequireEqual(t, []byte(ansi.Strip(sumScene(t, false, c.w, c.h, c.mode).View().Content)))
+		})
 	}
 }

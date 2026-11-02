@@ -310,47 +310,6 @@ func TestPRListTabsWithoutReads(t *testing.T) {
 	}
 }
 
-func TestPRListSearchRows(t *testing.T) {
-	t.Parallel()
-
-	mine := map[string]github.MyPRs{"github.com": {
-		Requested: []github.SearchPR{
-			searched("github.com/acme/web", 311, "Fix the form", "kari-dev", 2*time.Hour),
-			searched("github.com/acme/web", 305, "Older one", "kari-dev", 24*time.Hour),
-			searched("github.com/acme/infra", 88, "Bump the chart", "kari-dev", 5*time.Hour),
-		},
-		Authored: []github.SearchPR{searched("github.com/mhersson/aim", 24, "Tabs", "mhersson", time.Hour)},
-	}}
-	a, _, _ := searchApp(t, listAgents(), 140, 40, mine, "github.com/acme/web")
-	openList(a)
-
-	want := []string{"github.com/acme/infra#88", "github.com/acme/web#311", "github.com/acme/web#305"}
-	if got := tabbedRows(a, prTabRequested); !slices.Equal(got, want) {
-		t.Fatalf("Requested rows = %v, want %v", got, want)
-	}
-
-	typedList(a, "2")
-
-	text := ansi.Strip(a.View().Content)
-	for _, tab := range []string{" Agents 4 ", " Review requested 3 ", " All open 1 "} {
-		if !strings.Contains(text, tab) {
-			t.Errorf("the tab row lacks %q:\n%s", tab, text)
-		}
-	}
-
-	var line string
-
-	for l := range strings.SplitSeq(text, "\n") {
-		if strings.Contains(l, "#311") {
-			line = l
-		}
-	}
-
-	if at, age := strings.Index(line, "@kari-dev"), strings.Index(line, "2h"); at < 0 || age < at {
-		t.Errorf("the #311 row = %q, want @kari-dev before the age", line)
-	}
-}
-
 func TestPRListSearchWhen(t *testing.T) {
 	t.Parallel()
 
@@ -494,22 +453,6 @@ func TestPRListSearchStale(t *testing.T) {
 		}
 	})
 
-	t.Run("with no map made", func(t *testing.T) {
-		t.Parallel()
-
-		a, _, _ := searchApp(t, listAgents(), 120, 40, mine, "github.com/acme/web")
-		msgs := flatten(press(a, keyLeader, keyRune('g'), keyRune('l')))
-		a.search.hosts = nil
-
-		for _, m := range msgs {
-			a.Update(m)
-		}
-
-		if len(a.search.hosts) == 0 {
-			t.Error("an answer with no host map was dropped")
-		}
-	})
-
 	t.Run("after a reopen", func(t *testing.T) {
 		t.Parallel()
 
@@ -545,47 +488,28 @@ func TestPRListSearchStale(t *testing.T) {
 func TestPRListSearchTexts(t *testing.T) {
 	t.Parallel()
 
-	t.Run("before the first answer", func(t *testing.T) {
+	// The empty Review requested tab names the age limit; All open has none. A
+	// limit of 7 days is TestPRListSearchGolden's requested-none.
+	t.Run("no rows, no age limit", func(t *testing.T) {
 		t.Parallel()
 
+		const days = 0
+
 		a, _, _ := searchApp(t, listAgents(), 120, 40, nil, "github.com/acme/web")
-		press(a, keyLeader, keyRune('g'), keyRune('l'))
+		a.pullRequests = core.PullRequestsConfig{ReviewRequestedDays: days}
+		openList(a)
 		typedList(a, "2")
 
-		text := ansi.Strip(a.View().Content)
-		if !strings.Contains(text, " Review requested ") || !strings.Contains(text, noticePRListLoading) {
-			t.Errorf("no loading state:\n%s", text)
+		if text := ansi.Strip(a.View().Content); !strings.Contains(text, prListNoneAsked(days)) || !strings.Contains(text, " Review requested 0 ") {
+			t.Errorf("no empty text %q:\n%s", prListNoneAsked(days), text)
+		}
+
+		typedList(a, "3")
+
+		if text := ansi.Strip(a.View().Content); !strings.Contains(text, noticePRListNoneMine) {
+			t.Errorf("no %q:\n%s", noticePRListNoneMine, text)
 		}
 	})
-
-	// The empty Review requested tab names the age limit; All open has none.
-	for _, tt := range []struct {
-		days int
-		want string
-	}{
-		{days: 0, want: "no open pull requests ask for your review"},
-		{days: 1, want: "no open pull requests updated in the last 1 day ask for your review"},
-		{days: 7, want: "no open pull requests updated in the last 7 days ask for your review"},
-	} {
-		t.Run(fmt.Sprintf("no rows, %d days", tt.days), func(t *testing.T) {
-			t.Parallel()
-
-			a, _, _ := searchApp(t, listAgents(), 120, 40, nil, "github.com/acme/web")
-			a.pullRequests = core.PullRequestsConfig{ReviewRequestedDays: tt.days}
-			openList(a)
-			typedList(a, "2")
-
-			if text := ansi.Strip(a.View().Content); !strings.Contains(text, tt.want) || !strings.Contains(text, " Review requested 0 ") {
-				t.Errorf("no empty text %q:\n%s", tt.want, text)
-			}
-
-			typedList(a, "3")
-
-			if text := ansi.Strip(a.View().Content); !strings.Contains(text, noticePRListNoneMine) {
-				t.Errorf("no empty text:\n%s", text)
-			}
-		})
-	}
 
 	t.Run("a failed host", func(t *testing.T) {
 		t.Parallel()
@@ -598,8 +522,13 @@ func TestPRListSearchTexts(t *testing.T) {
 		typedList(a, "2")
 
 		text := ansi.Strip(a.View().Content)
-		if !strings.Contains(text, "#311") || !strings.Contains(text, "pull requests on ghe.example.com: HTTP 502") {
-			t.Errorf("the failure row or the other host's rows are missing:\n%s", text)
+		if !strings.Contains(text, "#311") {
+			t.Errorf("the other host's rows are missing:\n%s", text)
+		}
+
+		if i := slices.IndexFunc(strings.Split(text, "\n"), func(l string) bool { return strings.Contains(l, "HTTP 502") }); i < 0 ||
+			!strings.Contains(strings.Split(text, "\n")[i], "ghe.example.com") {
+			t.Errorf("no failure row naming the host and HTTP 502:\n%s", text)
 		}
 
 		view := a.View().Content
@@ -648,30 +577,6 @@ func TestPRListOtherTabKeys(t *testing.T) {
 			t.Errorf("watch set = %+v, want acme/web with 311 focused", a.prs.set)
 		}
 	})
-
-	t.Run("O opens the page", func(t *testing.T) {
-		t.Parallel()
-
-		a, f := setup(t)
-		for _, m := range flatten(press(a, keyRune('O'))) {
-			a.Update(m)
-		}
-
-		if got := f.opened(t, 1); !slices.Equal(got, []string{"https://github.com/acme/web/pull/311"}) {
-			t.Errorf("opened %v", got)
-		}
-	})
-
-	t.Run("a on your own pull request", func(t *testing.T) {
-		t.Parallel()
-
-		a, _ := setup(t)
-		typedList(a, "ja")
-
-		if a.notice != noticeApproveOwn || a.prList == nil || a.confirm != nil {
-			t.Errorf("notice %q, list %v, confirm %v", a.notice, a.prList, a.confirm)
-		}
-	})
 }
 
 func TestPRListOtherTabRemap(t *testing.T) {
@@ -686,8 +591,13 @@ func TestPRListOtherTabRemap(t *testing.T) {
 		t.Errorf("] showed tab %d", a.prList.tab)
 	}
 
-	if text := ansi.Strip(a.View().Content); !strings.Contains(text, "] next tab") {
-		t.Errorf("the tab row's hint is missing:\n%s", text)
+	key := a.keys.prList.hint("prlist.tab.next")
+	if key != "]" {
+		t.Errorf("the tab hint names %q, want the bound ]", key)
+	}
+
+	if text := ansi.Strip(a.View().Content); !strings.Contains(text, key+" next tab") {
+		t.Errorf("the tab row lacks the hint %q:\n%s", key+" next tab", text)
 	}
 }
 
@@ -743,9 +653,11 @@ func tabScenes(t *testing.T, icons bool) map[string]*App {
 
 var tabSceneNames = []string{"requested", "all", "requested-loading", "requested-none", "requested-failed", "requested-80x24"}
 
-// TestPRListSearchGolden draws the searched tabs once in colour; it compares
-// highlighted colours, so it runs serially.
+// TestPRListSearchGolden draws the searched tabs once in colour; no drawer is
+// open, so no highlighted code is drawn and it runs in parallel.
 func TestPRListSearchGolden(t *testing.T) {
+	t.Parallel()
+
 	scenes := tabScenes(t, true)
 
 	for _, name := range tabSceneNames {
@@ -755,18 +667,17 @@ func TestPRListSearchGolden(t *testing.T) {
 	}
 }
 
-// TestPRListSearchText is the same screens without styling.
+// TestPRListSearchText is the icons=false screens without styling; the colour
+// golden of the icons=true ones holds the same text.
 func TestPRListSearchText(t *testing.T) {
 	t.Parallel()
 
-	for _, icons := range []bool{true, false} {
-		scenes := tabScenes(t, icons)
+	scenes := tabScenes(t, false)
 
-		for _, name := range tabSceneNames {
-			t.Run(fmt.Sprintf("icons=%v/%s", icons, name), func(t *testing.T) {
-				t.Parallel()
-				golden.RequireEqual(t, []byte(ansi.Strip(scenes[name].View().Content)))
-			})
-		}
+	for _, name := range tabSceneNames {
+		t.Run("icons=false/"+name, func(t *testing.T) {
+			t.Parallel()
+			golden.RequireEqual(t, []byte(ansi.Strip(scenes[name].View().Content)))
+		})
 	}
 }

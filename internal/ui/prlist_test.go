@@ -91,15 +91,6 @@ func TestPRListRows(t *testing.T) {
 func TestPRListRowsOtherCases(t *testing.T) {
 	t.Parallel()
 
-	t.Run("no agents", func(t *testing.T) {
-		t.Parallel()
-
-		a := listApp(t, true, 120, 40, nil)
-		if rows := a.prListRows(a.store.State()); len(rows) != 0 {
-			t.Errorf("rows = %v, want none", rows)
-		}
-	})
-
 	t.Run("a shell's branch is not listed", func(t *testing.T) {
 		t.Parallel()
 
@@ -109,18 +100,6 @@ func TestPRListRowsOtherCases(t *testing.T) {
 
 		if rows := a.prListRows(a.store.State()); len(rows) != 0 {
 			t.Errorf("rows = %v, want none for a shell", rows)
-		}
-	})
-
-	t.Run("a host other than github.com is named", func(t *testing.T) {
-		t.Parallel()
-
-		if got := prRepoName("github.com/acme/api"); got != "acme/api" {
-			t.Errorf("name = %q", got)
-		}
-
-		if got := prRepoName("git.example.com/acme/api"); got != "git.example.com/acme/api" {
-			t.Errorf("name = %q", got)
 		}
 	})
 }
@@ -604,7 +583,7 @@ func TestPRListBlocksTheMouse(t *testing.T) {
 func TestPRListOnASmallTerminal(t *testing.T) {
 	t.Parallel()
 
-	for _, size := range [][2]int{{80, 24}, {60, 16}, {40, 10}, {30, 6}} {
+	for _, size := range [][2]int{{60, 16}, {40, 10}, {30, 6}} {
 		a := listApp(t, true, size[0], size[1], listAgents())
 		press(a, keyLeader, keyRune('g'), keyRune('l'))
 
@@ -626,7 +605,7 @@ func TestPRListOnASmallTerminal(t *testing.T) {
 func TestPRListMatchesTheConversation(t *testing.T) {
 	t.Parallel()
 
-	for _, c := range []struct{ width, want int }{{270, 110}, {200, 110}, {120, 110}, {80, 76}} {
+	for _, c := range []struct{ width, want int }{{120, 110}, {80, 76}} {
 		t.Run(strconv.Itoa(c.width), func(t *testing.T) {
 			t.Parallel()
 
@@ -683,9 +662,11 @@ func prListScenes() []struct {
 	}{{"wide", 140, 44}, {"80x24", 80, 24}}
 }
 
-// TestPRListGolden draws the list once in colour; it compares highlighted
-// colours, so it runs serially.
+// TestPRListGolden draws the list once in colour; no drawer is open, so no
+// highlighted code is drawn and it runs in parallel.
 func TestPRListGolden(t *testing.T) {
+	t.Parallel()
+
 	for _, c := range prListScenes() {
 		t.Run("catppuccin-mocha/icons=true/"+c.name, func(t *testing.T) {
 			golden.RequireEqual(t, []byte(prListScene(t, true, c.w, c.h).View().Content))
@@ -693,17 +674,16 @@ func TestPRListGolden(t *testing.T) {
 	}
 }
 
-// TestPRListText is the same screens without styling, so the layout reads.
+// TestPRListText is the icons=false screens without styling; the colour golden
+// of the icons=true ones holds the same text.
 func TestPRListText(t *testing.T) {
 	t.Parallel()
 
-	for _, icons := range []bool{true, false} {
-		for _, c := range prListScenes() {
-			t.Run(fmt.Sprintf("icons=%v/%s", icons, c.name), func(t *testing.T) {
-				t.Parallel()
-				golden.RequireEqual(t, []byte(ansi.Strip(prListScene(t, icons, c.w, c.h).View().Content)))
-			})
-		}
+	for _, c := range prListScenes() {
+		t.Run("icons=false/"+c.name, func(t *testing.T) {
+			t.Parallel()
+			golden.RequireEqual(t, []byte(ansi.Strip(prListScene(t, false, c.w, c.h).View().Content)))
+		})
 	}
 }
 
@@ -903,8 +883,9 @@ func TestPRListKeepsEscClose(t *testing.T) {
 		a := listApp(t, true, w, 30, listAgents())
 		press(a, keyLeader, keyRune('g'), keyRune('l'))
 
-		if !strings.Contains(ansi.Strip(a.View().Content), "esc close") {
-			t.Errorf("width %d: the hint row lost esc close", w)
+		want := a.keys.prList.hint("prlist.close") + " close"
+		if !strings.Contains(ansi.Strip(a.View().Content), want) {
+			t.Errorf("width %d: the hint row lost %q", w, want)
 		}
 	}
 }

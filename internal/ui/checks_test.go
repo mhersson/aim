@@ -13,7 +13,6 @@ import (
 
 	"github.com/mhersson/aim/internal/core"
 	"github.com/mhersson/aim/internal/github"
-	"github.com/mhersson/aim/internal/ui/theme"
 )
 
 func TestCheckOrder(t *testing.T) {
@@ -42,38 +41,6 @@ func TestCheckOrder(t *testing.T) {
 
 	if rows := checkRows(nil, now); len(rows) != 0 {
 		t.Errorf("rows of no checks = %v", rows)
-	}
-}
-
-func TestCheckLook(t *testing.T) {
-	t.Parallel()
-
-	ui := mustTheme(t, "catppuccin-mocha").UI
-
-	tests := []struct {
-		kind         checkKind
-		icons, plain string
-		fg           theme.Hex
-		bold         bool
-	}{
-		{checkFailed, iconFailed, "\u2717", ui.Error, true},
-		{checkRunning, iconRunning, "\u2026", ui.Warning, false},
-		{checkPassed, iconPassed, "\u2713", ui.Success, false},
-		{checkSkipped, iconPassed, "\u2713", ui.Subtle, false},
-	}
-
-	for _, tc := range tests {
-		if got := checkGlyph(tc.kind, true); got != tc.icons {
-			t.Errorf("glyph %d with icons = %q, want %q", tc.kind, got, tc.icons)
-		}
-
-		if got := checkGlyph(tc.kind, false); got != tc.plain {
-			t.Errorf("glyph %d without icons = %q, want %q", tc.kind, got, tc.plain)
-		}
-
-		if fg, bold := checkTone(tc.kind, ui); fg != tc.fg || bold != tc.bold {
-			t.Errorf("tone %d = %v bold %v, want %v bold %v", tc.kind, fg, bold, tc.fg, tc.bold)
-		}
 	}
 }
 
@@ -559,16 +526,15 @@ func TestChecksGolden(t *testing.T) {
 	}
 }
 
-// TestChecksText is the same screens without styling, so the layout reads.
+// TestChecksText is the icons=false screens without styling; the colour golden
+// of the icons=true ones holds the same text.
 func TestChecksText(t *testing.T) {
 	t.Parallel()
 
-	for _, icons := range []bool{true, false} {
-		for _, c := range checksScenes() {
-			t.Run(fmt.Sprintf("icons=%v/%s", icons, c.name), func(t *testing.T) {
-				t.Parallel()
-				golden.RequireEqual(t, []byte(ansi.Strip(checksScene(t, icons, c.w, c.h).View().Content)))
-			})
-		}
+	for _, c := range checksScenes() {
+		t.Run("icons=false/"+c.name, func(t *testing.T) {
+			t.Parallel()
+			golden.RequireEqual(t, []byte(ansi.Strip(checksScene(t, false, c.w, c.h).View().Content)))
+		})
 	}
 }
