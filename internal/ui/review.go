@@ -162,7 +162,8 @@ type drawerState struct {
 	listGen       int          // names the list wanted; an answer for another is stale
 	links         *linkChooser // the open link chooser, over the active tab's drawer
 	linksOf       linksOwner
-	hl            diffview.Highlighter
+	hl            *diffview.Highlighter // the caches' lexers
+	caches        *drawCaches
 	dv            *diffview.Theme // the diff view's theme for dvName
 	dvName        string
 	dvFlash       *diffview.Theme // the same on the flash ground

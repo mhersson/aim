@@ -103,6 +103,8 @@ func restoreApp(t *testing.T, st core.State, opts ...func(*Options)) *restored {
 		f(&o)
 	}
 
+	o.caches = testDrawCaches
+
 	a, err := New(o)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)

@@ -538,6 +538,7 @@ func TestOptionsSetEachFlagOnItsOwnField(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.opts.Logger = testLogger()
 			tt.opts.Git = newFakeGit(t)
+			tt.opts.caches = testDrawCaches
 			tt.opts.Store = core.NewStore(core.State{Theme: "catppuccin-mocha"})
 
 			a, err := New(tt.opts)

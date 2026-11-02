@@ -142,6 +142,9 @@ what to do about it. Skim it before your first commit each session.
 
 ## Tests
 
+- The UI's test apps share one `drawCaches` (`testDrawCaches`), so lexers and
+  diff themes are warm from earlier tests; a test that needs a cold highlighter
+  or its own themes builds its app with a fresh `&drawCaches{}`.
 - In internal/git, `TestMain` sets `GIT_CONFIG_NOSYSTEM`, a fixed identity and
   `GIT_CONFIG_GLOBAL` to a config file of its own once for the test binary, so
   its tests need no `t.Setenv` and can call `t.Parallel()`. Packages without

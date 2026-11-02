@@ -35,7 +35,7 @@ func newThemedApp(t *testing.T, name string) *App {
 func newKeyedApp(t *testing.T, name string, keys core.KeysConfig) *App {
 	t.Helper()
 
-	app, err := New(Options{Logger: testLogger(), Git: newFakeGit(t), Icons: true, Keys: keys, Store: core.NewStore(core.State{Theme: name})})
+	app, err := New(Options{Logger: testLogger(), Git: newFakeGit(t), Icons: true, Keys: keys, caches: testDrawCaches, Store: core.NewStore(core.State{Theme: name})})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -82,6 +82,44 @@ func TestNewRequiresLogger(t *testing.T) {
 	store := core.NewStore(core.State{Theme: "catppuccin-mocha"})
 	if _, err := New(Options{Store: store}); err == nil {
 		t.Error("New() without a logger succeeded, want an error")
+	}
+}
+
+func TestNewMakesItsOwnDrawCaches(t *testing.T) {
+	t.Parallel()
+
+	opts := func() Options {
+		return Options{Logger: testLogger(), Git: newFakeGit(t), Store: core.NewStore(core.State{Theme: "catppuccin-mocha"})}
+	}
+
+	a, err := New(opts())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	b, err := New(opts())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if a.drawer.hl == nil || a.drawer.caches == nil || b.drawer.hl == nil || b.drawer.caches == nil {
+		t.Fatal("an app without Options.caches has no highlighter or draw caches")
+	}
+
+	if a.drawer.hl == b.drawer.hl || a.drawer.caches == b.drawer.caches {
+		t.Error("two apps share a highlighter or draw caches without being given them")
+	}
+
+	o := opts()
+	o.caches = testDrawCaches
+
+	c, err := New(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if c.drawer.caches != testDrawCaches || c.drawer.hl != &testDrawCaches.hl {
+		t.Error("an app given Options.caches does not use them")
 	}
 }
 
@@ -142,6 +180,9 @@ func TestAppViewSizes(t *testing.T) {
 		})
 	}
 }
+
+// testDrawCaches is the one lexer and theme cache every test app shares.
+var testDrawCaches = &drawCaches{}
 
 var (
 	keyLeader = tea.KeyPressMsg{Code: tea.KeySpace, Mod: tea.ModCtrl}

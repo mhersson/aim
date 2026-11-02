@@ -28,6 +28,8 @@ func kindApp(t *testing.T, opts ...func(*Options)) (*App, *starts, *fakeClock) {
 		f(&o)
 	}
 
+	o.caches = testDrawCaches
+
 	a, err := New(o)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)

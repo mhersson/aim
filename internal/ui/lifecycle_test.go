@@ -112,6 +112,8 @@ func lifeAppWith(t *testing.T, opts ...func(*Options)) (*App, *starts) {
 		f(&o)
 	}
 
+	o.caches = testDrawCaches
+
 	a, err := New(o)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -922,6 +924,8 @@ func newScriptApp(t *testing.T, gitOpt func(*Options), scripts ...string) *realA
 	}
 	gitOpt(&o)
 
+	o.caches = testDrawCaches
+
 	a, err := New(o)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -1497,6 +1501,7 @@ func TestCloseBoundsLoaderWait(t *testing.T) {
 	f := &blockFetcher{started: make(chan struct{}, 1), release: make(chan struct{})}
 
 	a, err := New(Options{
+		caches:   testDrawCaches,
 		Git:      newFakeGit(t),
 		Logger:   testLogger(),
 		Store:    core.NewStore(core.InitialState(core.Config{Theme: "catppuccin-mocha"})),

@@ -271,7 +271,7 @@ func (r *hlRunner) start() {
 	r.started = j
 	r.batches++
 
-	ctx, hl := r.app.ctx, &r.app.drawer.hl
+	ctx, hl := r.app.ctx, r.app.drawer.hl
 
 	go func() { r.done <- j.run(ctx, hl) }()
 }
@@ -426,6 +426,7 @@ func newBenchApp(cfg benchConfig, clk clock) (*App, []core.PaneID, error) {
 	}
 
 	app, err := New(Options{
+		caches: testDrawCaches,
 		Git:    &fakeGit{}, // the bench runs no git cmd
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Store:  core.NewStore(core.InitialState(conf)),

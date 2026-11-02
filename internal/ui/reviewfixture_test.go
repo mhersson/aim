@@ -389,7 +389,7 @@ func runHighlight(t *testing.T, a *App) bool {
 		return false
 	}
 
-	msg, ok := j.run(context.Background(), &a.drawer.hl).(drawerSpansMsg)
+	msg, ok := j.run(context.Background(), a.drawer.hl).(drawerSpansMsg)
 	if !ok {
 		t.Fatal("the batch gave no answer")
 	}

@@ -109,6 +109,8 @@ func TestShellFlow(t *testing.T) {
 	}
 	gitOf(newFakeGit(t))(&o)
 
+	o.caches = testDrawCaches
+
 	app, err := New(o)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -193,6 +195,8 @@ func TestTabFlow(t *testing.T) {
 		Icons:  true,
 	}
 	gitOf(newFakeGit(t))(&o)
+
+	o.caches = testDrawCaches
 
 	app, err := New(o)
 	if err != nil {

@@ -63,6 +63,9 @@ type Options struct {
 	IndexCache string
 	// Git is every git call the app makes; required.
 	Git Git
+	// caches holds the lexers and diff themes drawing builds; nil means a fresh
+	// set. Only in-package tests set it, to share them across apps.
+	caches *drawCaches
 	// Watches shares one git watcher per worktree among the agent panes in it;
 	// nil means no watches.
 	Watches watchSet
@@ -315,6 +318,12 @@ func New(opts Options) (*App, error) {
 		a.prs = newPRState(opts.PRs, opts.PRLookup, opts.Git)
 	}
 
+	caches := opts.caches
+	if caches == nil {
+		caches = &drawCaches{}
+	}
+
+	a.drawer.caches, a.drawer.hl = caches, &caches.hl
 	a.drawer.cfg = opts.Diff
 	a.picker.cfg = opts.Worktrees
 	a.plans = opts.Plans
