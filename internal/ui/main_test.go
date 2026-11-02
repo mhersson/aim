@@ -39,7 +39,6 @@ func TestMain(m *testing.M) {
 	}
 
 	m.Run()
-	removePushTemplate()
 
 	_ = os.RemoveAll(dir)
 }
@@ -58,11 +57,6 @@ func TestGitHelpersStartNoAutoMaintenance(t *testing.T) {
 			write(t, filepath.Join(dir, "a.txt"), "one\n")
 			commitEverything(t, dir, "init")
 		}, "commit"},
-		{"templateGit", func(t *testing.T) {
-			if err := buildPushTemplate("git", t.TempDir()); err != nil {
-				t.Fatal(err)
-			}
-		}, "receive-pack"},
 	}
 
 	for _, tt := range tests {

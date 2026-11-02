@@ -99,12 +99,27 @@ type prApp struct {
 	found   map[string]github.PR // what a lookup finds, by branch
 }
 
-func newPRApp(t *testing.T) *prApp {
+// newPRApp builds on the fake rail rig when opts carry a fake git (gitOf), else on the real one.
+func newPRApp(t *testing.T, opts ...func(*Options)) *prApp {
 	t.Helper()
 
-	p := &prApp{railApp: newRealRailApp(t, false), src: newFakePRs(), found: map[string]github.PR{}}
-	p.prs = newPRState(p.src, p.lookup, SystemGit{})
-	p.prs.resolve = newPRResolver(SystemGit{}, textResolver{calls: &p.resolves}).resolve
+	p := &prApp{src: newFakePRs(), found: map[string]github.PR{}}
+
+	var probe Options
+	for _, f := range opts {
+		f(&probe)
+	}
+
+	if f, ok := probe.Git.(*fakeGit); ok {
+		// No watch set after the options: the PR tests count probes, as the real rig does.
+		p.railApp = newRailApp(t, false, append(opts, func(o *Options) { o.Watches = nil })...)
+		p.fake = f
+	} else {
+		p.railApp = newRealRailApp(t, false)
+	}
+
+	p.prs = newPRState(p.src, p.lookup, p.git)
+	p.prs.resolve = newPRResolver(p.git, textResolver{calls: &p.resolves}).resolve
 
 	return p
 }
