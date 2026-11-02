@@ -225,7 +225,6 @@ what to do about it. Skim it before your first commit each session.
 - The `claude` function is written `function claude {`, not `claude() {`: with
   an alias named `claude`, the alias expands inside the second form's
   definition.
-
 - Debian and Ubuntu `/etc/profile` overwrite PATH for a login bash, which is
   why bash gets a `claude` function and AIM's `init.bash` puts `bin` first
   again after the login files.

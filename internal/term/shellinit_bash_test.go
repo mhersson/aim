@@ -32,7 +32,7 @@ func TestBashReadsENV(t *testing.T) {
 func TestBashCommands(t *testing.T) {
 	const (
 		dir      = "/run dir/1-shell"
-		bashTail = `; if [ -r "$AIM_SHELL_DIR/bash/init.bash" ]; then export ENV="$AIM_SHELL_DIR/bash/init.bash"; exec "$SHELL" --posix -l; fi; exec "$SHELL" -l`
+		wantTail = `; if [ -r "$AIM_SHELL_DIR/bash/init.bash" ]; then export ENV="$AIM_SHELL_DIR/bash/init.bash"; exec "$SHELL" --posix -l; fi; exec "$SHELL" -l`
 	)
 
 	if runtime.GOOS == "darwin" {
@@ -80,8 +80,8 @@ func TestBashCommands(t *testing.T) {
 			checkOpt(t, sh.Env, "AIM_ENV", wantAim)
 
 			ag := AgentCommand(env, ig, "/w", []string{"claude"}, extra)
-			if !strings.HasSuffix(ag.Argv[4], bashTail) {
-				t.Errorf("agent script = %q, want tail %q", ag.Argv[4], bashTail)
+			if !strings.HasSuffix(ag.Argv[4], wantTail) {
+				t.Errorf("agent script = %q, want tail %q", ag.Argv[4], wantTail)
 			}
 
 			checkOpt(t, ag.Env, "AIM_ENV", wantAim)
@@ -95,8 +95,8 @@ func TestBashCommands(t *testing.T) {
 			}
 
 			ed := EditorCommand(env, ig, "/w", "vi", []string{"f"}, extra)
-			if !strings.HasSuffix(ed.Argv[4], bashTail) {
-				t.Errorf("editor script = %q, want tail %q", ed.Argv[4], bashTail)
+			if !strings.HasSuffix(ed.Argv[4], wantTail) {
+				t.Errorf("editor script = %q, want tail %q", ed.Argv[4], wantTail)
 			}
 
 			eo := EditorOnlyCommand(env, ig, "/w", "vi", []string{"f"}, extra)
