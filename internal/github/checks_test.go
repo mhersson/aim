@@ -108,6 +108,7 @@ func TestChecksRejectsForeignNextLink(t *testing.T) {
 	for name, next := range map[string]string{
 		"other host":   "https://evil.example.com/steal?token=1",
 		"other scheme": "http://api.github.com/repos/octo/repo/commits/abc123/check-runs?page=2",
+		"not a url":    "://",
 	} {
 		t.Run(name, func(t *testing.T) {
 			c, reqs := newTestClient(t, "github.com", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

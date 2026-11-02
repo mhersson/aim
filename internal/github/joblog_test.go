@@ -218,6 +218,7 @@ func TestParseJobLogEscapes(t *testing.T) {
 		{"invisible", "q\xe2\x80\xaer\xe2\x80\x8bs\xef\xbb\xbf", "qrs"},
 		{"invalid utf8", "t\xffu\xc3v\x9bw", "tuvw"},
 		{"lone esc", "x\x1b", "x"},
+		{"csi intermediate", "\x1b[1 qz", "z"},
 		{"esc in csi", "y\x1b[3\x1b[31mz", "yz"},
 	}
 	for _, tc := range tests {
