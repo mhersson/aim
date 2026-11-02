@@ -59,10 +59,7 @@ func planShim(args, environ []string, self os.FileInfo, leads func() bool) (shim
 	)
 
 	for _, dir := range filepath.SplitList(pathEnv) {
-		candidate := filepath.Join(dir, shimName)
-		if dir == "" {
-			candidate = shimName
-		}
+		candidate := filepath.Join(dir, shimName) // an empty entry is the cwd, as in a shell
 
 		if self == nil && dir != "" && filepath.Clean(dir) == shellBin {
 			continue

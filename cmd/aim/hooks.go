@@ -99,7 +99,7 @@ func setupHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.W
 
 	pid := os.Getpid()
 	sockPath := filepath.Join(runDir, strconv.Itoa(pid)+".sock")
-	settingsPath, _ := settingsForSock(sockPath)
+	settingsPath, _ := settingsForSock(sockPath) // sockPath ends in .sock, so the bool is true
 
 	if len(sockPath) > maxSockPath {
 		return hookRuntime{}, fmt.Errorf("socket path too long (%d bytes, at most %d)", len(sockPath), maxSockPath)

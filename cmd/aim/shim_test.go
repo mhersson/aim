@@ -41,13 +41,13 @@ func TestSettingsForSock(t *testing.T) {
 // shimFS is a set of real directories for the shim tests: a file standing for
 // the running binary, wrapper dirs holding symlinks to it and a fake real claude.
 type shimFS struct {
-	self      os.FileInfo
-	selfPath  string
-	w, w2, f  string
-	d         string
-	sockPath  string
-	settings  string
-	fakeClaud string
+	self       os.FileInfo
+	selfPath   string
+	w, w2, f   string
+	d          string
+	sockPath   string
+	settings   string
+	fakeClaude string
 }
 
 func newShimFS(t *testing.T) shimFS {
@@ -82,8 +82,8 @@ func newShimFS(t *testing.T) shimFS {
 		t.Fatal(err)
 	}
 
-	fs.fakeClaud = filepath.Join(fs.f, "claude")
-	if err := os.WriteFile(fs.fakeClaud, []byte("#!/bin/sh\n"), 0o755); err != nil {
+	fs.fakeClaude = filepath.Join(fs.f, "claude")
+	if err := os.WriteFile(fs.fakeClaude, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -122,40 +122,45 @@ func TestPlanShim(t *testing.T) {
 	}{
 		{
 			name: "adds", args: []string{"a"}, env: base(join(fs.w, fs.f)), leads: true,
-			wantPath: fs.fakeClaud, wantArgv: []string{"claude", "--settings", fs.settings, "a"}, wantPATH: fs.f, wantOK: true,
+			wantPath: fs.fakeClaude, wantArgv: []string{"claude", "--settings", fs.settings, "a"}, wantPATH: fs.f, wantOK: true,
 		},
 		{
 			name: "not the leader", args: []string{"a"}, env: base(join(fs.w, fs.f)),
-			wantPath: fs.fakeClaud, wantArgv: []string{"claude", "a"}, wantPATH: fs.f, wantOK: true,
+			wantPath: fs.fakeClaude, wantArgv: []string{"claude", "a"}, wantPATH: fs.f, wantOK: true,
 		},
 		{
 			name: "CLAUDECODE set", args: []string{"a"}, env: base(join(fs.w, fs.f), "CLAUDECODE=1"), leads: true,
-			wantPath: fs.fakeClaud, wantArgv: []string{"claude", "a"}, wantPATH: fs.f, wantOK: true,
+			wantPath: fs.fakeClaude, wantArgv: []string{"claude", "a"}, wantPATH: fs.f, wantOK: true,
 		},
 		{
 			name: "no AIM_SOCK", args: []string{"a"}, env: []string{"A=1", "PATH=" + join(fs.w, fs.f), "Z=last"}, leads: true,
-			wantPath: fs.fakeClaud, wantArgv: []string{"claude", "a"}, wantPATH: fs.f, wantOK: true,
+			wantPath: fs.fakeClaude, wantArgv: []string{"claude", "a"}, wantPATH: fs.f, wantOK: true,
 		},
 		{
 			name: "settings gone", args: []string{"a"}, env: []string{"A=1", "PATH=" + join(fs.w, fs.f), "AIM_SOCK=" + filepath.Join(filepath.Dir(fs.sockPath), "999.sock"), "Z=last"}, leads: true,
-			wantPath: fs.fakeClaud, wantArgv: []string{"claude", "a"}, wantPATH: fs.f, wantOK: true,
+			wantPath: fs.fakeClaude, wantArgv: []string{"claude", "a"}, wantPATH: fs.f, wantOK: true,
 		},
 		{
 			name: "own settings", args: []string{"--settings=U", "a"}, env: base(join(fs.w, fs.f)), leads: true,
-			wantPath: fs.fakeClaud, wantArgv: []string{"claude", "--settings=U", "a"}, wantPATH: fs.f, wantOK: true,
+			wantPath: fs.fakeClaude, wantArgv: []string{"claude", "--settings=U", "a"}, wantPATH: fs.f, wantOK: true,
 		},
 		{
 			name: "nested AIM", args: []string{"a"}, env: base(join(fs.w, fs.w2, fs.f)), leads: true,
-			wantPath: fs.fakeClaud, wantArgv: []string{"claude", "--settings", fs.settings, "a"}, wantPATH: fs.f, wantOK: true,
+			wantPath: fs.fakeClaude, wantArgv: []string{"claude", "--settings", fs.settings, "a"}, wantPATH: fs.f, wantOK: true,
 		},
 		{
 			name: "empty entry is the cwd", args: []string{"a"}, env: base(join(fs.w, "", fs.f)), leads: true, chdir: cwd,
 			wantPath: "claude", wantArgv: []string{"claude", "--settings", fs.settings, "a"}, wantPATH: join("", fs.f), wantOK: true,
 		},
+		{
+			name: "wrapper after the found claude", args: []string{"a"}, env: base(join(fs.f, fs.w)), leads: true,
+			wantPath: fs.fakeClaude, wantArgv: []string{"claude", "--settings", fs.settings, "a"}, wantPATH: fs.f, wantOK: true,
+		},
+		{name: "PATH unset", args: []string{"a"}, env: []string{"A=1", "AIM_SOCK=" + fs.sockPath}, leads: true},
 		{name: "none", args: []string{"a"}, env: base(join(fs.w, "/nonexistent")), leads: true},
 		{
 			name: "a directory named claude", args: []string{"a"}, env: base(join(fs.w, fs.d, fs.f)), leads: true,
-			wantPath: fs.fakeClaud, wantArgv: []string{"claude", "--settings", fs.settings, "a"}, wantPATH: join(fs.d, fs.f), wantOK: true,
+			wantPath: fs.fakeClaude, wantArgv: []string{"claude", "--settings", fs.settings, "a"}, wantPATH: join(fs.d, fs.f), wantOK: true,
 		},
 	}
 	for _, tt := range tests {
@@ -199,6 +204,8 @@ func TestPlanShim(t *testing.T) {
 }
 
 func TestPlanShimWithoutSelf(t *testing.T) {
+	t.Parallel()
+
 	fs := newShimFS(t)
 	shellDir := filepath.Join(filepath.Dir(fs.selfPath), "shell")
 
@@ -210,8 +217,8 @@ func TestPlanShimWithoutSelf(t *testing.T) {
 	env := []string{"PATH=" + pathEnv, "AIM_SHELL_DIR=" + shellDir}
 
 	plan, ok := planShim(nil, env, nil, func() bool { return false })
-	if !ok || plan.path != fs.fakeClaud {
-		t.Errorf("with AIM_SHELL_DIR: plan %+v, %v; want %s", plan, ok, fs.fakeClaud)
+	if !ok || plan.path != fs.fakeClaude {
+		t.Errorf("with AIM_SHELL_DIR: plan %+v, %v; want %s", plan, ok, fs.fakeClaude)
 	}
 
 	if _, ok := planShim(nil, []string{"PATH=" + pathEnv}, nil, func() bool { return false }); ok {
@@ -404,6 +411,8 @@ func splitArgs(raw []byte) []string {
 }
 
 func TestShimOnAPty(t *testing.T) {
+	t.Parallel()
+
 	if runtime.GOOS == "windows" {
 		t.Skip("needs a pty")
 	}
@@ -423,6 +432,8 @@ func TestShimOnAPty(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			r := newShimRig(t, recordingFake)
 			r.typeLine(t, tt.typed)
 
@@ -439,6 +450,8 @@ func TestShimOnAPty(t *testing.T) {
 }
 
 func TestShimKeepsTheProbeName(t *testing.T) {
+	t.Parallel()
+
 	if runtime.GOOS != "linux" {
 		t.Skip("the foreground name is tested on Linux")
 	}
@@ -477,6 +490,7 @@ func TestShimKeepsTheProbeName(t *testing.T) {
 	}
 }
 
+// Serial: a concurrent fork in another test can disturb the descriptors a child inherits.
 func TestShimLeavesTheTerminalAlone(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("/proc is Linux only")
