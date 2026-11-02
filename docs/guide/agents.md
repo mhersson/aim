@@ -121,7 +121,7 @@ Agents are grouped as Blocked, Working, Idle (and No hooks, for an agent that ha
 
 ## Claude usage
 
-AIM replaces Claude Code's own status line in every agent pane, to read the context, model and usage; outside AIM your own status line is unchanged.
+AIM replaces Claude Code's own status line in its agent panes, to read the context, model and usage; outside AIM your own status line is unchanged.
 
 With a Claude subscription the tray shows how much of its limits you have used: `5h` for the 5-hour window and `7d` for the weekly one, each with its percent. With icons on, the module starts with a gauge icon. The figures come from the agents' status lines, so they appear after an agent's first reply and are the latest any agent reported; a status line that repeats an older, lower figure for the same window does not pull it down.
 

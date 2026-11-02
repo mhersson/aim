@@ -36,8 +36,7 @@ type hookRuntime struct {
 }
 
 // Stop ends the socket server and removes this instance's files and
-// integration dir; it is safe on
-// a runtime whose setup failed.
+// integration dir; it is safe on a runtime whose setup failed.
 func (h hookRuntime) Stop() {
 	if h.stop != nil {
 		h.stop()
@@ -73,7 +72,7 @@ func imageCacheDir(indexCache string) string {
 // startHooks prepares <stateDir>/run: it sweeps files of dead instances, writes
 // this instance's settings file and serves its socket. A failure leaves nothing
 // behind and yields a runtime with a notice, so agents start without hooks.
-// shell also writes the shell integration dir.
+// With shell it also writes the shell integration dir.
 func startHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.WatchSet, places *git.PlaceCache, shell bool) hookRuntime {
 	h, err := setupHooks(logger, stateDir, indexCache, watches, places, shell)
 	if err != nil {

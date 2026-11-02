@@ -35,6 +35,8 @@ func TestClipboardDefaultsOn(t *testing.T) {
 }
 
 func TestShellIntegrationDefaultsOn(t *testing.T) {
+	t.Parallel()
+
 	if !DefaultConfig().Shell.IntegrationOn() || (ShellConfig{Integration: new(false)}).IntegrationOn() {
 		t.Error("shell integration: want on by default and off for false")
 	}

@@ -269,6 +269,8 @@ func TestStartHooksSweepsDeadInstances(t *testing.T) {
 }
 
 func TestStartHooksWritesTheShellIntegration(t *testing.T) {
+	t.Parallel()
+
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -323,6 +325,32 @@ func TestStartHooksWritesTheShellIntegration(t *testing.T) {
 
 		if exists(filepath.Join(stateDir, "run", strconv.Itoa(os.Getpid())+"-shell")) {
 			t.Error("the integration dir exists with the switch off")
+		}
+	})
+
+	t.Run("socket cannot be served", func(t *testing.T) {
+		stateDir := shortDir(t)
+		runDir := filepath.Join(stateDir, "run")
+		pid := strconv.Itoa(os.Getpid())
+
+		// A regular file at the socket path makes Listen refuse, after the dir was written.
+		if err := os.MkdirAll(runDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := os.WriteFile(filepath.Join(runDir, pid+".sock"), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces(), true)
+		defer h.Stop()
+
+		if h.Settings != "" || !strings.HasPrefix(h.Notice, "agent hooks are off: ") {
+			t.Fatalf("runtime = %+v, want hooks off", h)
+		}
+
+		if exists(filepath.Join(runDir, pid+"-claude.json")) || exists(filepath.Join(runDir, pid+"-shell")) {
+			t.Error("a failed setup left the settings file or the integration dir behind")
 		}
 	})
 
