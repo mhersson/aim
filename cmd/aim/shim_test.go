@@ -226,25 +226,29 @@ func TestPlanShimWithoutSelf(t *testing.T) {
 	}
 }
 
-func TestShimNotFound(t *testing.T) {
-	fs := newShimFS(t)
-	t.Setenv("PATH", fs.w)
-	t.Setenv("AIM_SHELL_DIR", "")
+// linkedWrapperDir is a dir whose claude links to the test binary, so the
+// wrapper's own lookup finds nothing else on PATH.
+func linkedWrapperDir(t *testing.T) string {
+	t.Helper()
 
-	var buf bytes.Buffer
-
-	// The test binary is not the symlink target, so the wrapper dir holds a
-	// claude that is another file: point it at the binary itself.
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_ = os.Remove(filepath.Join(fs.w, "claude"))
-
-	if err := os.Symlink(exe, filepath.Join(fs.w, "claude")); err != nil {
+	dir := t.TempDir()
+	if err := os.Symlink(exe, filepath.Join(dir, "claude")); err != nil {
 		t.Fatal(err)
 	}
+
+	return dir
+}
+
+func TestShimNotFound(t *testing.T) {
+	t.Setenv("PATH", linkedWrapperDir(t))
+	t.Setenv("AIM_SHELL_DIR", "")
+
+	var buf bytes.Buffer
 
 	if got := runShim([]string{"a"}, &buf); got != 127 {
 		t.Errorf("exit = %d, want 127", got)
