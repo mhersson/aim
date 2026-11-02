@@ -34,9 +34,9 @@ var (
 )
 
 // copyTemplate copies tpl into a fresh symlink-free temp dir and returns its
-// path, building tpl first with build. Templates hold no absolute symlinks
-// (os.CopyFS copies them as they are, into the template), no refs/aim refs and no linked worktrees, and reach other
-// repositories by relative paths only.
+// path, building tpl first with build. Templates hold no refs/aim refs, linked
+// worktrees or absolute symlinks (CopyFS keeps them, so they would point into the
+// template), and reach other repositories by relative paths only.
 func copyTemplate(t *testing.T, tpl *repoTemplate, build func(dir string) error) string {
 	t.Helper()
 

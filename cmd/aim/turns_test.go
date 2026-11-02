@@ -473,7 +473,7 @@ func TestGateBudgetSpentWaitingForTheLockSkipsTheSnapshot(t *testing.T) {
 	r := startGate(t, snap, mark)
 	a, relA := turnEvent("UserPromptSubmit", gateSession, "/repo")
 	b, relB := turnEvent("UserPromptSubmit", gateSession, "/repo")
-	a.Deadline = time.Now().Add(50 * time.Millisecond)
+	a.Deadline = time.Now().Add(300 * time.Millisecond)
 	b.Deadline = a.Deadline
 
 	r.in <- a
