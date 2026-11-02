@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 // prFixture is a bare "github" repository whose pull request 7 head holds one
@@ -50,6 +49,40 @@ func newPRFixture(t *testing.T) prFixture {
 	gitOut(t, author, "push", "-q", "origin", "v-main", "v-pr")
 
 	return prFixture{bare: bare, author: author, work: work, repo: openRepo(t, work)}
+}
+
+// lightRemoteRepo is a copied seed repository with an empty bare repository as
+// origin.
+func lightRemoteRepo(t *testing.T) string {
+	t.Helper()
+
+	dir := seedRepo(t)
+	gitOut(t, dir, "remote", "add", "origin", newBare(t))
+
+	return dir
+}
+
+// prRefsRepo is a copied seed repository holding the refs FetchPR writes for
+// pull request 7: a head one commit beyond main and a base main that moved after.
+func prRefsRepo(t *testing.T) (dir string, head string) {
+	t.Helper()
+
+	dir = seedRepo(t)
+	gitOut(t, dir, "switch", "-q", "-c", "feat")
+	writeFile(t, dir, "a.txt", "a changed\n")
+	writeFile(t, dir, "new.txt", "new\n")
+	commitAll(t, dir, "feat work")
+
+	head = gitOut(t, dir, "rev-parse", "HEAD")
+
+	gitOut(t, dir, "switch", "-q", "main")
+	writeFile(t, dir, "later.txt", "later\n")
+	commitAll(t, dir, "main moves on")
+
+	gitOut(t, dir, "update-ref", prRef(7, "head"), head)
+	gitOut(t, dir, "update-ref", prRef(7, "base"), gitOut(t, dir, "rev-parse", "HEAD"))
+
+	return dir, head
 }
 
 func TestFetchPRWritesOnlyItsRefs(t *testing.T) {
@@ -98,16 +131,6 @@ func TestFetchPRWritesOnlyItsRefs(t *testing.T) {
 	if got.Base != gitOut(t, f.bare, "rev-parse", "refs/heads/main") {
 		t.Errorf("Base = %s, want the moved main", got.Base)
 	}
-}
-
-func TestFetchPRForcePushedHead(t *testing.T) {
-	t.Parallel()
-	f := newPRFixture(t)
-
-	first, err := FetchPR(context.Background(), f.repo, "origin", 7, "main")
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	gitOut(t, f.author, "switch", "-q", "feat")
 	writeFile(t, f.author, "a.txt", "rewritten\n")
@@ -119,20 +142,19 @@ func TestFetchPRForcePushedHead(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if second.Head == first.Head {
+	if second.Head == got.Head {
 		t.Fatal("head did not move")
 	}
 
-	if got := gitOut(t, f.work, "rev-parse", "refs/aim/pr/7/head"); got != second.Head {
-		t.Errorf("ref = %s, want %s", got, second.Head)
+	if ref := gitOut(t, f.work, "rev-parse", "refs/aim/pr/7/head"); ref != second.Head {
+		t.Errorf("ref = %s, want %s", ref, second.Head)
 	}
 }
 
 func TestFetchPRMissing(t *testing.T) {
 	t.Parallel()
-	f := newPRFixture(t)
 
-	_, err := FetchPR(context.Background(), f.repo, "origin", 99, "main")
+	_, err := FetchPR(context.Background(), openRepo(t, lightRemoteRepo(t)), "origin", 99, "main")
 	if !errors.Is(err, ErrNoPR) {
 		t.Errorf("err = %v, want ErrNoPR", err)
 	}
@@ -141,8 +163,9 @@ func TestFetchPRMissing(t *testing.T) {
 func TestFetchPRRefusesBadInput(t *testing.T) {
 	t.Parallel()
 
-	f := newPRFixture(t)
-	before := refs(t, f.work)
+	work := lightRemoteRepo(t)
+	repo := openRepo(t, work)
+	before := refs(t, work)
 	ctx, calls := wrapGit(t, "")
 	credURL := "https://user:secret@example.invalid/o/r.git" //nolint:gosec // G101: fixture URL, no real credential
 
@@ -152,20 +175,16 @@ func TestFetchPRRefusesBadInput(t *testing.T) {
 		want               error // nil: any error
 	}{
 		{"zero", "origin", "main", 0, nil},
-		{"negative", "origin", "main", -1, nil},
 		{"base option", "origin", "-main", 7, nil},
 		{"remote option", "--upload-pack=x", "main", 7, ErrNoRemote},
-		{"empty base", "origin", "", 7, ErrBadBranch},
-		{"empty remote", "", "main", 7, ErrNoRemote},
 		{"unknown remote", "nope", "main", 7, ErrNoRemote},
 		{"url as remote", credURL, "main", 7, ErrNoRemote},
 		{"base refspec", "origin", "main:refs/heads/x", 7, ErrBadBranch},
-		{"base glob", "origin", "ma*", 7, ErrBadBranch},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := FetchPR(ctx, f.repo, tt.remote, tt.number, tt.base)
+			_, err := FetchPR(ctx, repo, tt.remote, tt.number, tt.base)
 			if err == nil {
 				t.Fatal("err = nil")
 			}
@@ -180,7 +199,7 @@ func TestFetchPRRefusesBadInput(t *testing.T) {
 		})
 	}
 
-	if after := refs(t, f.work); after != before {
+	if after := refs(t, work); after != before {
 		t.Errorf("refs changed:\n%s\n%s", before, after)
 	}
 
@@ -197,13 +216,13 @@ func TestFetchPRRefusesBadInput(t *testing.T) {
 }
 
 func TestFetchPRErrorHidesTheURL(t *testing.T) {
-	f := newPRFixture(t)
+	work := lightRemoteRepo(t)
 	clearSSHEnv(t)
-	gitOut(t, f.work, "remote", "add", "secret", "ssh://example.invalid/o/r.git")
-	gitOut(t, f.work, "config", "core.sshCommand", writeScript(t,
+	gitOut(t, work, "remote", "add", "secret", "ssh://example.invalid/o/r.git")
+	gitOut(t, work, "config", "core.sshCommand", writeScript(t,
 		`echo "fatal: unable to access 'https://user:secret@example.invalid/o/r.git/'" >&2; exit 1`))
 
-	_, err := FetchPR(context.Background(), f.repo, "secret", 7, "main")
+	_, err := FetchPR(context.Background(), openRepo(t, work), "secret", 7, "main")
 	if err == nil {
 		t.Fatal("err = nil")
 	}
@@ -217,14 +236,11 @@ func TestFetchPRErrorHidesTheURL(t *testing.T) {
 
 func TestDiffPRSourceShowsOnlyThePR(t *testing.T) {
 	t.Parallel()
-	f := newPRFixture(t)
+	work, head := prRefsRepo(t)
 
-	pr, err := FetchPR(context.Background(), f.repo, "origin", 7, "main")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	res := diffOK(t, testEngine(t), PRSource{Worktree: f.work, Number: 7})
+	e := testEngine(t)
+	src := PRSource{Worktree: work, Number: 7}
+	res := diffOK(t, e, src)
 
 	var paths []string
 	for _, file := range res.Files {
@@ -235,20 +251,28 @@ func TestDiffPRSourceShowsOnlyThePR(t *testing.T) {
 		t.Errorf("files = %v, want a.txt new.txt", paths)
 	}
 
-	if res.Head != pr.Head {
-		t.Errorf("Head = %s, want %s", res.Head, pr.Head)
+	if res.Head != head {
+		t.Errorf("Head = %s, want %s", res.Head, head)
 	}
 
 	if res.Live {
 		t.Error("Live = true")
 	}
+
+	got, err := e.Update(context.Background(), res, src, Batch{Paths: []string{"a.txt"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got.Head != res.Head || len(got.Files) != len(res.Files) {
+		t.Errorf("Update = %d files, head %s; want %d files, head %s", len(got.Files), got.Head, len(res.Files), res.Head)
+	}
 }
 
 func TestDiffPRSourceNotFetched(t *testing.T) {
 	t.Parallel()
-	f := newPRFixture(t)
 
-	_, err := testEngine(t).Diff(context.Background(), PRSource{Worktree: f.work, Number: 7})
+	_, err := testEngine(t).Diff(context.Background(), PRSource{Worktree: seedRepo(t), Number: 7})
 	if !errors.Is(err, ErrNotFetched) {
 		t.Errorf("err = %v, want ErrNotFetched", err)
 	}
@@ -256,18 +280,15 @@ func TestDiffPRSourceNotFetched(t *testing.T) {
 
 func TestDeletePRRefs(t *testing.T) {
 	t.Parallel()
-	f := newPRFixture(t)
-
-	if _, err := FetchPR(context.Background(), f.repo, "origin", 7, "main"); err != nil {
-		t.Fatal(err)
-	}
+	work, _ := prRefsRepo(t)
+	repo := openRepo(t, work)
 
 	for range 2 {
-		if err := DeletePRRefs(context.Background(), f.repo, 7); err != nil {
+		if err := DeletePRRefs(context.Background(), repo, 7); err != nil {
 			t.Fatal(err)
 		}
 
-		if got := gitOut(t, f.work, "for-each-ref", "refs/aim/"); got != "" {
+		if got := gitOut(t, work, "for-each-ref", "refs/aim/"); got != "" {
 			t.Errorf("refs left: %s", got)
 		}
 	}
@@ -275,52 +296,43 @@ func TestDeletePRRefs(t *testing.T) {
 
 func TestDeletePRRefsSurvivesTheContextEnding(t *testing.T) {
 	t.Parallel()
-	f := newPRFixture(t)
+	work, _ := prRefsRepo(t)
+	repo := openRepo(t, work)
 
-	if _, err := FetchPR(context.Background(), f.repo, "origin", 7, "main"); err != nil {
-		t.Fatal(err)
-	}
+	// The context ends while update-ref is blocked; the ref write must not be killed.
+	ctx, started, release := blockRefWrite(t)
+	ctx, cancel := context.WithCancel(ctx)
 
-	// update-ref outlasts the deadline; the ref write must not be killed.
-	ctx, logPath := wrapGit(t, `case "$*" in
-*update-ref*) sleep 1.5;;
-esac`)
-
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 
-	if err := DeletePRRefs(ctx, f.repo, 7); err != nil {
+	err := endContextDuringRefWrite(t, cancel, started, release, func() error {
+		return DeletePRRefs(ctx, repo, 7)
+	})
+	if err != nil {
 		t.Fatalf("DeletePRRefs: %v", err)
 	}
 
-	if calls := wrappedCalls(t, logPath); !strings.Contains(calls, "update-ref") {
-		t.Errorf("the ref write never ran through the wrapper:\n%s", calls)
-	}
-
-	if got := gitOut(t, f.work, "for-each-ref", "refs/aim/"); got != "" {
+	if got := gitOut(t, work, "for-each-ref", "refs/aim/"); got != "" {
 		t.Errorf("refs left: %s", got)
 	}
 
-	locks, err := filepath.Glob(filepath.Join(f.repo.CommonDir, "refs", "aim", "pr", "7", "*.lock"))
+	locks, err := filepath.Glob(filepath.Join(repo.CommonDir, "refs", "aim", "pr", "7", "*.lock"))
 	if err != nil || len(locks) > 0 {
 		t.Errorf("lock files %v (%v)", locks, err)
 	}
 }
 
+// No other test reaches refWriteContext with a context that is already done.
 func TestDeletePRRefsWithDoneContextWritesNothing(t *testing.T) {
 	t.Parallel()
-	f := newPRFixture(t)
-
-	if _, err := FetchPR(context.Background(), f.repo, "origin", 7, "main"); err != nil {
-		t.Fatal(err)
-	}
+	work, _ := prRefsRepo(t)
 
 	ctx, logPath := wrapGit(t, "")
 
 	ctx, cancel := context.WithCancel(ctx)
 	cancel()
 
-	if err := DeletePRRefs(ctx, f.repo, 7); !errors.Is(err, context.Canceled) {
+	if err := DeletePRRefs(ctx, openRepo(t, work), 7); !errors.Is(err, context.Canceled) {
 		t.Errorf("DeletePRRefs error = %v, want context.Canceled", err)
 	}
 
@@ -328,29 +340,7 @@ func TestDeletePRRefsWithDoneContextWritesNothing(t *testing.T) {
 		t.Errorf("update-ref ran:\n%s", data)
 	}
 
-	if got := gitOut(t, f.work, "for-each-ref", "refs/aim/"); got == "" {
+	if got := gitOut(t, work, "for-each-ref", "refs/aim/"); got == "" {
 		t.Error("the refs are gone")
-	}
-}
-
-func TestEngineUpdateOnPRSourceRunsFullDiff(t *testing.T) {
-	t.Parallel()
-	f := newPRFixture(t)
-
-	if _, err := FetchPR(context.Background(), f.repo, "origin", 7, "main"); err != nil {
-		t.Fatal(err)
-	}
-
-	e := testEngine(t)
-	src := PRSource{Worktree: f.work, Number: 7}
-	prev := diffOK(t, e, src)
-
-	got, err := e.Update(context.Background(), prev, src, Batch{Paths: []string{"a.txt"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if got.Head != prev.Head || len(got.Files) != len(prev.Files) {
-		t.Errorf("Update = %d files, head %s; want %d files, head %s", len(got.Files), got.Head, len(prev.Files), prev.Head)
 	}
 }

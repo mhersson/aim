@@ -311,6 +311,49 @@ func wrapGit(t *testing.T, extraShell string) (ctx context.Context, logPath stri
 	return context.WithValue(context.Background(), gitPathKey{}, script), logPath
 }
 
+// blockRefWrite returns a wrapGit context whose update-ref creates started,
+// then waits for release to exist before it execs git. The wait is a hang
+// guard that only expires when the test is already failing.
+func blockRefWrite(t *testing.T) (ctx context.Context, started, release string) {
+	t.Helper()
+
+	dir := t.TempDir()
+	started = filepath.Join(dir, "started")
+	release = filepath.Join(dir, "release")
+
+	ctx, _ = wrapGit(t, `case "$*" in
+*update-ref*)
+	: > '`+started+`'
+	n=0
+	while [ ! -e '`+release+`' ] && [ $n -lt 600 ]; do sleep 0.05; n=$((n+1)); done;;
+esac`)
+
+	return ctx, started, release
+}
+
+// endContextDuringRefWrite runs fn, cancels its context once its update-ref is
+// blocked, then lets the update-ref go and returns what fn returned.
+func endContextDuringRefWrite(t *testing.T, cancel context.CancelFunc, started, release string, fn func() error) error {
+	t.Helper()
+
+	done := make(chan error, 1)
+
+	go func() { done <- fn() }()
+
+	eventually(t, "the ref write to start", func() bool {
+		_, err := os.Stat(started)
+
+		return err == nil
+	})
+	cancel()
+
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	return <-done
+}
+
 // wrappedCalls returns the wrapper's log and fails when it is missing or empty,
 // so a test that asserts a call never ran cannot pass because nothing was wrapped.
 func wrappedCalls(t *testing.T, logPath string) string {
