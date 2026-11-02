@@ -295,6 +295,7 @@ func TestPushRejectedChangesNothing(t *testing.T) {
 	f := newPushFixture(t)
 
 	gitOut(t, f.root, "remote", "set-url", "origin", f.bare) // an absolute URL, so a leak of it can show
+
 	ctx := context.Background()
 
 	if _, err := Push(ctx, f.repo, "feat"); err != nil {
