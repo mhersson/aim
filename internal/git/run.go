@@ -171,7 +171,13 @@ func (c call) command(ctx context.Context) *exec.Cmd {
 		setProcessGroup(cmd)
 	}
 
-	cmd.Cancel = func() error { return killProcessGroup(cmd.Process) }
+	// A read takes no locks (GIT_OPTIONAL_LOCKS), so it skips SIGTERM's grace.
+	stop := stopProcessGroup
+	if c.read {
+		stop = killProcessGroup
+	}
+
+	cmd.Cancel = func() error { return stop(cmd.Process) }
 	cmd.WaitDelay = waitDelay
 
 	return cmd

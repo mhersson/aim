@@ -20,8 +20,8 @@ const (
 	turnsPrefix    = refPrefix + "turns/"
 	maxSkippedTags = 20
 
-	// refWriteBudget bounds writing a ref and its commit once the tree exists;
-	// a killed update-ref leaves its lock file behind.
+	// refWriteBudget bounds writing a ref and its commit once the tree exists, so the
+	// caller's deadline cannot stop update-ref halfway and risk leaving its locks.
 	refWriteBudget = 2 * time.Second
 )
 
