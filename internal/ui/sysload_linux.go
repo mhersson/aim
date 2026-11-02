@@ -4,19 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 )
-
-// warmUp is the gap between the two /proc/stat reads of a sampler's first
-// sample, so the first share is not an average since boot.
-const warmUp = 250 * time.Millisecond
-
-// cpuTimes are the cumulative scheduler ticks of /proc/stat's aggregate line.
-type cpuTimes struct{ busy, total uint64 }
 
 // sysLoad samples /proc. Its Sample calls must not overlap; the tray re-arms
 // the next one only after a result arrived.
@@ -27,14 +20,8 @@ type sysLoad struct {
 	warm func(context.Context) error // the wait before a first sample's second read
 }
 
-func newSysLoad() loadSampler {
-	return &sysLoad{root: "/proc", warm: func(ctx context.Context) error {
-		if !sleepCtx(ctx, warmUp) {
-			return fmt.Errorf("warm up: %w", ctx.Err())
-		}
-
-		return nil
-	}}
+func newSysLoad(*slog.Logger) loadSampler {
+	return &sysLoad{root: "/proc", warm: warmWait}
 }
 
 // Sample reports the CPU share since the previous call and the memory in use.
@@ -79,18 +66,6 @@ func (s *sysLoad) readCPU() (cpuTimes, error) {
 	}
 
 	return parseCPUTimes(string(b))
-}
-
-// cpuShare is the busy percentage between two readings, rounded; a counter
-// that went back or did not move reads as 0.
-func cpuShare(prev, cur cpuTimes) int {
-	if cur.total <= prev.total || cur.busy < prev.busy {
-		return 0
-	}
-
-	dTotal, dBusy := cur.total-prev.total, cur.busy-prev.busy
-
-	return int((dBusy*100 + dTotal/2) / dTotal)
 }
 
 // parseCPUTimes reads the aggregate "cpu" line: user nice system idle iowait

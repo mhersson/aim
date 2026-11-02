@@ -58,28 +58,6 @@ func TestParseMemUsed(t *testing.T) {
 	}
 }
 
-func TestCPUShare(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name      string
-		prev, cur cpuTimes
-		want      int
-	}{
-		{"idle", cpuTimes{busy: 10, total: 100}, cpuTimes{busy: 10, total: 200}, 0},
-		{"quarter", cpuTimes{busy: 0, total: 0}, cpuTimes{busy: 25, total: 100}, 25},
-		{"rounds", cpuTimes{busy: 0, total: 0}, cpuTimes{busy: 1, total: 3}, 33},
-		{"no time passed", cpuTimes{busy: 5, total: 10}, cpuTimes{busy: 5, total: 10}, 0},
-		{"counter went back", cpuTimes{busy: 50, total: 100}, cpuTimes{busy: 10, total: 90}, 0},
-	}
-
-	for _, tt := range tests {
-		if got := cpuShare(tt.prev, tt.cur); got != tt.want {
-			t.Errorf("%s: cpuShare = %d, want %d", tt.name, got, tt.want)
-		}
-	}
-}
-
 // The sampler reads two /proc snapshots and reports the share between them.
 func TestSysLoadSample(t *testing.T) {
 	t.Parallel()

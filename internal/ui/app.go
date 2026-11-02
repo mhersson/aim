@@ -283,7 +283,7 @@ func New(opts Options) (*App, error) {
 		watches:  watchState{set: opts.Watches, open: git.Open, panes: map[core.PaneID]*paneWatch{}, pins: map[core.TabID]*pinWatch{}, failed: map[string]bool{}},
 		pictures: newPictures(nil, getenv, opts.Logger),
 		getenv:   getenv, cwd: cwd, recordDir: opts.RecordDir, icons: opts.Icons, clock: realClock{}, start: termStart, sweepRefs: opts.SweepRefs,
-		load:         newSysLoad(),
+		load:         newSysLoad(opts.Logger),
 		probeSem:     make(chan struct{}, railProbeMax),
 		edits:        editState{resolve: places.Place},
 		focusFollows: opts.FocusFollowsMouse, copyOnSelect: opts.CopyOnSelect,

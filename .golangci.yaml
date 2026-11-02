@@ -89,11 +89,11 @@ linters:
     - linters: [gosec]
       text: "G115"
       path: "internal/term/rec/rec\\.go$"
-    # G115: /proc/stat counters; cpuShare returns 0 unless total grew and busy
+    # G115: CPU tick counters; cpuShare returns 0 unless total grew and busy
     # did not shrink, so the percentage is at most about 100.
     - linters: [gosec]
       text: "G115"
-      path: "internal/ui/sysload_linux\\.go$"
+      path: "internal/ui/sysload_cpu\\.go$"
     # G115: ported from tuios and kept close to upstream; line ids are bounded by the line count.
     - linters: [gosec]
       text: "G115"
