@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/mhersson/aim/internal/git"
 	"github.com/mhersson/aim/internal/harness"
 	"github.com/mhersson/aim/internal/store"
+	"github.com/mhersson/aim/internal/term"
 )
 
 // eventBuffer is how many hook events may wait for the update loop.
@@ -28,11 +30,13 @@ type hookRuntime struct {
 	RunDir         string // where temporary git indexes go; empty when setup failed
 	Notice         string
 	Events         <-chan harness.Event
+	Shell          term.Integration // the zero value when the integration dir was not written
 
 	stop func()
 }
 
-// Stop ends the socket server and removes this instance's files; it is safe on
+// Stop ends the socket server and removes this instance's files and
+// integration dir; it is safe on
 // a runtime whose setup failed.
 func (h hookRuntime) Stop() {
 	if h.stop != nil {
@@ -69,8 +73,9 @@ func imageCacheDir(indexCache string) string {
 // startHooks prepares <stateDir>/run: it sweeps files of dead instances, writes
 // this instance's settings file and serves its socket. A failure leaves nothing
 // behind and yields a runtime with a notice, so agents start without hooks.
-func startHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.WatchSet, places *git.PlaceCache) hookRuntime {
-	h, err := setupHooks(logger, stateDir, indexCache, watches, places)
+// shell also writes the shell integration dir.
+func startHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.WatchSet, places *git.PlaceCache, shell bool) hookRuntime {
+	h, err := setupHooks(logger, stateDir, indexCache, watches, places, shell)
 	if err != nil {
 		logger.Warn("agent hooks are off", "err", err)
 
@@ -80,7 +85,7 @@ func startHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.W
 	return h
 }
 
-func setupHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.WatchSet, places *git.PlaceCache) (hookRuntime, error) {
+func setupHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.WatchSet, places *git.PlaceCache, shell bool) (hookRuntime, error) {
 	runDir := filepath.Join(stateDir, "run")
 	if err := os.MkdirAll(runDir, 0o700); err != nil {
 		return hookRuntime{}, fmt.Errorf("run dir: %w", err)
@@ -117,9 +122,29 @@ func setupHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.W
 		return hookRuntime{}, fmt.Errorf("settings file: %w", err)
 	}
 
+	var (
+		shellDir string
+		ig       term.Integration
+	)
+
+	if shell {
+		shellDir = filepath.Join(runDir, strconv.Itoa(pid)+"-shell")
+		if err := term.WriteIntegration(shellDir, wrapperTarget(os.Args[0], exe, exec.LookPath)); err != nil {
+			logger.Warn("shell integration is off", "err", err)
+
+			shellDir = ""
+		} else {
+			ig = term.NewIntegration(shellDir, os.Getenv)
+		}
+	}
+
 	srv, err := harness.Listen(sockPath)
 	if err != nil {
 		_ = os.Remove(settingsPath)
+
+		if shellDir != "" {
+			_ = os.RemoveAll(shellDir)
+		}
 
 		return hookRuntime{}, err
 	}
@@ -156,9 +181,15 @@ func setupHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.W
 		if err := os.Remove(settingsPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 			logger.Warn("remove settings file", "err", err)
 		}
+
+		if shellDir != "" {
+			if err := os.RemoveAll(shellDir); err != nil {
+				logger.Warn("remove shell integration", "err", err)
+			}
+		}
 	})
 
-	return hookRuntime{Settings: settingsPath, Sock: sockPath, RunDir: runDir, Events: events, stop: stop}, nil
+	return hookRuntime{Settings: settingsPath, Sock: sockPath, RunDir: runDir, Events: events, Shell: ig, stop: stop}, nil
 }
 
 // warnStatusLineOff logs why Settings leaves out the status line for exe. The
@@ -184,8 +215,42 @@ func watchSeq(watches *git.WatchSet) seqFunc {
 	}
 }
 
-// sweepRunDir removes the socket, settings file and temporary indexes of
-// instances that are gone.
+// wrapperTarget is the path bin/claude links to: the path AIM was started by
+// (arg0, looked up with lookPath when it has no slash, made absolute) when it
+// names the running binary exe, else exe. That path survives a package
+// manager relinking bin/aim or an install over the binary.
+func wrapperTarget(arg0, exe string, lookPath func(string) (string, error)) string {
+	p := arg0
+	if p == "" {
+		return exe
+	}
+
+	if !strings.Contains(p, "/") {
+		found, err := lookPath(p)
+		if err != nil {
+			return exe
+		}
+
+		p = found
+	}
+
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return exe
+	}
+
+	a, errA := os.Stat(abs) //nolint:gosec // G703: abs is AIM's own argv[0] or a PATH lookup, only stat-ed
+	b, errB := os.Stat(exe)
+
+	if errA != nil || errB != nil || !os.SameFile(a, b) {
+		return exe
+	}
+
+	return abs
+}
+
+// sweepRunDir removes the socket, settings file, integration dir and temporary
+// indexes of instances that are gone.
 // Other names, and files of live instances, stay.
 func sweepRunDir(logger *slog.Logger, dir string, alive func(pid int) bool) {
 	entries, err := os.ReadDir(dir)
@@ -201,7 +266,7 @@ func sweepRunDir(logger *slog.Logger, dir string, alive func(pid int) bool) {
 			continue
 		}
 
-		if err := os.Remove(filepath.Join(dir, e.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
 			logger.Warn("remove stale run file", "name", e.Name(), "err", err)
 		}
 	}
@@ -219,11 +284,16 @@ func settingsForSock(sock string) (string, bool) {
 }
 
 // runFilePid extracts the pid from "<pid>.sock", "<pid>-claude.json" and
-// "<pid>-index-<anything>" (a snapshot's temporary index or its lock).
+// "<pid>-index-<anything>" (a snapshot's temporary index or its lock) and the
+// integration dir "<pid>-shell".
 func runFilePid(name string) (int, bool) {
 	digits, ok := strings.CutSuffix(name, ".sock")
 	if !ok {
 		digits, ok = strings.CutSuffix(name, "-claude.json")
+	}
+
+	if !ok {
+		digits, ok = strings.CutSuffix(name, "-shell")
 	}
 
 	if !ok {

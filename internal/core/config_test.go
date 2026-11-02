@@ -34,6 +34,12 @@ func TestClipboardDefaultsOn(t *testing.T) {
 	}
 }
 
+func TestShellIntegrationDefaultsOn(t *testing.T) {
+	if !DefaultConfig().Shell.IntegrationOn() || (ShellConfig{Integration: new(false)}).IntegrationOn() {
+		t.Error("shell integration: want on by default and off for false")
+	}
+}
+
 func TestLoadConfig(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -69,6 +75,10 @@ func TestLoadConfig(t *testing.T) {
 			want: Config{Theme: DefaultTheme, Clipboard: Clipboard{Native: new(false)}},
 		},
 		{name: "unknown mouse key", content: "[mouse]\nfocus = true\n", wantErr: true, errHas: []string{"unknown key mouse.focus"}},
+		{
+			name: "shell integration off", content: "[shell]\nintegration = false\n",
+			want: Config{Theme: DefaultTheme, Shell: ShellConfig{Integration: new(false)}},
+		},
 		{name: "unknown clipboard key", content: "[clipboard]\nosc = true\n", wantErr: true, errHas: []string{"unknown key clipboard.osc"}},
 		{name: "mouse wrong type", content: "[mouse]\ncopy_on_select = \"yes\"\n", wantErr: true, errHas: []string{"copy_on_select"}},
 		{

@@ -25,6 +25,7 @@ type Config struct {
 	Icons        *bool              `toml:"icons"`
 	Mouse        Mouse              `toml:"mouse"`
 	Clipboard    Clipboard          `toml:"clipboard"`
+	Shell        ShellConfig        `toml:"shell"`
 	Layout       LayoutConfig       `toml:"layout"`
 	Diff         DiffConfig         `toml:"diff"`
 	Worktrees    WorktreesConfig    `toml:"worktrees"`
@@ -274,6 +275,16 @@ func (c Clipboard) OSC52On() bool { return c.OSC52 == nil || *c.OSC52 }
 // NativeOn reports whether copies also go to native clipboard tools on a
 // local session; the default is on.
 func (c Clipboard) NativeOn() bool { return c.Native == nil || *c.Native }
+
+// ShellConfig is the [shell] section. The pointer lets an absent key (nil)
+// mean true.
+type ShellConfig struct {
+	Integration *bool `toml:"integration"`
+}
+
+// IntegrationOn reports whether a claude typed in a pane's shell gets AIM's
+// hooks; the default is on.
+func (c ShellConfig) IntegrationOn() bool { return c.Integration == nil || *c.Integration }
 
 // IconsOn reports whether Nerd Font glyphs are drawn; the default is on.
 func (c Config) IconsOn() bool {

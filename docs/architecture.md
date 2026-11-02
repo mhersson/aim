@@ -83,9 +83,50 @@ nothing, and anywhere else it closes the popover and goes no further.
   `exec "$SHELL" --posix -l` with AIM's `ENV` (except Apple's `/bin/bash`, which
   ignores `ENV`), and fish becomes `exec "$SHELL" -l -C` with a line that
   sources AIM's `init.fish`), so leaving Claude leaves a shell.
+- Every shell a pane starts, whether the pane's own login shell or the one an
+  agent or editor ends in, gets the integration's argv and environment
+  (`Integration`, `internal/term/shellinit.go`): `AIM_SHELL_DIR`, AIM's `bin`
+  first on PATH, and per shell the `ZDOTDIR`, `ENV` or `-C` route above. With
+  `[shell] integration = false`, or when the files were not written, every pane
+  gets today's argv and environment.
 - Every pane gets `TERM=xterm-256color` and `COLORTERM=truecolor` and loses an
   inherited `TMUX`, `TMUX_PANE`, `AIM_PANE`, `AIM_SOCK`, `AIM_SHELL_DIR`,
   `AIM_ZDOTDIR` and `AIM_ENV` (`term.PaneEnv`).
+
+**A `claude` typed in a pane.** A `claude` typed in a pane's shell gets the
+instance's settings file from two pieces, both from
+`<state dir>/run/<pid>-shell/`, written by `setupHooks` and removed by `Stop`
+(`sweepRunDir` removes a dead instance's dir).
+
+- **Why both.** A PATH entry alone loses to the user's startup files, which
+  prepend their own `~/.local/bin`. The scripts alone (a `claude` function that
+  runs after the startup files) miss `command claude`, a fish `alias` and
+  scripts. So the scripts put AIM's `bin` first once the startup files are
+  done, and the wrapper catches what the function does not.
+- **The wrapper** is AIM's binary run as `claude` (`bin/claude` is a symlink to
+  the path AIM was started by, else to `os.Executable()`; `main` dispatches on
+  `filepath.Base(os.Args[0])`, `runShim`, `cmd/aim/shim.go`). It puts
+  `--settings <file>` in front of the arguments only when `AIM_SOCK` names
+  `<dir>/<pid>.sock` and the instance's settings file exists, `CLAUDECODE` is
+  empty, the arguments hold no `--settings` before a `--`, and the process
+  leads its terminal's foreground group. It then execs the first other `claude`
+  on PATH, skipping entries that are the same file as itself, and hands on the
+  PATH without those entries, so Claude and its tools never meet the wrapper.
+- **It fails open.** An error inside it execs the real `claude` unchanged. With
+  no other `claude` it prints `claude: command not found` and exits 127; a
+  failed exec prints `claude: <error>` and exits 126. When AIM's binary is gone,
+  the shells skip the dangling PATH entry and the scripts' function falls back
+  to `command claude`.
+- **Per shell.** zsh reads AIM's `.zshenv` as `$ZDOTDIR/.zshenv`, puts the user's
+  `ZDOTDIR` back from `AIM_ZDOTDIR` (or unsets it), runs the user's `.zshenv`
+  and defines the function at the first prompt. bash runs `--posix -l` with
+  AIM's `ENV`, leaves posix mode, puts back `ENV` from `AIM_ENV`, the defaults
+  posix mode changed and the login files it would have read. fish runs `-l -C`
+  with a line that sources `init.fish` after `conf.d` and `config.fish`. The
+  user's own values come back before their files run, and `PaneEnv` strips the
+  three `AIM_` variables so a nested AIM starts clean.
+- A shell that runs no AIM script (not zsh, bash or fish, macOS's `/bin/bash`, a
+  zsh with no startup files) gets the wrapper on PATH only.
 
 **Pane kind.** A pane is an agent while its terminal's foreground process
 group leader is `claude` (`internal/term/fg_linux.go`, `fg_darwin.go`), probed
@@ -106,6 +147,8 @@ parses the binary's path. Claude Code merges settings levels, so the user's and
 the project's hooks keep running. The status line has no exec form, so
 `harness.QuotePath` single-quotes the path and refuses one holding `'`, `\`, a
 control character or invalid UTF-8; such a binary gets hooks and no status line.
+The wrapper reads the instance's file from `AIM_SOCK` (`settingsForSock`), the
+same name `setupHooks` writes.
 
 **The subcommands.** Claude runs `aim hook claude-code` per event and
 `aim statusline` for its status line (`cmd/aim/hook.go`, `statusline.go`). Each
@@ -353,7 +396,7 @@ the followed place back, and one after a session change records nothing.
 | `<state dir>/state.json` | tabs, layouts, panes, sessions, plans | after every dispatch; atomic, fsynced |
 | `<state dir>/state.lock` | the `flock` that makes one instance the saver | held, not written |
 | `<state dir>/reviews/*.json` | reviewed-hunk marks, per repository | atomic, not fsynced |
-| `<state dir>/run/` | socket, settings, temporary indexes | per run; swept |
+| `<state dir>/run/` | socket, settings, shell integration, temporary indexes | per run; swept |
 | `<user cache dir>/aim/` | index copies, fetched images | as used; swept at start: index copies not refreshed for 14 days, images untouched 30 |
 
 - **Only what cannot come back is saved.** Agent states, actions, reported
@@ -399,6 +442,9 @@ the followed place back, and one after a session change records nothing.
   the agent's diff and pull request; `.git/info/exclude` is local. A worktree
   may hold the only copy of uncommitted work, so only the cleanup confirm
   removes one, and `git worktree remove` is never forced.
+  Shell startup files hold the user's setup for every terminal, so the
+  integration lives in the run dir and reaches only the shells AIM starts,
+  through their argv and environment.
 - **Deleting a branch.** `git branch -d` refuses a squash-merged branch, so AIM
   uses `-D` after its own check: the tip is still the one the confirm showed
   and has no commit past the merged head (`git.BranchAhead`,

@@ -23,7 +23,7 @@ func TestBenchEditHold(t *testing.T) {
 	repo := seededRepo(t)
 	wt := linkedWorktree(t, repo)
 
-	h, err := setupHooks(discardLogger(), shortDir(t), "", testWatches(t), testPlaces())
+	h, err := setupHooks(discardLogger(), shortDir(t), "", testWatches(t), testPlaces(), false)
 	if err != nil {
 		t.Fatal(err)
 	}

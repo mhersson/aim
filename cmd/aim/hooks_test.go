@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -21,6 +22,7 @@ import (
 	"github.com/mhersson/aim/internal/core"
 	"github.com/mhersson/aim/internal/git"
 	"github.com/mhersson/aim/internal/harness"
+	"github.com/mhersson/aim/internal/term"
 )
 
 func discardLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
@@ -114,7 +116,7 @@ func TestStartHooksFailureTurnsHooksOff(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces())
+	h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces(), false)
 	defer h.Stop()
 
 	if h.Settings != "" || h.Sock != "" || h.Events != nil {
@@ -129,7 +131,7 @@ func TestStartHooksFailureTurnsHooksOff(t *testing.T) {
 func TestStartHooksNamesAnOverlongSocketPath(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), strings.Repeat("d", maxSockPath))
 
-	h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces())
+	h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces(), false)
 	defer h.Stop()
 
 	if h.Settings != "" || h.Sock != "" || h.Events != nil {
@@ -226,7 +228,23 @@ func TestStartHooksSweepsDeadInstances(t *testing.T) {
 		}
 	}
 
-	h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces())
+	shellDirs := map[string]bool{ // a dir with a symlink in it -> kept
+		strconv.Itoa(dead) + "-shell": false,
+		strconv.Itoa(live) + "-shell": true,
+	}
+	for name := range shellDirs {
+		if err := os.MkdirAll(filepath.Join(runDir, name, "bin"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := os.Symlink("/nonexistent/aim", filepath.Join(runDir, name, "bin", "claude")); err != nil {
+			t.Fatal(err)
+		}
+
+		files[name] = shellDirs[name]
+	}
+
+	h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces(), false)
 	defer h.Stop()
 
 	if h.Notice != "" {
@@ -247,6 +265,138 @@ func TestStartHooksSweepsDeadInstances(t *testing.T) {
 
 	if exists(h.Sock) || exists(h.Settings) {
 		t.Error("Stop left this instance's files behind")
+	}
+}
+
+func TestStartHooksWritesTheShellIntegration(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("on", func(t *testing.T) {
+		stateDir := shortDir(t)
+
+		h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces(), true)
+		defer h.Stop()
+
+		if h.Notice != "" {
+			t.Fatalf("notice = %q, want none", h.Notice)
+		}
+
+		dir := filepath.Join(stateDir, "run", strconv.Itoa(os.Getpid())+"-shell")
+		if h.Shell.Dir != dir {
+			t.Fatalf("Shell.Dir = %q, want %q", h.Shell.Dir, dir)
+		}
+
+		for _, f := range []string{"zsh/.zshenv", "bash/init.bash", "fish/init.fish"} {
+			if !exists(filepath.Join(dir, f)) {
+				t.Errorf("%s is missing", f)
+			}
+		}
+
+		got, err := os.Readlink(filepath.Join(dir, "bin", "claude"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if want := wrapperTarget(os.Args[0], exe, exec.LookPath); got != want {
+			t.Errorf("bin/claude -> %q, want %q", got, want)
+		}
+
+		h.Stop()
+
+		if exists(dir) {
+			t.Error("Stop left the integration dir behind")
+		}
+	})
+
+	t.Run("off", func(t *testing.T) {
+		stateDir := shortDir(t)
+
+		h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces(), false)
+		defer h.Stop()
+
+		if h.Shell != (term.Integration{}) {
+			t.Errorf("Shell = %+v, want zero", h.Shell)
+		}
+
+		if exists(filepath.Join(stateDir, "run", strconv.Itoa(os.Getpid())+"-shell")) {
+			t.Error("the integration dir exists with the switch off")
+		}
+	})
+
+	t.Run("settings file cannot be written", func(t *testing.T) {
+		stateDir := shortDir(t)
+		runDir := filepath.Join(stateDir, "run")
+
+		// A non-empty dir where the settings file belongs makes the rename fail.
+		blocker := filepath.Join(runDir, strconv.Itoa(os.Getpid())+"-claude.json")
+		if err := os.MkdirAll(filepath.Join(blocker, "x"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+
+		h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces(), true)
+		defer h.Stop()
+
+		if h.Settings != "" || !strings.HasPrefix(h.Notice, "agent hooks are off: ") {
+			t.Fatalf("runtime = %+v, want hooks off", h)
+		}
+
+		if h.Shell != (term.Integration{}) || exists(filepath.Join(runDir, strconv.Itoa(os.Getpid())+"-shell")) {
+			t.Error("the integration dir was written for a failed setup")
+		}
+	})
+}
+
+func TestWrapperTarget(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "real", "aim")
+	other := filepath.Join(dir, "other", "aim")
+
+	for _, p := range []string{exe, other} {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := os.WriteFile(p, []byte(p), 0o755); err != nil { //nolint:gosec // test file
+			t.Fatal(err)
+		}
+	}
+
+	link := filepath.Join(dir, "brew", "aim")
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Symlink(exe, link); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Chdir(dir)
+
+	lookup := func(found string, err error) func(string) (string, error) {
+		return func(string) (string, error) { return found, err }
+	}
+
+	tests := []struct {
+		name string
+		arg0 string
+		look func(string) (string, error)
+		want string
+	}{
+		{"found on PATH, same file", "aim", lookup(exe, nil), exe},
+		{"relative, same file", "./real/aim", lookup("", errors.New("unused")), exe},
+		{"another file", "aim", lookup(other, nil), exe},
+		{"lookup error", "aim", lookup("", errors.New("not found")), exe},
+		{"symlink to exe", "aim", lookup(link, nil), link},
+		{"empty arg0", "", lookup(exe, nil), exe},
+	}
+
+	for _, tt := range tests {
+		if got := wrapperTarget(tt.arg0, exe, tt.look); got != tt.want {
+			t.Errorf("%s: wrapperTarget = %q, want %q", tt.name, got, tt.want)
+		}
 	}
 }
 
@@ -352,7 +502,7 @@ func TestWatchSeqResolvesTheRootFromASubdirectory(t *testing.T) {
 func TestHookNextPromptWritesTheEnd(t *testing.T) {
 	repo := seededRepo(t)
 
-	h, err := setupHooks(discardLogger(), shortDir(t), "", testWatches(t), testPlaces())
+	h, err := setupHooks(discardLogger(), shortDir(t), "", testWatches(t), testPlaces(), false)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -75,6 +75,13 @@
 ## values: true | false
 # native = true
 
+[shell]
+## Give a claude typed in a pane's shell AIM's hooks, as a claude AIM starts
+## has: a wrapper first on the shell's PATH and a claude function, from
+## files in AIM's state directory. Your startup files are not changed.
+## values: true | false
+# integration = true
+
 [diff]
 ## The layout a new review drawer starts in.
 ## values: unified | split
