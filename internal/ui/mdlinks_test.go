@@ -45,7 +45,7 @@ type linkRig struct {
 func newLinkRig(t *testing.T) *linkRig {
 	t.Helper()
 
-	m := newPageRig(t, map[string]string{
+	m := newRealPageRig(t, map[string]string{
 		"docs/a.md":    linkDoc,
 		"docs/b.md":    "# Bee\n\nbee words\n",
 		"docs/code.go": "package docs\n",
@@ -767,7 +767,7 @@ func TestFoldHintFollowsBinding(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			m := &linkRig{pageRig: newPageRig(t, map[string]string{"docs/a.md": linkDoc}, func(o *Options) { o.Keys = tt.cfg })}
+			m := &linkRig{pageRig: newRealPageRig(t, map[string]string{"docs/a.md": linkDoc}, func(o *Options) { o.Keys = tt.cfg })}
 
 			check := func(where string) {
 				t.Helper()

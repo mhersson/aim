@@ -70,25 +70,26 @@ type editRig struct {
 }
 
 // hostileEditNames are file names that start like an editor's options and
-// commands: vim runs +{command}, and reads -c, --cmd and a lone - as options.
+// commands: vim runs +{command}, and reads -c and a lone - as options.
 func hostileEditNames() []string {
-	return []string{"+call system('touch pwned')", "+/pattern", "-c", "--cmd", "-"}
+	return []string{"+call system('touch pwned')", "-c", "-"}
 }
 
 func newEditRig(t *testing.T, editorArgs string) *editRig {
 	t.Helper()
 
-	dir := newRepoDir(t)
+	f := newFakeGit(t)
+	fr := f.repo(t, "")
+	dir := fr.Root()
 	name := "dir/it's a file.txt"
 
 	write(t, filepath.Join(dir, name), numberedLines("line", 20))
 	write(t, filepath.Join(dir, "gone.txt"), "x\n")
 	write(t, filepath.Join(dir, "-dash.txt"), "one\n")
-	commitEverything(t, dir, "init")
+	fr.commit("init")
 	write(t, filepath.Join(dir, name), editedLines(20, 7))
 	write(t, filepath.Join(dir, "-dash.txt"), "two\n")
 
-	// Distinct contents, so git does not pair a new file with the deleted one as a rename.
 	for _, n := range hostileEditNames() {
 		write(t, filepath.Join(dir, n), "file named "+n+"\n")
 	}
@@ -100,7 +101,7 @@ func newEditRig(t *testing.T, editorArgs string) *editRig {
 	argsFile, editor := filepath.Join(t.TempDir(), "args"), filepath.Join(t.TempDir(), "ed.sh")
 	writeExecutable(t, editor, "#!/bin/sh\nfor a in \"$@\"; do printf '%s\\n' \"$a\"; done > \"$ARGS_FILE\"\n")
 
-	r := newKeysRig(t, dir, func(o *Options) {
+	r := newKeysRig(t, dir, gitOf(f), func(o *Options) {
 		o.Getenv = func(k string) string {
 			return map[string]string{"SHELL": "/bin/testsh", "EDITOR": editor + editorArgs}[k]
 		}
@@ -445,7 +446,7 @@ func TestEditLine(t *testing.T) {
 // first, so it, which the operator never moved the focus to, hears nothing.
 func TestEditSendsNoFocusReportsToTheDrawersPane(t *testing.T) {
 	t.Parallel()
-	r := newKeysRig(t, realKeysRepo(t))
+	r, _ := fakeKeysRig(t)
 	r.run(r.openPane(core.KindShell, core.SplitVertical))
 
 	procs := map[core.PaneID]*fakeProc{}

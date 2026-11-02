@@ -79,12 +79,14 @@ func newMDRig(t *testing.T) *mdRig {
 func newMDRigOf(t *testing.T, committed, edited string) *mdRig {
 	t.Helper()
 
-	dir := newRepoDir(t)
+	f := newFakeGit(t)
+	fr := f.repo(t, "")
+	dir := fr.Root()
 	write(t, filepath.Join(dir, planPath), committed)
 	write(t, filepath.Join(dir, "main.go"), numberedLines("line", 40))
 	write(t, filepath.Join(dir, "bin.md"), "a\x00b\x00")
 	write(t, filepath.Join(dir, "gone.md"), "gone content\n")
-	commitEverything(t, dir, "init")
+	fr.commit("init")
 	write(t, filepath.Join(dir, planPath), edited)
 	write(t, filepath.Join(dir, "main.go"), editedLines(40, 3, 30))
 	write(t, filepath.Join(dir, "bin.md"), "c\x00d\x00")
@@ -93,7 +95,7 @@ func newMDRigOf(t *testing.T, committed, edited string) *mdRig {
 		t.Fatal(err)
 	}
 
-	r := newKeysRig(t, dir, func(o *Options) {
+	r := newKeysRig(t, dir, gitOf(f), func(o *Options) {
 		o.Getenv = func(k string) string { return map[string]string{"SHELL": "/bin/testsh", "EDITOR": "ed"}[k] }
 	})
 	st := &starts{}
@@ -101,7 +103,7 @@ func newMDRigOf(t *testing.T, committed, edited string) *mdRig {
 
 	v := r.opened(t)
 
-	return &mdRig{drawerRig: r, v: v, dir: dir, root: rootOf(t, dir), st: st}
+	return &mdRig{drawerRig: r, v: v, dir: dir, root: dir, st: st}
 }
 
 // drive feeds the messages of cmd and of what they return to Update, except

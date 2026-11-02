@@ -34,13 +34,6 @@ func zoomRig(t *testing.T) *drawerRig {
 	return zoomed(t, r)
 }
 
-// realZoomRig is zoomRig on real git.
-func realZoomRig(t *testing.T) *drawerRig {
-	t.Helper()
-
-	return zoomed(t, newKeysRig(t, realKeysRepo(t)))
-}
-
 func zoomed(t *testing.T, r *drawerRig) *drawerRig {
 	t.Helper()
 
@@ -158,7 +151,7 @@ func TestReviewZoomEverywhere(t *testing.T) {
 			return r
 		}, true},
 		{"page", func(t *testing.T) *drawerRig {
-			m := newPageRig(t, nil)
+			m := newRealPageRig(t, nil)
 			zoomLayout(t, m.drawerRig, 270, 75)
 			m.openPage(t, "README.md")
 
@@ -417,7 +410,7 @@ func TestReviewZoomHints(t *testing.T) {
 			return m.drawerRig
 		}, "]/[ change"},
 		{"page", func(t *testing.T) *drawerRig {
-			m := newPageRig(t, nil)
+			m := newRealPageRig(t, nil)
 			zoomLayout(t, m.drawerRig, 270, 75)
 			m.openPage(t, "README.md")
 

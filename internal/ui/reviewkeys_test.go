@@ -34,26 +34,6 @@ func keysRepo(t *testing.T, f *fakeGit) *fakeRepo {
 	return r
 }
 
-// realKeysRepo is keysRepo on real git.
-func realKeysRepo(t *testing.T) string {
-	t.Helper()
-
-	dir := newRepoDir(t)
-	files := []string{"a.txt", "dir/b.txt", "dir/sub/c.txt", "z.txt"}
-
-	for _, f := range files {
-		write(t, filepath.Join(dir, f), numberedLines("line", 40))
-	}
-
-	commitEverything(t, dir, "init")
-
-	for _, f := range files {
-		write(t, filepath.Join(dir, f), editedLines(40, 3, 30))
-	}
-
-	return dir
-}
-
 // editedLines is n numbered lines with the ones named in edits changed.
 func editedLines(n int, edits ...int) string {
 	var b strings.Builder

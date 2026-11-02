@@ -572,7 +572,7 @@ func TestDiffPartPieces(t *testing.T) {
 	}
 }
 
-// diffSel is a drawer rig on realKeysRepo with the drawer open, a fake clipboard
+// diffSel is a drawer rig on keysRepo with the drawer open, a fake clipboard
 // and the unified diff showing.
 type diffSel struct {
 	*drawerRig
@@ -585,8 +585,9 @@ type diffSel struct {
 func newDiffSel(t *testing.T) *diffSel {
 	t.Helper()
 
-	dir := realKeysRepo(t)
-	r := newKeysRig(t, dir)
+	f := newFakeGit(t)
+	dir := keysRepo(t, f).Root()
+	r := newKeysRig(t, dir, gitOf(f))
 	clip := fakeClip(r.App)
 	v := r.opened(t)
 
@@ -594,7 +595,7 @@ func newDiffSel(t *testing.T) *diffSel {
 		t.Fatal("setup: the diff is drawn side by side")
 	}
 
-	return &diffSel{drawerRig: r, v: v, clip: clip, dir: dir, root: rootOf(t, dir)}
+	return &diffSel{drawerRig: r, v: v, clip: clip, dir: dir, root: dir}
 }
 
 // rowCell is the screen cell of diff-column cell col on row row of the diff.
@@ -912,8 +913,8 @@ func TestDiffSelectionReload(t *testing.T) {
 			tt.edit(t, d.dir)
 
 			if tt.hidden {
-				d.batch(d.root, git.Batch{Paths: []string{"a.txt"}})
-				d.until(t, "the watcher to report a.txt", d.reportedAll(filepath.Join(d.root, "a.txt")))
+				d.fake.watches.send(d.root, git.Batch{Paths: []string{"a.txt"}})
+				d.until(t, "the batch to arrive", d.reportedAll(filepath.Join(d.root, "a.txt")))
 
 				openIn(t, d.App, core.SelectTab{Index: 0})
 
@@ -1075,10 +1076,12 @@ func TestDiffPiecesCopyEdges(t *testing.T) {
 }
 
 // newSplitSel is newDiffSel with the diff side by side.
-func newSplitSel(t *testing.T, dir string) *diffSel {
+func newSplitSel(t *testing.T, build func(*testing.T, *fakeGit) *fakeRepo) *diffSel {
 	t.Helper()
 
-	r := newKeysRig(t, dir)
+	f := newFakeGit(t)
+	dir := build(t, f).Root()
+	r := newKeysRig(t, dir, gitOf(f))
 	clip := fakeClip(r.App)
 	v := r.opened(t)
 
@@ -1089,7 +1092,7 @@ func newSplitSel(t *testing.T, dir string) *diffSel {
 		t.Fatal("setup: the diff is not side by side")
 	}
 
-	return &diffSel{drawerRig: r, v: v, clip: clip, dir: dir, root: rootOf(t, dir)}
+	return &diffSel{drawerRig: r, v: v, clip: clip, dir: dir, root: dir}
 }
 
 // splitCols are the diff-column cells of a side by side row: where each side's
@@ -1107,16 +1110,17 @@ func (d *diffSel) splitCols(t *testing.T) (leftCode, sep, rightCode int) {
 
 // insertedRepo is a file with two lines added between two kept ones, so the
 // two side by side rows of the added lines have a blank left side.
-func insertedRepo(t *testing.T) string {
+func insertedRepo(t *testing.T, f *fakeGit) *fakeRepo {
 	t.Helper()
 
-	dir := newRepoDir(t)
+	r := f.repo(t, "")
+	dir := r.Root()
 
 	write(t, filepath.Join(dir, "f.txt"), "alpha\nbravo\ncharlie\ndelta\n")
-	commitEverything(t, dir, "init")
+	r.commit("init")
 	write(t, filepath.Join(dir, "f.txt"), "alpha\nbravo\nnew one\nnew two\ncharlie\ndelta\n")
 
-	return dir
+	return r
 }
 
 // rightHalfOffset is how far into the right side's code a drag ends to be "in
@@ -1125,16 +1129,17 @@ const rightHalfOffset = 3
 
 // removedRepo is a file with two lines removed between two kept ones, so the
 // two side by side rows of the removed lines have a blank right side.
-func removedRepo(t *testing.T) string {
+func removedRepo(t *testing.T, f *fakeGit) *fakeRepo {
 	t.Helper()
 
-	dir := newRepoDir(t)
+	r := f.repo(t, "")
+	dir := r.Root()
 
 	write(t, filepath.Join(dir, "f.txt"), "alpha\nbravo\nold one\nold two\ncharlie\ndelta\n")
-	commitEverything(t, dir, "init")
+	r.commit("init")
 	write(t, filepath.Join(dir, "f.txt"), "alpha\nbravo\ncharlie\ndelta\n")
 
-	return dir
+	return r
 }
 
 func TestSplitCopyKey(t *testing.T) {
@@ -1142,7 +1147,7 @@ func TestSplitCopyKey(t *testing.T) {
 
 	cases := []struct {
 		name string
-		repo func(*testing.T) string
+		repo func(*testing.T, *fakeGit) *fakeRepo
 		row  string
 		want string
 	}{
@@ -1155,7 +1160,7 @@ func TestSplitCopyKey(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			d := newSplitSel(t, tt.repo(t))
+			d := newSplitSel(t, tt.repo)
 			d.v.cursor = rowWith(t, d.v, tt.row)
 			d.drawerTake()
 			run(d.App, press(d.App, keyRune('y')))
@@ -1172,7 +1177,7 @@ func TestSplitSelectionSide(t *testing.T) {
 
 	cases := []struct {
 		name string
-		repo func(*testing.T) string
+		repo func(*testing.T, *fakeGit) *fakeRepo
 		// The rows are named by their text; the columns come from where the
 		// layout puts the left code, the divider and the right code.
 		row0, row1 string
@@ -1182,35 +1187,35 @@ func TestSplitSelectionSide(t *testing.T) {
 	}{
 		{
 			name: "left code to the right half of the next row",
-			repo: realKeysRepo, row0: "line 3", row1: "line 4",
+			repo: keysRepo, row0: "line 3", row1: "line 4",
 			col0: func(l, _, _ int) int { return l },
 			col1: func(_, _, r int) int { return r + rightHalfOffset },
 			want: "line 3\nline 4", wantSide: 0,
 		},
 		{
 			name: "right code",
-			repo: realKeysRepo, row0: "line 3", row1: "line 3",
+			repo: keysRepo, row0: "line 3", row1: "line 3",
 			col0: func(_, _, r int) int { return r },
 			col1: func(_, _, r int) int { return r + len("edited 3") - 1 },
 			want: "edited 3", wantSide: 1,
 		},
 		{
 			name: "press on the left number column",
-			repo: realKeysRepo, row0: "line 3", row1: "line 3",
+			repo: keysRepo, row0: "line 3", row1: "line 3",
 			col0: func(l, _, _ int) int { return markW + 1 },
 			col1: func(l, _, _ int) int { return l + len("line 3") - 1 },
 			want: "line 3", wantSide: 0,
 		},
 		{
 			name: "press on the right number column",
-			repo: realKeysRepo, row0: "line 3", row1: "line 3",
+			repo: keysRepo, row0: "line 3", row1: "line 3",
 			col0: func(_, _, r int) int { return r - 2 },
 			col1: func(_, _, r int) int { return r + len("edited 3") - 1 },
 			want: "edited 3", wantSide: 1,
 		},
 		{
 			name: "press on the divider",
-			repo: realKeysRepo, row0: "line 3", row1: "line 4",
+			repo: keysRepo, row0: "line 3", row1: "line 4",
 			col0: func(_, sep, _ int) int { return sep },
 			col1: func(l, _, _ int) int { return l + len("line 4") - 1 },
 			want: "\nline 4", wantSide: 0,
@@ -1235,7 +1240,7 @@ func TestSplitSelectionSide(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			d := newSplitSel(t, tt.repo(t))
+			d := newSplitSel(t, tt.repo)
 			l, sep, r := d.splitCols(t)
 			r0, r1 := rowWith(t, d.v, tt.row0), rowWith(t, d.v, tt.row1)
 
@@ -1255,7 +1260,7 @@ func TestSplitSelectionSide(t *testing.T) {
 // Not parallel: the drawer highlights code, which takes the highlighter's time.
 func TestSplitSelectionPaint(t *testing.T) {
 	for _, side := range []int{0, 1} {
-		d := newSplitSel(t, realKeysRepo(t))
+		d := newSplitSel(t, keysRepo)
 		pair := rowWith(t, d.v, "line 3")
 		l, sep, r := d.splitCols(t)
 		lay := d.layout(t)
@@ -1350,7 +1355,7 @@ func edgeOverlay(t *testing.T) edgeCase {
 func edgeDiff(t *testing.T) edgeCase {
 	t.Helper()
 
-	r := newKeysRig(t, realKeysRepo(t))
+	r, _ := fakeKeysRig(t)
 	fakeClip(r.App)
 	v := r.opened(t)
 
@@ -1867,24 +1872,26 @@ func counted(n int) string {
 }
 
 // wrapRepo is a file with the line add inserted after its second line.
-func wrapRepo(t *testing.T, add string) string {
+func wrapRepo(t *testing.T, f *fakeGit, add string) *fakeRepo {
 	t.Helper()
 
-	dir := newRepoDir(t)
+	r := f.repo(t, "")
+	dir := r.Root()
 
 	write(t, filepath.Join(dir, "f.txt"), "alpha\nbravo\ncharlie\ndelta\n")
-	commitEverything(t, dir, "init")
+	r.commit("init")
 	write(t, filepath.Join(dir, "f.txt"), "alpha\nbravo\n"+add+"\ncharlie\ndelta\n")
 
-	return dir
+	return r
 }
 
 // newWrapSel is a unified diff rig on wrapRepo and the row of the line's first part.
 func newWrapSel(t *testing.T, line string) (*diffSel, int) {
 	t.Helper()
 
-	dir := wrapRepo(t, line)
-	r := newKeysRig(t, dir)
+	f := newFakeGit(t)
+	dir := wrapRepo(t, f, line).Root()
+	r := newKeysRig(t, dir, gitOf(f))
 	clip := fakeClip(r.App)
 	v := r.opened(t)
 
@@ -1892,7 +1899,7 @@ func newWrapSel(t *testing.T, line string) (*diffSel, int) {
 		t.Fatal("setup: the diff is drawn side by side")
 	}
 
-	d := &diffSel{drawerRig: r, v: v, clip: clip, dir: dir, root: rootOf(t, dir)}
+	d := &diffSel{drawerRig: r, v: v, clip: clip, dir: dir, root: dir}
 	row := rowWith(t, v, line[:8])
 
 	if v.wrapW.line <= 0 || v.wrapW.line*2 >= len(line) {
@@ -1975,14 +1982,18 @@ func TestWrappedDoubleClick(t *testing.T) {
 func TestWrappedSplitCopy(t *testing.T) {
 	t.Parallel()
 
-	dir := newRepoDir(t)
 	long := counted(100)
 
-	write(t, filepath.Join(dir, "f.txt"), "alpha\nold one\ncharlie\n")
-	commitEverything(t, dir, "init")
-	write(t, filepath.Join(dir, "f.txt"), "alpha\n"+long+"\ncharlie\n")
+	d := newSplitSel(t, func(t *testing.T, f *fakeGit) *fakeRepo {
+		r := f.repo(t, "")
+		dir := r.Root()
 
-	d := newSplitSel(t, dir)
+		write(t, filepath.Join(dir, "f.txt"), "alpha\nold one\ncharlie\n")
+		r.commit("init")
+		write(t, filepath.Join(dir, "f.txt"), "alpha\n"+long+"\ncharlie\n")
+
+		return r
+	})
 	row := rowWith(t, d.v, "old one")
 	l, _, r := d.splitCols(t)
 
@@ -2051,7 +2062,7 @@ func TestWrappedFullViewWhileSplit(t *testing.T) {
 	t.Parallel()
 
 	line := counted(600)
-	d := newSplitSel(t, wrapRepo(t, line))
+	d := newSplitSel(t, func(t *testing.T, f *fakeGit) *fakeRepo { return wrapRepo(t, f, line) })
 
 	d.keys(keyRune('f'))
 	d.until(t, "the full file", func() bool { return len(d.v.full) == 1 })

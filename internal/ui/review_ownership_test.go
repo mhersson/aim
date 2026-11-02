@@ -13,7 +13,7 @@ import (
 func sideBySide(t *testing.T) (*drawerRig, *reviewView) {
 	t.Helper()
 
-	r := newKeysRig(t, realKeysRepo(t))
+	r, _ := fakeKeysRig(t)
 	r.run(r.openPane(core.KindAgent, core.SplitVertical))
 	openIn(t, r.App, core.FocusPane{ID: "p1"})
 
@@ -132,8 +132,7 @@ func TestKeyboardOwnerWhenPanesClose(t *testing.T) {
 	})
 
 	t.Run("another pane closes", func(t *testing.T) {
-		dir := realKeysRepo(t)
-		r := newKeysRig(t, dir)
+		r, dir := fakeKeysRig(t)
 		r.openShell(t, dir, core.SplitVertical)
 		openIn(t, r.App, core.FocusPane{ID: "p1"})
 
@@ -152,8 +151,7 @@ func TestKeyboardOwnerWhenPanesClose(t *testing.T) {
 	})
 
 	t.Run("the focused pane closes and the drawer is not on it", func(t *testing.T) {
-		dir := realKeysRepo(t)
-		r := newKeysRig(t, dir)
+		r, dir := fakeKeysRig(t)
 		r.openShell(t, dir, core.SplitVertical)
 		openIn(t, r.App, core.FocusPane{ID: "p1"})
 
@@ -178,8 +176,7 @@ func TestKeyboardOwnerWhenPanesClose(t *testing.T) {
 // when the tab shows again.
 func TestTabSwitchToACoveredFocusGivesTheDrawerTheKeyboard(t *testing.T) {
 	t.Parallel()
-	dir := realKeysRepo(t)
-	r := newKeysRig(t, dir)
+	r, dir := fakeKeysRig(t)
 	r.openShell(t, dir, core.SplitVertical)
 	r.opened(t)
 
@@ -206,8 +203,7 @@ func TestTabSwitchToACoveredFocusGivesTheDrawerTheKeyboard(t *testing.T) {
 // moved into that tab and followed still closes the drawer when it lands under it.
 func TestPaneMovedIntoARestoredDrawersTab(t *testing.T) {
 	t.Parallel()
-	dir := realKeysRepo(t)
-	r := newKeysRig(t, dir)
+	r, dir := fakeKeysRig(t)
 
 	openIn(t, r.App, core.OpenReview{Pane: "p1", Mode: core.ReviewBranch})
 	r.settle()
@@ -243,8 +239,9 @@ func TestPaneMovedIntoARestoredDrawersTab(t *testing.T) {
 func closeLandsCovered(t *testing.T) (r *drawerRig, x, y core.PaneID) {
 	t.Helper()
 
-	dir := realKeysRepo(t)
-	r = newKeysRig(t, dir)
+	var dir string
+
+	r, dir = fakeKeysRig(t)
 
 	openIn(t, r.App, core.SetLayoutMode{Mode: core.ModeMaster, Area: r.bodyArea()})
 

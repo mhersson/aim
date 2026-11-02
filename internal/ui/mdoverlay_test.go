@@ -516,7 +516,7 @@ func TestMDOpenLate(t *testing.T) {
 func TestMDOverlayOverDrawer(t *testing.T) {
 	t.Parallel()
 
-	m := newPageRig(t, map[string]string{"docs/a.md": pageDoc + mdLinks})
+	m := newRealPageRig(t, map[string]string{"docs/a.md": pageDoc + mdLinks})
 	pane, root := m.store.State().Tab().Review.Pane, m.v.root
 
 	if !m.drawerHasKeys() {

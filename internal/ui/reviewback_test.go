@@ -5,7 +5,7 @@ import "testing"
 func TestReviewBackSteps(t *testing.T) {
 	t.Parallel()
 
-	r := realZoomRig(t)
+	r := zoomRig(t)
 	st := r.store.State()
 	half, _ := r.drawerHalf(st)
 	body := r.bodyAreaIn(st.Rail)
@@ -73,7 +73,7 @@ func TestReviewBackPage(t *testing.T) {
 func TestReviewBackKeepsPin(t *testing.T) {
 	t.Parallel()
 
-	r := newRealFollowRig(t, "")
+	r := newFollowRig(t, "")
 	r.open(t, r.id)
 	r.pinTo(t, r.rootB)
 	r.until(t, "the drawer to show b", r.showing(r.rootB))
@@ -100,7 +100,7 @@ func TestReviewBackDuringSlides(t *testing.T) {
 	t.Run("un-zoom slide", func(t *testing.T) {
 		t.Parallel()
 
-		r := realZoomRig(t)
+		r := zoomRig(t)
 		half, _ := r.drawerHalf(r.store.State())
 
 		r.keys(keyRune('z'))
@@ -131,7 +131,7 @@ func TestReviewBackDuringSlides(t *testing.T) {
 	t.Run("zoom slide", func(t *testing.T) {
 		t.Parallel()
 
-		r := realZoomRig(t)
+		r := zoomRig(t)
 
 		r.keys(keyRune('z'))
 
@@ -149,7 +149,7 @@ func TestReviewBackDuringSlides(t *testing.T) {
 	t.Run("open slide", func(t *testing.T) {
 		t.Parallel()
 
-		r := newKeysRig(t, realKeysRepo(t))
+		r, _ := fakeKeysRig(t)
 		r.leader('d')
 		r.until(t, "the drawer to open", func() bool { return r.store.State().Tab().Review != nil })
 
@@ -173,7 +173,7 @@ func TestReviewBackDuringSlides(t *testing.T) {
 	t.Run("close slide", func(t *testing.T) {
 		t.Parallel()
 
-		r := realZoomRig(t)
+		r := zoomRig(t)
 		r.leader('d')
 
 		if !r.drawer.closing {
@@ -194,7 +194,7 @@ func TestReviewBackLeavesListAndChooser(t *testing.T) {
 	t.Run("worktree list", func(t *testing.T) {
 		t.Parallel()
 
-		r := newRealFollowRig(t, "")
+		r := newFollowRig(t, "")
 		r.open(t, r.id)
 		r.openList(t)
 
@@ -222,7 +222,7 @@ func TestReviewBackLeavesListAndChooser(t *testing.T) {
 func TestReviewBackRemapped(t *testing.T) {
 	t.Parallel()
 
-	r := realZoomRig(t)
+	r := zoomRig(t)
 	remapTables(t, r.App, drawerKeys("q", "review.back", "esc", "none"))
 
 	r.keys(keyRune('z'))

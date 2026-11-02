@@ -77,44 +77,6 @@ func newFollowRig(t *testing.T, session core.SessionID, opts ...func(*Options)) 
 	return r
 }
 
-// newRealFollowRig is the rig on the real git, for the tests that still run there.
-func newRealFollowRig(t *testing.T, session core.SessionID, opts ...func(*Options)) *followRig {
-	t.Helper()
-
-	r := &followRig{drawerRig: newDrawerRig(t, opts...), epochRoot: map[int]string{}}
-
-	r.dirA = newRepoDir(t)
-	write(t, filepath.Join(r.dirA, "a.txt"), "one\n")
-	commitEverything(t, r.dirA, "init")
-	write(t, filepath.Join(r.dirA, ".git", "info", "exclude"), ".worktrees/\n*.log\n")
-
-	r.dirB = filepath.Join(r.dirA, ".worktrees", "b")
-	gitIn(t, "git", r.dirA, "worktree", "add", "-q", "-b", "b", r.dirB)
-
-	r.dirC = newRepoDir(t)
-	write(t, filepath.Join(r.dirC, "c.txt"), "one\n")
-	commitEverything(t, r.dirC, "init")
-	gitIn(t, "git", r.dirC, "checkout", "-q", "-b", "other")
-
-	r.rootA, r.rootB, r.rootC = rootOf(t, r.dirA), rootOf(t, r.dirB), rootOf(t, r.dirC)
-
-	// The cache is the app's own, over a resolver that counts what reaches git.
-	places := git.NewPlaceCache(func(ctx context.Context, path string) (git.Place, error) {
-		r.mu.Lock()
-		r.resolved = append(r.resolved, path)
-		r.mu.Unlock()
-
-		return git.EditPlace(ctx, path)
-	}, time.Now)
-	r.edits.resolve = places.Place
-
-	r.id = r.agent(t, r.dirA, session)
-	r.settle()
-	r.watching(t, r.id, r.rootA)
-
-	return r
-}
-
 func (r *followRig) resolverCalls() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()

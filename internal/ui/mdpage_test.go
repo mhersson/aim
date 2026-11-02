@@ -156,11 +156,45 @@ type pageRig struct {
 	st   *starts
 }
 
-// newPageRig opens a drawer on a repository; extra adds files to the worktree.
+// newPageRig opens a drawer on a fake git's repository; extra adds files to the worktree.
 func newPageRig(t *testing.T, extra map[string]string, opts ...func(*Options)) *pageRig {
 	t.Helper()
 
+	f := newFakeGit(t)
+	dir := fakePageRepo(t, f, extra).Root()
+	m := bareRigAt(t, dir, dir, append([]func(*Options){gitOf(f)}, opts...)...)
+	m.v = m.opened(t)
+
+	return m
+}
+
+// newRealPageRig is newPageRig on real git.
+func newRealPageRig(t *testing.T, extra map[string]string, opts ...func(*Options)) *pageRig {
+	t.Helper()
+
 	return openPageRig(t, pageRepo(t, extra), opts...)
+}
+
+// fakePageRepo is pageRepo on a fake git.
+func fakePageRepo(t *testing.T, f *fakeGit, extra map[string]string) *fakeRepo {
+	t.Helper()
+
+	r := f.repo(t, "")
+	dir := r.Root()
+	write(t, filepath.Join(dir, "README.md"), "# Readme\n\nhello there\n")
+	write(t, filepath.Join(dir, "docs/a.md"), pageDoc)
+	write(t, filepath.Join(dir, ".gitignore"), "notes/\n")
+	write(t, filepath.Join(dir, "main.go"), numberedLines("line", 40))
+	r.ignore("notes/")
+	r.commit("init")
+	write(t, filepath.Join(dir, "notes/b.md"), "# Ignored\n")
+	write(t, filepath.Join(dir, "main.go"), editedLines(40, 3, 30))
+
+	for name, text := range extra {
+		write(t, filepath.Join(dir, name), text)
+	}
+
+	return r
 }
 
 // pageRepo is the page rig's repository: README.md, docs/a.md and an ignored
@@ -197,6 +231,13 @@ func openPageRig(t *testing.T, dir string, opts ...func(*Options)) *pageRig {
 func bareRig(t *testing.T, dir string, opts ...func(*Options)) *pageRig {
 	t.Helper()
 
+	return bareRigAt(t, dir, rootOf(t, dir), opts...)
+}
+
+// bareRigAt is bareRig with the repository's root given.
+func bareRigAt(t *testing.T, dir, root string, opts ...func(*Options)) *pageRig {
+	t.Helper()
+
 	r := newKeysRig(t, dir, append([]func(*Options){func(o *Options) {
 		o.Getenv = func(k string) string {
 			return map[string]string{"SHELL": "/bin/testsh", "EDITOR": "ed", "HOME": "/home/test"}[k]
@@ -206,7 +247,7 @@ func bareRig(t *testing.T, dir string, opts ...func(*Options)) *pageRig {
 	r.start = st.start
 	r.icons = true
 
-	return &pageRig{drawerRig: r, dir: dir, st: st, root: rootOf(t, dir)}
+	return &pageRig{drawerRig: r, dir: dir, st: st, root: root}
 }
 
 // flow feeds the messages of cmd, and of what Update returns for them, to Update,
@@ -310,7 +351,7 @@ func TestMarkdownPageLate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			m := newPageRig(t, nil)
+			m := newRealPageRig(t, nil)
 			shown := m.openPage(t, "README.md")
 			held := m.flow(m.openMarkdownPage(m.tabID(), filepath.Join(m.root, "docs/a.md")), holdPages)
 
@@ -330,7 +371,7 @@ func TestMarkdownPageLate(t *testing.T) {
 	t.Run("a page read after b", func(t *testing.T) {
 		t.Parallel()
 
-		m := newPageRig(t, nil)
+		m := newRealPageRig(t, nil)
 		held := m.flow(m.openMarkdownPage(m.tabID(), filepath.Join(m.root, "docs/a.md")), holdPages)
 
 		m.press(keyRune('b'))
@@ -344,7 +385,7 @@ func TestMarkdownPageLate(t *testing.T) {
 	t.Run("a page read after a retarget", func(t *testing.T) {
 		t.Parallel()
 
-		m := newPageRig(t, nil)
+		m := newRealPageRig(t, nil)
 		held := m.flow(m.openMarkdownPage(m.tabID(), filepath.Join(m.root, "docs/a.md")), holdPages)
 
 		m.flow(m.reviewRetarget(m.tabID(), m.v, 0), nil)
@@ -358,7 +399,7 @@ func TestMarkdownPageLate(t *testing.T) {
 	t.Run("a page read after another", func(t *testing.T) {
 		t.Parallel()
 
-		m := newPageRig(t, nil)
+		m := newRealPageRig(t, nil)
 		first := m.flow(m.openMarkdownPage(m.tabID(), filepath.Join(m.root, "docs/a.md")), holdPages)
 		second := m.flow(m.openMarkdownPage(m.tabID(), filepath.Join(m.root, "README.md")), holdPages)
 
@@ -374,7 +415,7 @@ func TestMarkdownPageLate(t *testing.T) {
 func TestMarkdownOpenPageErrors(t *testing.T) {
 	t.Parallel()
 
-	m := newPageRig(t, nil)
+	m := newRealPageRig(t, nil)
 	write(t, filepath.Join(m.dir, "docs/link.md"), "x\n")
 
 	if err := os.Remove(filepath.Join(m.dir, "docs/link.md")); err != nil {
@@ -427,7 +468,7 @@ func TestMarkdownPageKeys(t *testing.T) {
 		fmt.Fprintf(long, "paragraph %d\n\n", i)
 	}
 
-	m := newPageRig(t, map[string]string{"docs/long.md": long.String()})
+	m := newRealPageRig(t, map[string]string{"docs/long.md": long.String()})
 
 	type snap struct {
 		pages, rows, cursor, lines int
@@ -654,7 +695,7 @@ func TestMarkdownPageKeys(t *testing.T) {
 func TestMarkdownPageStack(t *testing.T) {
 	t.Parallel()
 
-	m := newPageRig(t, nil)
+	m := newRealPageRig(t, nil)
 	m.v.cursor = 3
 	diffCursor := m.v.cursor
 
@@ -722,7 +763,7 @@ func TestMarkdownPageReload(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			m := newPageRig(t, nil)
+			m := newRealPageRig(t, nil)
 			p := m.openPage(t, "docs/a.md")
 			p.view.cursor = pageLine(t, p, "Gamma")
 			p.view.clamp()
@@ -779,7 +820,7 @@ func TestMarkdownPageReload(t *testing.T) {
 	t.Run("a batch that finds the file as it was keeps the doc", func(t *testing.T) {
 		t.Parallel()
 
-		m := newPageRig(t, nil)
+		m := newRealPageRig(t, nil)
 		p := m.openPage(t, "docs/a.md")
 		old := p.view.doc
 
@@ -793,7 +834,7 @@ func TestMarkdownPageReload(t *testing.T) {
 	t.Run("a page of an ignored file follows its file", func(t *testing.T) {
 		t.Parallel()
 
-		m := newPageRig(t, nil)
+		m := newRealPageRig(t, nil)
 		p := m.openPage(t, "notes/b.md")
 
 		write(t, filepath.Join(m.dir, "notes/b.md"), "# Ignored\n\nfirst\n\nsecond\n")
@@ -818,7 +859,7 @@ func TestMarkdownPageReload(t *testing.T) {
 	t.Run("a page under another reads again when it shows", func(t *testing.T) {
 		t.Parallel()
 
-		m := newPageRig(t, nil)
+		m := newRealPageRig(t, nil)
 		low := m.openPage(t, "docs/a.md")
 		m.openPage(t, "README.md")
 
@@ -842,7 +883,7 @@ func TestMarkdownPageReload(t *testing.T) {
 	t.Run("an answer for a page that is gone", func(t *testing.T) {
 		t.Parallel()
 
-		m := newPageRig(t, nil)
+		m := newRealPageRig(t, nil)
 		m.openPage(t, "docs/a.md")
 
 		held := m.flow(m.batch(m.root, git.Batch{Paths: []string{"docs/a.md"}}), holdPages)
@@ -885,7 +926,7 @@ func TestMarkdownPageDropped(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			m := newPageRig(t, nil)
+			m := newRealPageRig(t, nil)
 			m.openPage(t, "docs/a.md")
 			m.openPage(t, "README.md")
 
@@ -904,7 +945,7 @@ func TestMarkdownPageMouse(t *testing.T) {
 		fmt.Fprintf(long, "paragraph %d\n\n", i)
 	}
 
-	m := newPageRig(t, map[string]string{"docs/long.md": long.String()})
+	m := newRealPageRig(t, map[string]string{"docs/long.md": long.String()})
 	p := m.openPage(t, "docs/long.md")
 	rect := mustRect(t, m.drawerRig)
 
@@ -953,7 +994,7 @@ func TestMarkdownPageMouse(t *testing.T) {
 func TestMarkdownPageEdit(t *testing.T) {
 	t.Parallel()
 
-	m := newPageRig(t, nil)
+	m := newRealPageRig(t, nil)
 	p := m.openPage(t, "docs/a.md")
 	p.view.cursor = pageLine(t, p, "Beta")
 	p.view.clamp()
@@ -994,7 +1035,7 @@ func mdPageScene(th string, icons bool) reviewScene {
 func TestMarkdownPagePushes(t *testing.T) {
 	t.Parallel()
 
-	m := newPageRig(t, nil)
+	m := newRealPageRig(t, nil)
 
 	first := m.openPage(t, "docs/a.md")
 	second := m.openPage(t, "README.md")

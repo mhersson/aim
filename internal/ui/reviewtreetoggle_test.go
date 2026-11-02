@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
@@ -42,13 +41,6 @@ func treeRig(t *testing.T, w, h int, from treeStart) (*drawerRig, *reviewView) {
 	return treeRigOn(t, r, w, h, from)
 }
 
-// realTreeRig is treeRig on real git.
-func realTreeRig(t *testing.T, w, h int, from treeStart) (*drawerRig, *reviewView) {
-	t.Helper()
-
-	return treeRigOn(t, newKeysRig(t, realKeysRepo(t)), w, h, from)
-}
-
 func treeRigOn(t *testing.T, r *drawerRig, w, h int, from treeStart) (*drawerRig, *reviewView) {
 	t.Helper()
 
@@ -84,82 +76,75 @@ func TestReviewTreeToggle(t *testing.T) {
 
 	tests := []struct {
 		name     string
+		narrow   bool // the 58 inner column window, else the 120 one
 		from     treeStart
 		key      tea.KeyPressMsg
 		wantOpen bool // the tree is open in core afterwards
 		wantKeys bool // and the tree has the keyboard
 		jumps    bool // the cursor goes to the selected file's header
 	}{
-		{"tab in the diff shows a hidden tree and gives it the keyboard", treeStartHidden, keyTab, true, true, false},
-		{"tab in the diff gives a shown tree the keyboard", treeStartIdle, keyTab, true, true, false},
-		{"tab in the tree hides it and keeps the cursor", treeStartKeyed, keyTab, false, false, false},
-		{"enter in the tree jumps to the file and leaves it shown", treeStartKeyed, keyEnter, true, false, true},
-		{"esc in the tree keeps the cursor and leaves it shown", treeStartKeyed, keyEsc, true, false, false},
+		{"tab in the diff shows a hidden tree and gives it the keyboard", false, treeStartHidden, keyTab, true, true, false},
+		{"tab in the diff shows a hidden tree in a narrow drawer", true, treeStartHidden, keyTab, true, true, false},
+		{"tab in the diff gives a shown tree the keyboard", false, treeStartIdle, keyTab, true, true, false},
+		{"tab in the tree hides it and keeps the cursor", false, treeStartKeyed, keyTab, false, false, false},
+		{"enter in the tree jumps to the file and leaves it shown", false, treeStartKeyed, keyEnter, true, false, true},
+		{"esc in the tree keeps the cursor and leaves it shown", false, treeStartKeyed, keyEsc, true, false, false},
 	}
 
-	for _, win := range treeWindows {
-		for _, tt := range tests {
-			t.Run(fmt.Sprintf("%s/%s", win.name, tt.name), func(t *testing.T) {
-				r, v := realTreeRig(t, win.w, win.h, tt.from)
-
-				if got := r.layout(t).innerW; got != win.want {
-					t.Fatalf("setup: inner width %d, want %d", got, win.want)
-				}
-
-				cursor, selected := v.cursor, v.treeSel
-
-				r.keys(tt.key)
-
-				if got := treeIsOpen(r.App); got != tt.wantOpen {
-					t.Errorf("tree open in core = %v, want %v", got, tt.wantOpen)
-				}
-
-				if got := r.layout(t).treeW > 0; got != tt.wantOpen {
-					t.Errorf("tree drawn = %v, want %v", got, tt.wantOpen)
-				}
-
-				if r.drawer.tree != tt.wantKeys || !r.drawer.focused {
-					t.Errorf("tree has the keyboard = %v, drawer has it = %v, want %v and true", r.drawer.tree, r.drawer.focused, tt.wantKeys)
-				}
-
-				switch {
-				case tt.jumps && (fileAtCursor(v) != "z.txt" || v.rows[v.cursor].kind != rowFile):
-					t.Errorf("cursor on %s (kind %d), want z.txt's header", fileAtCursor(v), v.rows[v.cursor].kind)
-				case !tt.jumps && v.cursor != cursor:
-					t.Errorf("cursor moved from %d to %d, want it where it was", cursor, v.cursor)
-				}
-
-				if tt.from == treeStartHidden && v.treeSel != v.rows[v.cursor].file {
-					t.Errorf("tree selects file %d, want the cursor's file %d", v.treeSel, v.rows[v.cursor].file)
-				}
-
-				if tt.from == treeStartKeyed && v.treeSel != selected {
-					t.Errorf("selection moved from file %d to %d", selected, v.treeSel)
-				}
-			})
-		}
-	}
-}
-
-// A newly opened drawer draws no tree at any width, and its diff takes the whole
-// inner width.
-func TestNewDrawerDrawsNoTree(t *testing.T) {
-	t.Parallel()
-
-	for _, win := range []struct {
-		name string
-		w, h int
-	}{{"120 inner columns", 244, 40}, {"98 inner columns", 200, 50}, {"58 inner columns", 100, 30}} {
-		t.Run(win.name, func(t *testing.T) {
-			r, _ := realTreeRig(t, win.w, win.h, treeStartHidden)
-
-			lay := r.layout(t)
-			if lay.treeW != 0 || lay.diffW != lay.innerW {
-				t.Errorf("tree width %d and diff width %d in %d inner columns, want no tree and the whole width", lay.treeW, lay.diffW, lay.innerW)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			win := treeWindows[0]
+			if tt.narrow {
+				win = treeWindows[1]
 			}
 
-			if got := r.drawn(t); strings.Contains(got, "4 files") {
-				t.Errorf("the tree's totals row is drawn:\n%s", got)
+			r, v := treeRig(t, win.w, win.h, tt.from)
+
+			lay := r.layout(t)
+			if lay.innerW != win.want {
+				t.Fatalf("setup: inner width %d, want %d", lay.innerW, win.want)
+			}
+
+			// A newly opened drawer draws no tree, and its diff takes the whole inner width.
+			if tt.from == treeStartHidden {
+				if lay.treeW != 0 || lay.diffW != lay.innerW {
+					t.Fatalf("tree width %d and diff width %d in %d inner columns, want no tree and the whole width", lay.treeW, lay.diffW, lay.innerW)
+				}
+
+				if got := r.drawn(t); strings.Contains(got, "4 files") {
+					t.Fatalf("the tree's totals row is drawn:\n%s", got)
+				}
+			}
+
+			cursor, selected := v.cursor, v.treeSel
+
+			r.keys(tt.key)
+
+			if got := treeIsOpen(r.App); got != tt.wantOpen {
+				t.Errorf("tree open in core = %v, want %v", got, tt.wantOpen)
+			}
+
+			if got := r.layout(t).treeW > 0; got != tt.wantOpen {
+				t.Errorf("tree drawn = %v, want %v", got, tt.wantOpen)
+			}
+
+			if r.drawer.tree != tt.wantKeys || !r.drawer.focused {
+				t.Errorf("tree has the keyboard = %v, drawer has it = %v, want %v and true", r.drawer.tree, r.drawer.focused, tt.wantKeys)
+			}
+
+			switch {
+			case tt.jumps && (fileAtCursor(v) != "z.txt" || v.rows[v.cursor].kind != rowFile):
+				t.Errorf("cursor on %s (kind %d), want z.txt's header", fileAtCursor(v), v.rows[v.cursor].kind)
+			case !tt.jumps && v.cursor != cursor:
+				t.Errorf("cursor moved from %d to %d, want it where it was", cursor, v.cursor)
+			}
+
+			if tt.from == treeStartHidden && v.treeSel != v.rows[v.cursor].file {
+				t.Errorf("tree selects file %d, want the cursor's file %d", v.treeSel, v.rows[v.cursor].file)
+			}
+
+			if tt.from == treeStartKeyed && v.treeSel != selected {
+				t.Errorf("selection moved from file %d to %d", selected, v.treeSel)
 			}
 		})
 	}
@@ -169,8 +154,7 @@ func TestNewDrawerDrawsNoTree(t *testing.T) {
 func TestReopenedDrawerStartsWithTheTreeClosed(t *testing.T) {
 	t.Parallel()
 	t.Run("another pane", func(t *testing.T) {
-		dir := realKeysRepo(t)
-		r := newKeysRig(t, dir)
+		r, dir := fakeKeysRig(t)
 
 		// The drawer reviews the right pane, which it covers; p1 stays in view.
 		right := r.openShell(t, dir, core.SplitVertical)
@@ -195,7 +179,7 @@ func TestReopenedDrawerStartsWithTheTreeClosed(t *testing.T) {
 	})
 
 	t.Run("same pane", func(t *testing.T) {
-		r, _ := realTreeRig(t, 200, 50, treeStartIdle)
+		r, _ := treeRig(t, 200, 50, treeStartIdle)
 
 		// The first leader d closes the drawer and the second opens it again.
 		r.leader('d')
@@ -217,8 +201,7 @@ func TestReopenedDrawerStartsWithTheTreeClosed(t *testing.T) {
 // that its tab's drawer does not show.
 func TestReviewTreeIsPerTab(t *testing.T) {
 	t.Parallel()
-	dir := realKeysRepo(t)
-	r := newKeysRig(t, dir)
+	r, dir := fakeKeysRig(t)
 	r.opened(t)
 	r.keys(keyTab)
 
@@ -309,7 +292,7 @@ func TestResizeKeepsTheTreeOpen(t *testing.T) {
 		{"the diff has the keyboard", []tea.KeyPressMsg{keyTab, keyEsc}, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			r, _ := realTreeRig(t, 244, 40, treeStartHidden)
+			r, _ := treeRig(t, 244, 40, treeStartHidden)
 			r.keys(tt.keys...)
 
 			wide := r.layout(t)
@@ -346,7 +329,7 @@ func TestResizeKeepsTheTreeOpen(t *testing.T) {
 // Where a hidden tree would be, a click lands in the diff.
 func TestClickWhereAHiddenTreeWouldBe(t *testing.T) {
 	t.Parallel()
-	r, v := realTreeRig(t, 200, 50, treeStartHidden)
+	r, v := treeRig(t, 200, 50, treeStartHidden)
 	r.leader('h')
 
 	// Row 8 of the drawer is where a tree lists z.txt, after the mode and totals rows and a blank.

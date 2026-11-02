@@ -127,18 +127,6 @@ func editedRepo(t *testing.T, f *fakeGit) *fakeRepo {
 	return r
 }
 
-// realEditedRepo is editedRepo on real git.
-func realEditedRepo(t *testing.T) string {
-	t.Helper()
-
-	dir := newRepoDir(t)
-	write(t, filepath.Join(dir, "f.txt"), numberedLines("line", 60))
-	commitEverything(t, dir, "init")
-	write(t, filepath.Join(dir, "f.txt"), editedF(0))
-
-	return dir
-}
-
 // editedF is f.txt with lines 5 and 50 edited, under n inserted lines.
 func editedF(n int) string {
 	var b strings.Builder
