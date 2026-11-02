@@ -591,8 +591,8 @@ func TestPlanPicture(t *testing.T) {
 
 	r, jobs := planPicture(t, picturePageDoc)
 
-	if !strings.Contains(r.shown(t), "loading…") {
-		t.Fatalf("the plan shows:\n%s", r.shown(t))
+	if imgs := r.a.plan.view.layout().Images; len(imgs) != 1 || imgs[0].Rows != 0 {
+		t.Fatalf("the layout's images = %+v, want one with no rows yet", imgs)
 	}
 
 	if n := answerInfo(r.a, jobs, 5, 3, nil); n != 1 {

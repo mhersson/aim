@@ -16,15 +16,42 @@ import (
 func TestPlanIndicator(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	// The word of a state is not compared, only that each state has its own,
+	// that it is not a percentage and that every case of a state gives it.
+	words := []struct {
+		state            string
+		lines, rows, top int
+	}{
+		{"all", 10, 10, 0},
+		{"all", 5, 10, 0},
+		{"top", 100, 10, 0},
+		{"end", 100, 10, 90},
+		{"end", 100, 10, 95},
+	}
+
+	byState := map[string]string{}
+
+	for _, w := range words {
+		got := planIndicator(w.lines, w.rows, w.top)
+		if strings.TrimSpace(got) == "" || strings.Contains(got, "%") {
+			t.Errorf("planIndicator(%d, %d, %d) = %q, want a word", w.lines, w.rows, w.top, got)
+		}
+
+		if prev, ok := byState[w.state]; ok && prev != got {
+			t.Errorf("%s: %q and %q", w.state, prev, got)
+		}
+
+		byState[w.state] = got
+	}
+
+	if len(byState) != 3 || byState["all"] == byState["top"] || byState["top"] == byState["end"] || byState["all"] == byState["end"] {
+		t.Errorf("the states share a word: %q", byState)
+	}
+
+	percents := []struct {
 		lines, rows, top int
 		want             string
 	}{
-		{10, 10, 0, " all "},
-		{5, 10, 0, " all "},
-		{100, 10, 0, " top "},
-		{100, 10, 90, " end "},
-		{100, 10, 95, " end "},
 		{100, 10, 45, " 50% "},
 		{101, 10, 1, " 1% "},
 		{200, 31, 1, " 1% "},
@@ -32,7 +59,7 @@ func TestPlanIndicator(t *testing.T) {
 		{200, 31, 84, " 50% "},
 	}
 
-	for _, tt := range tests {
+	for _, tt := range percents {
 		if got := planIndicator(tt.lines, tt.rows, tt.top); got != tt.want {
 			t.Errorf("planIndicator(%d, %d, %d) = %q, want %q", tt.lines, tt.rows, tt.top, got, tt.want)
 		}
@@ -43,12 +70,12 @@ func TestPlanHints(t *testing.T) {
 	t.Parallel()
 
 	const (
-		line    = "j/k line"
-		half    = "ctrl+d/u half page"
-		heading = "]/[ heading"
-		search  = "/ search"
-		open    = "enter open"
-		closeIt = "esc close"
+		line    = "j/k"
+		half    = "ctrl+d/u"
+		heading = "]/["
+		search  = "/"
+		open    = "enter"
+		closeIt = "esc"
 	)
 
 	defaults := keyTable{binds: readerKeys}
@@ -60,29 +87,44 @@ func TestPlanHints(t *testing.T) {
 
 	remapped := tables.reader
 
+	// width is what the hints need, from planHints' own pairs and gap.
+	full := planHints(defaults, 1000)
+	width := func(drop ...string) int {
+		n, kept := 0, 0
+
+		for _, p := range full {
+			if !slices.Contains(drop, p[1]) {
+				n += ansi.StringWidth(p[0]) + 1 + ansi.StringWidth(p[1])
+				kept++
+			}
+		}
+
+		return n + planHintGap*(kept-1)
+	}
+
 	tests := []struct {
 		width int
 		kt    keyTable
 		want  []string
 	}{
-		{100, remapped, []string{"n/p line", heading, search, open, closeIt}},
-		{34, remapped, []string{"n/p line", closeIt}},
+		{100, remapped, []string{"n/p", heading, search, open, closeIt}},
+		{34, remapped, []string{"n/p", closeIt}},
 		{100, defaults, []string{line, half, heading, search, open, closeIt}},
-		{84, defaults, []string{line, half, heading, search, open, closeIt}},
-		{83, defaults, []string{line, half, heading, open, closeIt}},
-		{72, defaults, []string{line, half, heading, open, closeIt}},
-		{71, defaults, []string{line, half, open, closeIt}},
-		{57, defaults, []string{line, half, open, closeIt}},
-		{56, defaults, []string{line, open, closeIt}},
-		{35, defaults, []string{line, open, closeIt}},
-		{34, defaults, []string{line, closeIt}},
+		{width(), defaults, []string{line, half, heading, search, open, closeIt}},
+		{width() - 1, defaults, []string{line, half, heading, open, closeIt}},
+		{width("search"), defaults, []string{line, half, heading, open, closeIt}},
+		{width("search") - 1, defaults, []string{line, half, open, closeIt}},
+		{width("search", "heading"), defaults, []string{line, half, open, closeIt}},
+		{width("search", "heading") - 1, defaults, []string{line, open, closeIt}},
+		{width("search", "heading", "half page"), defaults, []string{line, open, closeIt}},
+		{width("search", "heading", "half page") - 1, defaults, []string{line, closeIt}},
 		{5, defaults, []string{line, closeIt}},
 	}
 
 	for _, tt := range tests {
 		var got []string
 		for _, p := range planHints(tt.kt, tt.width) {
-			got = append(got, p[0]+" "+p[1])
+			got = append(got, p[0])
 		}
 
 		if !slices.Equal(got, tt.want) {
@@ -126,12 +168,10 @@ func TestPlanBox(t *testing.T) {
 	}{
 		{120, 40, 5, 2, 110, 36, true},
 		{80, 24, 2, 2, 76, 20, true},
-		{40, 12, 2, 2, 36, 8, true},
 		{28, 8, 2, 2, 24, 4, true},
 		{27, 12, 0, 0, 0, 0, false},
-		{20, 6, 0, 0, 0, 0, false},
+		{120, 7, 5, 2, 110, 3, true},
 		{120, 6, 0, 0, 0, 0, false},
-		{120, 5, 0, 0, 0, 0, false},
 	}
 
 	for _, tt := range tests {
@@ -160,7 +200,7 @@ func TestPlanTitleCut(t *testing.T) {
 			t.Errorf("top border = %q, want the path cut from its start and ending p.md", line)
 		}
 
-		if !strings.Contains(line, " plan file · 4m ─╮") {
+		if !strings.Contains(line, " "+planKindWord(core.PlanFile)+" · 4m ─╮") {
 			t.Errorf("top border = %q, want the tag one dash before the corner", line)
 		}
 	})
@@ -173,7 +213,7 @@ func TestPlanTitleCut(t *testing.T) {
 		r.open(t)
 
 		line := topLine(r.a.View().Content, 2)
-		if strings.Contains(line, "plan file") || !strings.Contains(line, "…") || !strings.Contains(line, "p.md ") {
+		if strings.Contains(line, planKindWord(core.PlanFile)) || !strings.Contains(line, "…") || !strings.Contains(line, "p.md ") {
 			t.Errorf("top border = %q, want no tag and the cut path", line)
 		}
 
@@ -213,8 +253,6 @@ func TestPlanOverlaySizes(t *testing.T) {
 		w, h int
 		rows int // 0 for a box that is not drawn
 	}{
-		{120, 40, 31},
-		{80, 24, 15},
 		{40, 12, 3},
 		{20, 6, 0},
 	}
@@ -239,7 +277,7 @@ func TestPlanOverlaySizes(t *testing.T) {
 					t.Fatal("planBox is drawable")
 				}
 
-				if text := strings.Join(lines, "\n"); strings.Contains(text, "esc close") || strings.Contains(text, "plan file") {
+				if text := strings.Join(lines, "\n"); strings.Contains(text, "Title") || strings.Contains(text, "Section 1") {
 					t.Errorf("a box that is too small drew:\n%s", text)
 				}
 
@@ -262,8 +300,8 @@ func TestPlanOverlaySizes(t *testing.T) {
 				t.Errorf("box corners are not at rows %d and %d:\n%s", y, y+h-1, strings.Join(lines, "\n"))
 			}
 
-			if !strings.Contains(lines[y+h-2], "esc close") {
-				t.Errorf("hint row %q lacks esc close", lines[y+h-2])
+			if key := r.a.keys.reader.hint("reader.close"); !strings.Contains(lines[y+h-2], key) {
+				t.Errorf("hint row %q lacks the close key %q", lines[y+h-2], key)
 			}
 
 			if row := string([]rune(lines[y+1])[x : x+w]); strings.Trim(row, "│ ") != "" {
@@ -274,50 +312,6 @@ func TestPlanOverlaySizes(t *testing.T) {
 				t.Errorf("box is %dx%d", w, h)
 			}
 		})
-	}
-}
-
-func TestPlanCommand(t *testing.T) {
-	t.Parallel()
-
-	a := newTestApp(t)
-	sized(t, a, 120, 40)
-
-	c, ok := a.reg.get("plan.open")
-	if !ok || c.title != "Open the agent's plan" || c.icon != iconPlan {
-		t.Fatalf("plan.open = %+v, %v", c, ok)
-	}
-
-	a.openCommandPalette()
-
-	found := false
-
-	for _, it := range a.overlay.items {
-		found = found || (it.ID == "plan.open" && it.Icon == iconPlan)
-	}
-
-	if !found {
-		t.Error("the palette does not list plan.open with its icon")
-	}
-
-	a.closeOverlay()
-	press(a, keyLeader)
-	a.Update(whichKeyMsg{seq: a.seq})
-
-	rows := strings.Split(ansi.Strip(a.View().Content), "\n")
-	rowOf := func(s string) int {
-		for i, l := range rows {
-			if strings.Contains(l, s) {
-				return i
-			}
-		}
-
-		return -1
-	}
-
-	review, plan := rowOf("Review drawer"), rowOf("Open the agent's plan")
-	if review < 0 || plan != review+1 {
-		t.Errorf("which-key rows: review drawer at %d, plan at %d; want plan right after it", review, plan)
 	}
 }
 

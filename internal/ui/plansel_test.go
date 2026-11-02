@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -512,7 +513,8 @@ func TestPlanCloseClears(t *testing.T) {
 func TestEdgeScrollToEnd(t *testing.T) {
 	t.Parallel()
 
-	const n = 3000
+	// A few rows past the 31-row view, so the drag has to scroll.
+	const n = 40
 
 	r := newPlanRig(t, 100, 40)
 	fakeClip(r.a)
@@ -549,7 +551,7 @@ func TestEdgeScrollToEnd(t *testing.T) {
 		t.Errorf("first copied line = %q", lines[0])
 	}
 
-	if lines[n-1] != "• line 2999" {
+	if lines[n-1] != fmt.Sprintf("• line %d", n-1) {
 		t.Errorf("last copied line = %q", lines[n-1])
 	}
 }

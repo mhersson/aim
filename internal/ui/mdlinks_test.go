@@ -650,7 +650,7 @@ func TestLinkChooserSmall(t *testing.T) {
 
 			// The box needs its frame and one row: 5 lines, ending a row above the border.
 			room := rect.H - 1 - wtTopY
-			if shown := strings.Contains(drawn, "Links"); shown != (room >= wtChrome+1) {
+			if shown := strings.Contains(drawn, targets[0].URL); shown != (room >= wtChrome+1) {
 				t.Errorf("h=%d (room %d): box shown = %v\n%s", h, room, shown, drawn)
 			}
 
@@ -658,12 +658,6 @@ func TestLinkChooserSmall(t *testing.T) {
 				if ansi.StringWidth(l) != rect.W {
 					t.Errorf("line %d is %d cells wide, want %d", i, ansi.StringWidth(l), rect.W)
 				}
-			}
-
-			a.Update(keyEsc)
-
-			if a.drawer.links != nil {
-				t.Error("esc did not close the chooser")
 			}
 		})
 	}

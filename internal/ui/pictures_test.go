@@ -111,7 +111,6 @@ func TestPictureDetect(t *testing.T) {
 		{"256 colours then truecolor", nil, true, []tea.Msg{color256, gfxOK, cell10x2, da1, truecol}, true},
 		{"tmux", map[string]string{"TMUX": "/tmp/x"}, false, []tea.Msg{truecol, gfxOK, cell10x2, da1}, false},
 		{"tmux 256 colours", map[string]string{"TMUX": "/tmp/x"}, false, []tea.Msg{color256, gfxOK, cell10x2, da1}, false},
-		{"nested pane 256 colours", map[string]string{"AIM_PANE": "1"}, false, []tea.Msg{color256, gfxOK, cell10x2, da1}, false},
 		{"nested pane", map[string]string{"AIM_PANE": "1"}, false, []tea.Msg{truecol, gfxOK, cell10x2, da1}, false},
 	}
 

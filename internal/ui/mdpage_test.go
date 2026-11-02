@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -33,7 +34,15 @@ func TestReadLocalMarkdown(t *testing.T) {
 
 	write(t, filepath.Join(root, "in.md"), "inside\n")
 	write(t, filepath.Join(root, "sub", "deep.md"), "deep\n")
-	write(t, filepath.Join(root, "big.md"), strings.Repeat("x", 5<<20))
+
+	// A sparse file one byte past what a read keeps.
+	big := filepath.Join(root, "big.md")
+	write(t, big, "x")
+
+	if err := os.Truncate(big, md.MaxBytes+2); err != nil {
+		t.Fatal(err)
+	}
+
 	write(t, filepath.Join(outside, "secret.md"), "secret\n")
 
 	if err := os.Symlink(filepath.Join(outside, "secret.md"), filepath.Join(root, "link.md")); err != nil {
@@ -100,26 +109,33 @@ func TestMarkdownNotice(t *testing.T) {
 	home := "/home/me"
 	root := "/home/me/code/repo"
 
+	// shown is the path the notice names; reason is the text the error carries.
 	tests := []struct {
-		name string
-		path string
-		err  error
-		want string
+		name   string
+		path   string
+		err    error
+		shown  string
+		reason string
 	}{
-		{"outside, under home", "/home/me/other/x.md", errOutsideWorktree, "not opening ~/other/x.md: outside the worktree"},
-		{"outside, elsewhere", "/etc/hosts", errOutsideWorktree, "not opening /etc/hosts: outside the worktree"},
-		{"missing", root + "/docs/gone.md", &fs.PathError{Op: "stat", Path: "docs/gone.md", Err: fs.ErrNotExist}, "not opening docs/gone.md: no such file"},
-		{"a folder", root + "/docs", errIsFolder, "not opening docs: it is a folder"},
-		{"another reason", root + "/link.md", &fs.PathError{Op: "statat", Path: "link.md", Err: errors.New("path escapes from parent")}, "not opening link.md: path escapes from parent"},
-		{"a control character", root + "/a\x1b[31m.md", errIsFolder, "not opening a[31m.md: it is a folder"},
+		{"outside, under home", "/home/me/other/x.md", errOutsideWorktree, "~/other/x.md", errOutsideWorktree.Error()},
+		{"outside, elsewhere", "/etc/hosts", errOutsideWorktree, "/etc/hosts", errOutsideWorktree.Error()},
+		{"missing", root + "/docs/gone.md", &fs.PathError{Op: "stat", Path: "docs/gone.md", Err: fs.ErrNotExist}, "docs/gone.md", ""},
+		{"a folder", root + "/docs", errIsFolder, "docs", errIsFolder.Error()},
+		{"another reason", root + "/link.md", &fs.PathError{Op: "statat", Path: "link.md", Err: errors.New("path escapes from parent")}, "link.md", "path escapes from parent"},
+		{"a control character", root + "/a\x1b[31m.md", errIsFolder, "a[31m.md", errIsFolder.Error()},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := markdownNotice(root, tt.path, home, tt.err); got != tt.want {
-				t.Errorf("notice = %q, want %q", got, tt.want)
+			got := markdownNotice(root, tt.path, home, tt.err)
+			if !refusal(got, tt.shown) || !strings.Contains(got, tt.reason) {
+				t.Errorf("notice = %q, want it to name %q and carry %q", got, tt.shown, tt.reason)
+			}
+
+			if strings.ContainsFunc(got, unicode.IsControl) {
+				t.Errorf("notice %q holds a control character", got)
 			}
 		})
 	}

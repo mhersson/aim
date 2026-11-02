@@ -40,6 +40,8 @@ type mdDoc struct {
 	open  map[int]bool           // by fold ID; a present key overrides the default
 	fold  *string                // the key a closed fold names; nil is md's default
 
+	tokenMax int // the code-line cap the doc was parsed with
+
 	lay     md.Layout
 	plain   []string // lay's text, made on first use
 	have    bool
@@ -62,10 +64,17 @@ func codeKey(lang string, lines []string) string {
 // parseMarkdown parses src and tokenises its code blocks once, folded ones
 // included. It blocks, so it runs only inside a tea.Cmd.
 func parseMarkdown(src []byte, base string, tok codeTokeniser) *mdDoc {
+	return parseMarkdownCapped(src, base, tok, mdTokenMax)
+}
+
+// parseMarkdownCapped is parseMarkdown with the code-line cap a parameter, so
+// tests reach the cap with a small document.
+func parseMarkdownCapped(src []byte, base string, tok codeTokeniser, tokenMax int) *mdDoc {
 	d := &mdDoc{
-		doc:   md.Parse(src, md.ParseOptions{Base: base}),
-		spans: map[string][][]md.Span{},
-		open:  map[int]bool{},
+		tokenMax: tokenMax,
+		doc:      md.Parse(src, md.ParseOptions{Base: base}),
+		spans:    map[string][][]md.Span{},
+		open:     map[int]bool{},
 	}
 
 	all := make(map[int]bool, d.doc.FoldCount())
@@ -83,7 +92,7 @@ func parseMarkdown(src []byte, base string, tok codeTokeniser) *mdDoc {
 				return nil
 			}
 
-			if capped || used+len(lines) > mdTokenMax {
+			if capped || used+len(lines) > tokenMax {
 				capped = true
 
 				return nil

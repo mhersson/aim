@@ -103,7 +103,11 @@ func TestLoaderLocal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	big := write(root, "big.png", append(testPNG(t, 4, 4), make([]byte, 6<<20)...))
+	// A valid PNG padded to one byte past the cap, so only the size refuses it.
+	big := write(root, "big.png", testPNG(t, 4, 4))
+	if err := os.Truncate(big, pictureMaxBytes+1); err != nil {
+		t.Fatal(err)
+	}
 
 	tests := []struct {
 		name    string

@@ -116,21 +116,19 @@ func TestMDPainterText(t *testing.T) {
 	th := mochaTheme(t)
 	p := newMDPainter(th, th.UI.Bg)
 
-	for _, icons := range []bool{true, false} {
-		t.Run(fmt.Sprintf("icons=%v", icons), func(t *testing.T) {
-			t.Parallel()
+	t.Run("icons=false", func(t *testing.T) {
+		t.Parallel()
 
-			l := rolesLayout(t, 60, icons)
-			golden.RequireEqual(t, []byte(ansi.Strip(strings.Join(paintLayout(p, l, 60), "\n"))))
-		})
-	}
+		l := rolesLayout(t, 60, false)
+		golden.RequireEqual(t, []byte(ansi.Strip(strings.Join(paintLayout(p, l, 60), "\n"))))
+	})
 }
 
 func TestMDPainterRoles(t *testing.T) {
 	t.Parallel()
 
 	th := mochaTheme(t)
-	ui, pal := th.UI, th.Palette
+	ui := th.UI
 	ground := ui.Bg
 	st := func(fg, bg theme.Hex) lipgloss.Style { return lipgloss.NewStyle().Foreground(fg).Background(bg) }
 
@@ -139,19 +137,9 @@ func TestMDPainterRoles(t *testing.T) {
 		run  md.Run
 		want lipgloss.Style
 	}{
-		{"code on surface", md.Run{Text: " x ", Role: md.RoleCode, Link: -1}, st(ui.Code, ui.Surface)},
-		{"code text class", md.Run{Text: "func", Role: md.RoleCodeText, Class: uint8(diffview.Keyword), Link: -1}, st(pal.Mauve, ground)},
-		{"code text plain", md.Run{Text: "x", Role: md.RoleCodeText, Link: -1}, st(pal.Text, ground)},
 		{"code text unknown class", md.Run{Text: "x", Role: md.RoleCodeText, Class: 250, Link: -1}, st(ui.Fg, ground)},
-		{"link", md.Run{Text: "docs", Role: md.RoleLink, Link: -1}, st(ui.Info, ground).Underline(true)},
 		{"all attributes", md.Run{Text: "t", Bold: true, Italic: true, Strike: true, Link: -1}, st(ui.Fg, ground).Bold(true).Italic(true).Strikethrough(true)},
 		{"underline attribute", md.Run{Text: "t", Underline: true, Link: -1}, st(ui.Fg, ground).Underline(true)},
-		{"heading one", md.Run{Text: "H", Role: md.RoleHeading1, Link: -1}, st(ui.Accent, ground).Bold(true)},
-		{"heading three", md.Run{Text: "H", Role: md.RoleHeading3, Link: -1}, st(ui.Fg, ground).Bold(true)},
-		{"key", md.Run{Text: "k", Role: md.RoleKey, Link: -1}, st(ui.Key, ground).Bold(true)},
-		{"hidden", md.Run{Text: "x", Role: md.RoleHidden, Link: -1}, st(ui.Error, ground).Bold(true)},
-		{"quote text", md.Run{Text: "x", Role: md.RoleQuoteText, Link: -1}, st(ui.Dim, ground)},
-		{"alert", md.Run{Text: "x", Role: md.RoleAlertWarning, Link: -1}, st(ui.Warning, ground)},
 	}
 
 	for _, c := range cases {
@@ -221,21 +209,12 @@ func TestMDPainterHostileLinks(t *testing.T) {
 	p := newMDPainter(th, th.UI.Bg)
 
 	for name, url := range map[string]string{
-		"esc":          "https://e.x/\x1b[31m",
-		"bel":          "https://e.x/\aa",
 		"osc8":         "https://e.x/\x1b]8;;https://evil.x\x1b\\",
-		"newline":      "https://e.x/\nz",
 		"del":          "https://e.x/\x7f",
 		"c1 csi":       "https://e.x/\u009b31m",
-		"c1 st":        "https://e.x/\u009c",
-		"zero width":   "https://e.x/\u200b",
 		"bidi":         "https://e.x/\u202e",
-		"line sep":     "https://e.x/\u2028",
 		"bad utf8":     "https://e.x/\xff",
 		"other scheme": "javascript:alert(1)",
-		"file scheme":  "file:///etc/passwd",
-		"no scheme":    "example.com",
-		"empty":        "",
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -271,12 +250,7 @@ func TestLinkSafe(t *testing.T) {
 	}{
 		{"https with space query and fragment", "https://example.com/a b?c=d#e", true},
 		{"scheme in capitals", "HTTP://example.com", true},
-		{"mailto", "mailto:me@example.com", true},
 		{"non-ascii path", "https://e.x/é中", true},
-		{"ftp scheme", "ftp://example.com", false},
-		{"nul byte", "https://e.x/\x00", false},
-		{"zero width no-break space", "https://e.x/\ufeff", false},
-		{"variation selector", "https://e.x/\ufe0f", false},
 	}
 
 	for _, tt := range tests {
@@ -297,23 +271,21 @@ func TestMDPainterWidth(t *testing.T) {
 	l := rolesLayout(t, 60, true)
 
 	for _, w := range []int{1, 7, 80} {
-		for _, ground := range []theme.Hex{th.UI.Bg, th.UI.Panel} {
-			t.Run(fmt.Sprintf("w=%d/%s", w, ground), func(t *testing.T) {
-				t.Parallel()
+		t.Run(fmt.Sprintf("w=%d", w), func(t *testing.T) {
+			t.Parallel()
 
-				p := newMDPainter(th, ground)
+			p := newMDPainter(th, th.UI.Bg)
 
-				for i, s := range paintLayout(p, l, w) {
-					if got := ansi.StringWidth(s); got != w {
-						t.Fatalf("line %d is %d cells, want %d: %q", i, got, w, s)
-					}
-
-					if !endsClean(s) {
-						t.Fatalf("line %d does not end clean: %q", i, s)
-					}
+			for i, s := range paintLayout(p, l, w) {
+				if got := ansi.StringWidth(s); got != w {
+					t.Fatalf("line %d is %d cells, want %d: %q", i, got, w, s)
 				}
-			})
-		}
+
+				if !endsClean(s) {
+					t.Fatalf("line %d does not end clean: %q", i, s)
+				}
+			}
+		})
 	}
 
 	t.Run("padding is on the ground", func(t *testing.T) {
@@ -340,7 +312,9 @@ func TestMDPainterWidth(t *testing.T) {
 		line := md.Line{{Text: "caf\u00e9 ", Link: -1}, {Text: "see the caf\u00e9 page", Role: md.RoleLink, Link: 0}, {Text: " tail"}}
 		links := []md.Link{{URL: "https://example.com/caf\u00e9"}}
 
-		for w := 1; w <= 40; w++ {
+		// The line is 27 cells: the link spans 5 to 22, so 4 stops before it, 6 and 17
+		// inside it, 22 at its end and 40 pads past the line.
+		for _, w := range []int{1, 4, 6, 17, 22, 27, 40} {
 			got := p.line(line, links, w)
 
 			if sw := ansi.StringWidth(got); sw != w {

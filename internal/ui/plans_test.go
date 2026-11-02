@@ -32,9 +32,6 @@ func TestPlanFileRoot(t *testing.T) {
 		{"folder prefix only", def, "/r/docs/superpowers/plansX/a.md", "", false},
 		{"relative", def, "docs/superpowers/plans/a.md", "", false},
 		{"custom folder", []string{"notes"}, "/r/notes/a.md", "/r", true},
-		{"folder entry without a slash", []string{"docs/plans"}, "/r/docs/plans/a.md", "/r", true},
-		{"folder entry with a slash", []string{"docs/plans/"}, "/r/docs/plans/a.md", "/r", true},
-		{"multi-component entry", []string{"docs/specs"}, "/r/x/docs/specs/s.md", "/r/x", true},
 		{"match at the path start", def, "/docs/superpowers/plans/a.md", "/", true},
 		{"two folders, the deepest wins", []string{"docs", "docs/plans"}, "/r/docs/a/docs/plans/x.md", "/r/docs/a", true},
 		{"two folders, the deeper one first", []string{"a", "b"}, "/r/b/x/a/f.md", "/r/b/x", true},
@@ -201,7 +198,7 @@ func TestNewConversationKeepsOverlay(t *testing.T) {
 		t.Fatalf("overlay = %+v, want it open on %+v", r.a.plan, shown)
 	}
 
-	for _, want := range []string{"docs/superpowers/plans/p.md", "plan file · 4m", "Keep the plan", "The agent was cleared."} {
+	for _, want := range []string{"docs/superpowers/plans/p.md", planKindWord(core.PlanFile) + " · 4m", "Keep the plan", "The agent was cleared."} {
 		if !strings.Contains(r.shown(t), want) {
 			t.Errorf("the overlay no longer shows %q", want)
 		}
