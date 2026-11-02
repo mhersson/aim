@@ -137,6 +137,7 @@ func TestKeysConfigValidate(t *testing.T) {
 		{name: "function key leader", cfg: KeysConfig{LeaderKey: "f12"}},
 		{name: "plain leader", cfg: KeysConfig{LeaderKey: "a"}, want: []string{"keys.leader_key", `"a"`}},
 		{name: "shifted leader", cfg: KeysConfig{LeaderKey: "shift+a"}, want: []string{"keys.leader_key", `"shift+a"`}},
+		{name: "shifted digit", cfg: KeysConfig{Drawer: map[string]string{"shift+1": "review.x"}}, want: []string{"keys.drawer", `"shift+1"`}},
 		{name: "dangling modifier", cfg: KeysConfig{LeaderKey: "ctrl+"}, want: []string{"keys.leader_key", `"ctrl+"`}},
 		{name: "modifiers out of order", cfg: KeysConfig{LeaderKey: "alt+ctrl+a"}, want: []string{"keys.leader_key", `"alt+ctrl+a"`}},
 		{name: "delay below", cfg: KeysConfig{WhichKeyDelay: ptrInt(-1)}, want: []string{"keys.which_key_delay", "-1"}},
