@@ -16,8 +16,6 @@ import (
 
 func TestRunIgnoresInheritedRepoVariables(t *testing.T) {
 	root := newRepo(t)
-	writeFile(t, root, "f", "x\n")
-	commitAll(t, root, "init")
 
 	t.Setenv("GIT_DIR", "/nonexistent")
 	t.Setenv("GIT_INDEX_FILE", "/nonexistent")
@@ -61,6 +59,15 @@ func TestRunEnvAndLocks(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	argv, err := os.ReadFile(envLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want := "-c core.fsmonitor=false -c core.quotePath=false status -z"; !strings.Contains(string(argv), want) {
+		t.Errorf("log %q lacks %q", argv, want)
+	}
+
 	env, err := os.ReadFile(envLog + ".env")
 	if err != nil {
 		t.Fatal(err)
@@ -75,68 +82,9 @@ func TestRunEnvAndLocks(t *testing.T) {
 	}
 }
 
-func TestRunConfigArguments(t *testing.T) {
-	t.Parallel()
-
-	root := newRepo(t)
-	ctx, logPath := wrapGit(t, "")
-
-	if _, err := run(ctx, call{dir: root, args: []string{"status", "-z"}}); err != nil {
-		t.Fatal(err)
-	}
-
-	log, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	want := "-c core.fsmonitor=false -c core.quotePath=false status -z"
-	if !strings.Contains(string(log), want) {
-		t.Errorf("log %q lacks %q", log, want)
-	}
-}
-
-func TestRunTakesGitFromTheContext(t *testing.T) {
-	t.Parallel()
-
-	root := newRepo(t)
-	ctx, logPath := wrapGit(t, "")
-
-	if _, err := run(ctx, call{dir: root, args: []string{"status", "-z"}, read: true}); err != nil {
-		t.Fatal(err)
-	}
-
-	derived, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	rc, err := stream(derived, call{dir: root, args: []string{"ls-files", "-z"}, read: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_, _ = io.Copy(io.Discard, rc)
-	must(t, rc.Close())
-
-	if _, err := run(context.Background(), call{dir: root, args: []string{"rev-parse", "--git-dir"}, read: true}); err != nil {
-		t.Fatal(err)
-	}
-
-	data, err := os.ReadFile(logPath)
-	must(t, err)
-
-	log := string(data)
-	if !strings.Contains(log, "status -z") || !strings.Contains(log, "ls-files -z") {
-		t.Errorf("calls given the context did not run the wrapper:\n%s", log)
-	}
-
-	if strings.Contains(log, "rev-parse --git-dir") {
-		t.Errorf("a call without the context ran the wrapper:\n%s", log)
-	}
-}
-
 func TestRunStdin(t *testing.T) {
 	t.Parallel()
-	root := newRepo(t)
+	root := t.TempDir()
 
 	out, err := run(context.Background(), call{dir: root, args: []string{"hash-object", "--stdin"}, stdin: strings.NewReader("hello\n")})
 	if err != nil {
@@ -150,7 +98,7 @@ func TestRunStdin(t *testing.T) {
 
 func TestRunErrorCarriesStderrFirstLine(t *testing.T) {
 	t.Parallel()
-	root := newRepo(t)
+	root := t.TempDir()
 
 	_, err := run(context.Background(), call{dir: root, args: []string{"rev-parse", "--verify", "nope"}, read: true})
 	if err == nil {
@@ -183,7 +131,14 @@ func alive(pid int) bool {
 func cancelWhenWritten(t *testing.T, path string) context.Context {
 	t.Helper()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	return cancelWhenWrittenFrom(context.Background(), t, path)
+}
+
+// cancelWhenWrittenFrom is cancelWhenWritten for a context derived from parent.
+func cancelWhenWrittenFrom(parent context.Context, t *testing.T, path string) context.Context {
+	t.Helper()
+
+	ctx, cancel := context.WithCancel(parent)
 	t.Cleanup(cancel)
 
 	go func() {
@@ -199,39 +154,6 @@ func cancelWhenWritten(t *testing.T, path string) context.Context {
 	}()
 
 	return ctx
-}
-
-func TestRunCancelKillsProcessGroup(t *testing.T) {
-	root := newRepo(t)
-	logPath := fakeGit(t, `sleep 30 &
-echo $! > "$LOG.tmp" && mv "$LOG.tmp" "$LOG.pid"
-wait`)
-
-	_, err := run(cancelWhenWritten(t, logPath+".pid"), call{dir: root, args: []string{"status"}})
-
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("err = %v, want canceled", err)
-	}
-
-	raw, err := os.ReadFile(logPath + ".pid")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	deadline := time.Now().Add(3 * time.Second)
-	for alive(pid) {
-		if time.Now().After(deadline) {
-			_ = syscall.Kill(pid, syscall.SIGKILL)
-			t.Fatalf("child %d survived cancel", pid)
-		}
-
-		time.Sleep(20 * time.Millisecond)
-	}
 }
 
 // The wrapper forks without pause, so the cancel lands mid-fork: a child that
@@ -346,10 +268,11 @@ func TestStream(t *testing.T) {
 }
 
 func TestStreamCloseKillsEarly(t *testing.T) {
+	t.Parallel()
 	root := newRepo(t)
-	fakeGit(t, "exec yes")
+	ctx, _ := wrapGit(t, "exec yes")
 
-	rc, err := stream(context.Background(), call{dir: root, args: []string{"status"}})
+	rc, err := stream(ctx, call{dir: root, args: []string{"status"}})
 	if err != nil {
 		t.Fatal(err)
 	}

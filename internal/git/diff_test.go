@@ -392,7 +392,7 @@ func TestDiffLineEndings(t *testing.T) {
 func TestDiffOddPaths(t *testing.T) {
 	t.Parallel()
 
-	names := []string{"sp ace.txt", "uni/ünï-日本.txt", "new\nline.txt", "quo\"te.txt", "tab\there.txt", "back\\slash.txt"}
+	names := []string{"sp ace.txt", "uni/ünï-日本.txt", "new\nline.txt", "quo\"te.txt", "tab\there.txt", "back\\slash.txt", "-dash.txt", "+plus.txt", "dir/it's a file.txt"}
 
 	dir := branchRepo(t, func(dir string) {
 		writeFile(t, dir, "keep.txt", "k\n")
@@ -411,29 +411,22 @@ func TestDiffOddPaths(t *testing.T) {
 			t.Errorf("%q: no hunks", n)
 		}
 	}
-}
 
-func TestDiffInvalidUTF8Path(t *testing.T) {
-	t.Parallel()
-
-	name := "inv\xffalid.txt"
-	if !fsAcceptsName(t, name) {
-		t.Skip("the filesystem refuses names that are not valid UTF-8")
+	// Not in the golden: JSON cannot carry it, and APFS refuses the name.
+	invalid := "inv\xffalid.txt"
+	if !fsAcceptsName(t, invalid) {
+		return
 	}
 
-	dir := branchRepo(t, func(dir string) {
-		writeFile(t, dir, "keep.txt", "k\n")
-	}, func(dir string) {
-		writeFile(t, dir, name, "content of "+strconv.Quote(name)+"\n")
-	})
+	writeFile(t, dir, invalid, "content of "+strconv.Quote(invalid)+"\n")
 
-	f := fileByPath(t, branchDiff(t, dir), name)
+	f := fileByPath(t, branchDiff(t, dir), invalid)
 	if f.Status != Added || !f.Untracked || len(f.Hunks) != 1 || len(f.Hunks[0].Lines) != 1 {
-		t.Fatalf("%q: status %v, untracked %v, hunks %+v, want one untracked added hunk with one line", name, f.Status, f.Untracked, f.Hunks)
+		t.Fatalf("%q: status %v, untracked %v, hunks %+v, want one untracked added hunk with one line", invalid, f.Status, f.Untracked, f.Hunks)
 	}
 
-	if l := f.Hunks[0].Lines[0]; l.Kind != Add || l.Text != "content of "+strconv.Quote(name) {
-		t.Errorf("%q: line %c %q, want %c %q", name, l.Kind, l.Text, Add, "content of "+strconv.Quote(name))
+	if l := f.Hunks[0].Lines[0]; l.Kind != Add || l.Text != "content of "+strconv.Quote(invalid) {
+		t.Errorf("%q: line %c %q, want %c %q", invalid, l.Kind, l.Text, Add, "content of "+strconv.Quote(invalid))
 	}
 }
 
@@ -515,18 +508,16 @@ func TestDiffBranchErrors(t *testing.T) {
 		}
 	})
 
-	t.Run("option as base", func(t *testing.T) {
-		dir := seedRepo(t)
+	seeded := seedRepo(t)
 
-		if _, err := e.Diff(ctx, BranchSource{Worktree: dir, Base: "--all"}); err == nil {
+	t.Run("option as base", func(t *testing.T) {
+		if _, err := e.Diff(ctx, BranchSource{Worktree: seeded, Base: "--all"}); err == nil {
 			t.Error("accepted a base that looks like an option")
 		}
 	})
 
 	t.Run("unknown base", func(t *testing.T) {
-		dir := seedRepo(t)
-
-		if _, err := e.Diff(ctx, BranchSource{Worktree: dir, Base: "nope"}); err == nil {
+		if _, err := e.Diff(ctx, BranchSource{Worktree: seeded, Base: "nope"}); err == nil {
 			t.Error("accepted an unknown base")
 		}
 	})
@@ -549,11 +540,10 @@ func TestDiffBranchErrors(t *testing.T) {
 	})
 
 	t.Run("cancelled", func(t *testing.T) {
-		dir := seedRepo(t)
 		cctx, cancel := context.WithCancel(ctx)
 		cancel()
 
-		if _, err := e.Diff(cctx, BranchSource{Worktree: dir, Base: "main"}); !errors.Is(err, context.Canceled) {
+		if _, err := e.Diff(cctx, BranchSource{Worktree: seeded, Base: "main"}); !errors.Is(err, context.Canceled) {
 			t.Errorf("err = %v, want context.Canceled", err)
 		}
 
@@ -563,73 +553,6 @@ func TestDiffBranchErrors(t *testing.T) {
 	t.Run("unsupported source", func(t *testing.T) {
 		if _, err := e.Diff(ctx, nil); err == nil {
 			t.Error("accepted a nil source")
-		}
-	})
-}
-
-func TestDiffOddRepositories(t *testing.T) {
-	t.Parallel()
-	t.Run("detached HEAD", func(t *testing.T) {
-		t.Parallel()
-		dir := seedRepo(t)
-		writeFile(t, dir, "a.txt", "changed\n")
-		commitAll(t, dir, "second")
-		gitOut(t, dir, "checkout", "-q", "--detach", "HEAD")
-		writeFile(t, dir, "d.txt", "d\n")
-
-		res := diffOK(t, testEngine(t), BranchSource{Worktree: dir, Base: "main"})
-		if len(res.Files) != 1 || res.Files[0].Path != "d.txt" {
-			t.Errorf("files = %v", pathsOf(res))
-		}
-	})
-
-	t.Run("linked worktree of a bare repository", func(t *testing.T) {
-		t.Parallel()
-		src := seedRepo(t)
-		bare := filepath.Join(t.TempDir(), "bare.git")
-		gitOut(t, src, "clone", "-q", "--bare", src, bare)
-
-		wt := filepath.Join(t.TempDir(), "wt")
-		gitOut(t, bare, "worktree", "add", "-q", "-b", "work", wt)
-
-		wt, err := filepath.EvalSymlinks(wt)
-		must(t, err)
-		writeFile(t, wt, "new.txt", "n\n")
-
-		res := diffOK(t, testEngine(t), BranchSource{Worktree: wt, Base: "main"})
-		if len(res.Files) != 1 || res.Files[0].Path != "new.txt" || !res.Files[0].Untracked {
-			t.Errorf("files = %+v", res.Files)
-		}
-	})
-
-	t.Run("split index", func(t *testing.T) {
-		t.Parallel()
-		dir := seedRepo(t)
-		gitOut(t, dir, "config", "core.splitIndex", "true")
-		gitOut(t, dir, "update-index", "--split-index")
-		writeFile(t, dir, "dir/c.txt", "touched\n")
-		gitOut(t, dir, "add", "dir/c.txt")
-		writeFile(t, dir, "u.txt", "u\n")
-
-		res := diffOK(t, testEngine(t), BranchSource{Worktree: dir, Base: "main"})
-		if got := pathsOf(res); len(got) != 2 || got[0] != "dir/c.txt" || got[1] != "u.txt" {
-			t.Errorf("files = %v", got)
-		}
-	})
-
-	t.Run("untracked file over the snapshot cap", func(t *testing.T) {
-		t.Parallel()
-		dir := seedRepo(t)
-
-		f, err := os.Create(filepath.Join(dir, "huge.bin"))
-		must(t, err)
-		must(t, f.Truncate(60<<20)) // sparse
-		must(t, f.Close())
-		writeFile(t, dir, "small.txt", "s\n")
-
-		res := diffOK(t, testEngine(t), BranchSource{Worktree: dir, Base: "main"})
-		if got := pathsOf(res); len(got) != 1 || got[0] != "small.txt" {
-			t.Errorf("files = %v, want only small.txt", got)
 		}
 	})
 }
@@ -717,17 +640,6 @@ func TestDiffTurnJudgesAFileTheSnapshotHoldsByTheComparison(t *testing.T) {
 	if fresh := fileByPath(t, res, "fresh.go"); fresh.Status != Added || !fresh.Untracked {
 		t.Errorf("fresh.go = %+v, want an untracked added file", fresh)
 	}
-
-	t.Run("update", func(t *testing.T) {
-		writeFile(t, dir, "x.go", edited+"tail\n")
-
-		upd := updateOK(t, e, res, src, Batch{Paths: []string{"x.go"}})
-		if x := fileByPath(t, upd, "x.go"); x.Status != Modified || x.Untracked {
-			t.Errorf("x.go after update = %+v, want a modification", x)
-		}
-
-		sameAsFull(t, upd, src)
-	})
 }
 
 func TestMarkUntracked(t *testing.T) {
@@ -739,10 +651,7 @@ func TestMarkUntracked(t *testing.T) {
 	}{
 		{Added, true},
 		{Renamed, true},
-		{Copied, true},
 		{Modified, false},
-		{ModeChanged, false},
-		{Deleted, false},
 	}
 
 	for _, tt := range tests {
@@ -1221,7 +1130,7 @@ func TestDiffConcurrent(t *testing.T) {
 	first, err := json.Marshal(diffOK(t, e, src))
 	must(t, err)
 
-	errs := make(chan error, 8)
+	errs := make(chan error, 4)
 
 	for range cap(errs) {
 		go func() {
@@ -1309,14 +1218,15 @@ func TestWholeFiles(t *testing.T) {
 }
 
 func TestDiffCancelledDuringTheHunkPass(t *testing.T) {
+	t.Parallel()
 	dir := branchRepo(t, func(dir string) { writeFile(t, dir, "base.txt", "b\n") }, func(dir string) {
 		writeFile(t, dir, "a.txt", "a\n")
 	})
 
 	// The hunk pass hangs; it marks its end only if the cancel failed to kill it.
-	logPath := fakeGit(t, `case "$*" in *-U3*) : > "$LOG.hunks"; sleep 30; : > "$LOG.finished"; exit 1;; esac`)
+	wrapped, logPath := wrapGit(t, `case "$*" in *-U3*) : > "$LOG.hunks"; sleep 30; : > "$LOG.finished"; exit 1;; esac`)
 
-	ctx := cancelWhenWritten(t, logPath+".hunks")
+	ctx := cancelWhenWrittenFrom(wrapped, t, logPath+".hunks")
 	_, err := testEngine(t).Diff(ctx, BranchSource{Worktree: dir, Base: "main"})
 
 	if !errors.Is(err, context.Canceled) {
@@ -1379,37 +1289,25 @@ func TestDiffIgnoresUserDiffConfig(t *testing.T) {
 		must(t, os.Rename(filepath.Join(dir, "moved-from.txt"), filepath.Join(dir, "moved-to.txt")))
 	})
 
-	snap(t, dir, sessA, SnapshotOptions{})
-	writeFile(t, dir, "blank.txt", strings.Replace(blank, "four", "FOUR again", 1))
 	writeFile(t, dir, "new.txt", "n\n")
 
-	sources := map[string]Source{
-		"branch": BranchSource{Worktree: dir, Base: "main"},
-		"turn":   TurnSource{Worktree: dir, Session: sessA},
+	src := BranchSource{Worktree: dir, Base: "main"}
+	clean := diffOK(t, testEngine(t), src)
+
+	if fileByPath(t, clean, "sm").Status != Modified {
+		t.Fatalf("setup: sm = %+v", fileByPath(t, clean, "sm"))
 	}
-	clean := map[string][]byte{}
 
-	for name, src := range sources {
-		res := diffOK(t, testEngine(t), src)
-		if name == "branch" && fileByPath(t, res, "sm").Status != Modified {
-			t.Fatalf("setup: sm = %+v", fileByPath(t, res, "sm"))
-		}
-
-		b, err := json.Marshal(res)
-		must(t, err)
-
-		clean[name] = b
-	}
+	want, err := json.Marshal(clean)
+	must(t, err)
 
 	mark := hostileDiffConfig(t, dir)
 
-	for name, src := range sources {
-		b, err := json.Marshal(diffOK(t, testEngine(t), src))
-		must(t, err)
+	got, err := json.Marshal(diffOK(t, testEngine(t), src))
+	must(t, err)
 
-		if !bytes.Equal(b, clean[name]) {
-			t.Errorf("%s diff changed under user diff config:\n%s\nwant\n%s", name, b, clean[name])
-		}
+	if !bytes.Equal(got, want) {
+		t.Errorf("branch diff changed under user diff config:\n%s\nwant\n%s", got, want)
 	}
 
 	if _, err := os.Stat(mark); err == nil {

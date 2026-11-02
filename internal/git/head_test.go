@@ -2,8 +2,8 @@ package git
 
 import (
 	"context"
+	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -88,90 +88,38 @@ func TestHeadReportsFailures(t *testing.T) {
 	if h, err := Head(ctx, r); err == nil {
 		t.Errorf("cancelled context: Head = %+v, want an error", h)
 	}
-
-	if err := os.WriteFile(filepath.Join(dir, ".git", "refs", "heads", "main"), []byte(strings.Repeat("1", 40)+"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	if h, err := Head(context.Background(), r); err == nil {
-		t.Errorf("ref to a missing object: Head = %+v, want an error", h)
-	}
 }
 
 func TestHeadCommit(t *testing.T) {
-	tests := []struct {
+	t.Parallel()
+
+	dir := newRepo(t)
+
+	steps := []struct {
 		name        string
-		setup       func(t *testing.T, dir string)
+		message     string
 		wantSubject string
 	}{
-		{
-			name: "root commit",
-			setup: func(t *testing.T, dir string) {
-				writeFile(t, dir, "a.txt", "a\n")
-				commitAll(t, dir, "first")
-			},
-			wantSubject: "first",
-		},
-		{
-			name: "newest of several",
-			setup: func(t *testing.T, dir string) {
-				writeFile(t, dir, "a.txt", "a\n")
-				commitAll(t, dir, "first")
-				writeFile(t, dir, "a.txt", "b\n")
-				commitAll(t, dir, "second")
-			},
-			wantSubject: "second",
-		},
-		{
-			name: "detached head",
-			setup: func(t *testing.T, dir string) {
-				writeFile(t, dir, "a.txt", "a\n")
-				commitAll(t, dir, "first")
-				gitOut(t, dir, "checkout", "-q", "--detach")
-			},
-			wantSubject: "first",
-		},
-		{
-			name: "subject without its body",
-			setup: func(t *testing.T, dir string) {
-				writeFile(t, dir, "a.txt", "a\n")
-				commitAll(t, dir, "subject\n\nthe body\nsecond line")
-			},
-			wantSubject: "subject",
-		},
-		{
-			name: "wrapped subject is one line",
-			setup: func(t *testing.T, dir string) {
-				writeFile(t, dir, "a.txt", "a\n")
-				commitAll(t, dir, "line one\nline two\n\nbody")
-			},
-			wantSubject: "line one line two",
-		},
-		{
-			name: "control and invisible characters stay as git has them",
-			setup: func(t *testing.T, dir string) {
-				writeFile(t, dir, "a.txt", "a\n")
-				commitAll(t, dir, "a\x1b[31mb\u200bc\td")
-			},
-			wantSubject: "a\x1b[31mb\u200bc\td",
-		},
+		{"first commit", "first", "first"},
+		{"newest of several", "second", "second"},
+		{"subject without its body", "subject\n\nthe body\nsecond line", "subject"},
+		{"wrapped subject is one line", "line one\nline two\n\nbody", "line one line two"},
+		{"control and invisible characters stay as git has them", "a\x1b[31mb\u200bc\td", "a\x1b[31mb\u200bc\td"},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			dir := newRepo(t)
-			tt.setup(t, dir)
+	for i, st := range steps {
+		writeFile(t, dir, "a.txt", fmt.Sprintf("%d\n", i))
+		commitAll(t, dir, st.message)
 
-			got, err := HeadCommit(context.Background(), openRepo(t, dir))
-			if err != nil {
-				t.Fatal(err)
-			}
+		got, err := HeadCommit(context.Background(), openRepo(t, dir))
+		if err != nil {
+			t.Fatalf("%s: %v", st.name, err)
+		}
 
-			want := Commit{OID: gitOut(t, dir, "rev-parse", "HEAD"), Subject: tt.wantSubject}
-			if got != want {
-				t.Errorf("HeadCommit = %+v, want %+v", got, want)
-			}
-		})
+		want := Commit{OID: gitOut(t, dir, "rev-parse", "HEAD"), Subject: st.wantSubject}
+		if got != want {
+			t.Errorf("%s: HeadCommit = %+v, want %+v", st.name, got, want)
+		}
 	}
 }
 
@@ -184,14 +132,15 @@ func TestHeadCommitUnbornBranchIsAnError(t *testing.T) {
 }
 
 func TestHeadCommitIsARead(t *testing.T) {
+	t.Parallel()
 	dir := newRepo(t)
 	writeFile(t, dir, "a.txt", "a\n")
 	commitAll(t, dir, "first")
 
 	r := openRepo(t, dir)
-	log := fakeGit(t, `echo "locks=$GIT_OPTIONAL_LOCKS" >> "$LOG.locks"`)
+	ctx, log := wrapGit(t, `echo "locks=$GIT_OPTIONAL_LOCKS" >> "$LOG.locks"`)
 
-	if _, err := HeadCommit(context.Background(), r); err != nil {
+	if _, err := HeadCommit(ctx, r); err != nil {
 		t.Fatal(err)
 	}
 

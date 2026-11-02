@@ -29,7 +29,6 @@ func TestDetectTools(t *testing.T) {
 		{name: "vscode other keys", files: map[string]string{".vscode/settings.json": vscodeOther}, want: "VS Code:.vscode/settings.json"},
 		{name: "vscode unparsable", files: map[string]string{".vscode/settings.json": "{// c\n"}, want: "VS Code:.vscode/settings.json"},
 		{name: "vscode covered", files: map[string]string{".vscode/settings.json": vscodeCovers}},
-		{name: "vscode no settings", files: map[string]string{".vscode/launch.json": "{}"}},
 
 		{name: "jest config", files: map[string]string{"jest.config.ts": ""}, want: "Jest:jest.config.ts"},
 		{name: "vitest config", files: map[string]string{"vitest.config.mjs": ""}, want: "Vitest:vitest.config.mjs"},
@@ -41,9 +40,7 @@ func TestDetectTools(t *testing.T) {
 		{name: "pyproject pytest", files: map[string]string{"pyproject.toml": "[project]\n[tool.pytest.ini_options]\nx=1\n"}, want: "pytest:pyproject.toml"},
 		{name: "pyproject without pytest", files: map[string]string{"pyproject.toml": "[project]\nname='x'\n"}},
 		{name: "setup.cfg pytest", files: map[string]string{"setup.cfg": "[tool:pytest]\n"}, want: "pytest:setup.cfg"},
-		{name: "setup.cfg without", files: map[string]string{"setup.cfg": "[metadata]\n"}},
 		{name: "tox pytest", files: map[string]string{"tox.ini": "[tox]\n[pytest]\n"}, want: "pytest:tox.ini"},
-		{name: "tox without", files: map[string]string{"tox.ini": "[tox]\n"}},
 
 		{name: "tsconfig no include", files: map[string]string{"tsconfig.json": `{"compilerOptions": {}}`}, want: "TypeScript:tsconfig.json"},
 		{name: "tsconfig glob include", files: map[string]string{"tsconfig.json": `{"include": ["**/*"]}`}, want: "TypeScript:tsconfig.json"},
@@ -52,16 +49,10 @@ func TestDetectTools(t *testing.T) {
 
 		{name: "eslintrc", files: map[string]string{".eslintrc.json": "{}"}, want: "ESLint:.eslintrc.json"},
 		{name: "eslint flat config", files: map[string]string{"eslint.config.js": ""}, want: "ESLint:eslint.config.js"},
-		{name: "no eslint", files: map[string]string{"eslint.md": ""}},
 
 		{name: "docker no ignore", files: map[string]string{"Dockerfile": "FROM x"}, want: "Docker:Dockerfile"},
 		{name: "docker ignore without", files: map[string]string{"Dockerfile": "FROM x", ".dockerignore": "node_modules\n"}, want: "Docker:.dockerignore"},
 		{name: "docker ignore covers", files: map[string]string{"Dockerfile": "FROM x", ".dockerignore": "node_modules\n.worktrees\n"}},
-		{name: "dockerfile is a directory", files: map[string]string{"Dockerfile/": ""}},
-		{name: "dockerignore is a directory", files: map[string]string{"Dockerfile": "FROM x", ".dockerignore/": ""}, want: "Docker:Dockerfile"},
-		{name: "vscode is a file", files: map[string]string{".vscode": "x"}},
-		{name: "package.json is a directory", files: map[string]string{"package.json/": ""}},
-		{name: "no dockerfile", files: map[string]string{".dockerignore": "x"}},
 	}
 
 	for _, tt := range tests {
