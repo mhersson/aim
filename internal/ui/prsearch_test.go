@@ -490,26 +490,30 @@ func TestPRListSearchTexts(t *testing.T) {
 
 	// The empty Review requested tab names the age limit; All open has none. A
 	// limit of 7 days is TestPRListSearchGolden's requested-none.
-	t.Run("no rows, no age limit", func(t *testing.T) {
-		t.Parallel()
+	if prListNoneAsked(0) == prListNoneAsked(1) || prListNoneAsked(1) == prListNoneAsked(7) {
+		t.Fatal("the empty texts of 0, 1 and 7 days do not differ")
+	}
 
-		const days = 0
+	for _, days := range []int{0, 1} {
+		t.Run(fmt.Sprintf("no rows, %d days", days), func(t *testing.T) {
+			t.Parallel()
 
-		a, _, _ := searchApp(t, listAgents(), 120, 40, nil, "github.com/acme/web")
-		a.pullRequests = core.PullRequestsConfig{ReviewRequestedDays: days}
-		openList(a)
-		typedList(a, "2")
+			a, _, _ := searchApp(t, listAgents(), 120, 40, nil, "github.com/acme/web")
+			a.pullRequests = core.PullRequestsConfig{ReviewRequestedDays: days}
+			openList(a)
+			typedList(a, "2")
 
-		if text := ansi.Strip(a.View().Content); !strings.Contains(text, prListNoneAsked(days)) || !strings.Contains(text, " Review requested 0 ") {
-			t.Errorf("no empty text %q:\n%s", prListNoneAsked(days), text)
-		}
+			if text := ansi.Strip(a.View().Content); !strings.Contains(text, prListNoneAsked(days)) || !strings.Contains(text, " Review requested 0 ") {
+				t.Errorf("no empty text %q:\n%s", prListNoneAsked(days), text)
+			}
 
-		typedList(a, "3")
+			typedList(a, "3")
 
-		if text := ansi.Strip(a.View().Content); !strings.Contains(text, noticePRListNoneMine) {
-			t.Errorf("no %q:\n%s", noticePRListNoneMine, text)
-		}
-	})
+			if text := ansi.Strip(a.View().Content); !strings.Contains(text, noticePRListNoneMine) {
+				t.Errorf("no %q:\n%s", noticePRListNoneMine, text)
+			}
+		})
+	}
 
 	t.Run("a failed host", func(t *testing.T) {
 		t.Parallel()
