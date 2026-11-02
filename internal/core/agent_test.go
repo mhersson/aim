@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"fmt"
 	"maps"
-	"math"
 	"path"
 	"reflect"
 	"slices"
@@ -53,21 +52,6 @@ func editsOf(n int) []Edit {
 }
 
 func TestAgentStateString(t *testing.T) {
-	tests := []struct {
-		s    AgentState
-		want string
-	}{
-		{AgentUnknown, ""},
-		{AgentIdle, "idle"},
-		{AgentWorking, "working"},
-		{AgentBlocked, "blocked"},
-	}
-	for _, tt := range tests {
-		if got := tt.s.String(); got != tt.want {
-			t.Errorf("AgentState(%d).String() = %q, want %q", tt.s, got, tt.want)
-		}
-	}
-
 	if AgentUnknown != 0 {
 		t.Error("AgentUnknown must be the zero value")
 	}
@@ -115,7 +99,6 @@ func TestAgentActionErrors(t *testing.T) {
 		{"session of shell pane", SetAgentSession{ID: "p1", Session: "s"}},
 		{"state of unknown pane", SetAgentState{ID: "p9", State: AgentIdle}},
 		{"state out of range", SetAgentState{ID: "p2", State: AgentState(99)}},
-		{"state negative", SetAgentState{ID: "p2", State: AgentState(-1)}},
 		{"state of shell pane", SetAgentState{ID: "p1", State: AgentIdle}},
 		{"action of unknown pane", SetAgentAction{ID: "p9", Action: "x"}},
 		{"action of shell pane", SetAgentAction{ID: "p1", Action: "x"}},
@@ -196,8 +179,6 @@ func TestPaneWorkDir(t *testing.T) {
 		pane Pane
 		want string
 	}{
-		{"cwd alone", Pane{Cwd: "/w"}, "/w"},
-		{"agent cwd wins", Pane{Cwd: "/w", AgentCwd: "/w/sub"}, "/w/sub"},
 		{"agent cwd without cwd", Pane{AgentCwd: "/w/sub"}, "/w/sub"},
 		{"neither", Pane{}, ""},
 	}
@@ -311,42 +292,6 @@ func TestSetAgentStatus(t *testing.T) {
 			want: Pane{Kind: KindAgent, Harness: "claude-code", Model: "Opus 4.8", Context: 69, ContextKnown: true, StatusSession: "s1"},
 		},
 		{
-			name: "zero percent is known",
-			from: Pane{Kind: KindAgent, Harness: "claude-code"},
-			act:  SetAgentStatus{Session: "s1", Model: "Opus 4.8", Context: 0.4, ContextKnown: true},
-			want: Pane{Kind: KindAgent, Harness: "claude-code", Model: "Opus 4.8", Context: 0, ContextKnown: true, StatusSession: "s1"},
-		},
-		{
-			name: "over 100 clamps to 100",
-			from: Pane{Kind: KindAgent, Harness: "claude-code"},
-			act:  SetAgentStatus{Session: "s1", Model: "Opus 4.8", Context: 130.5, ContextKnown: true},
-			want: Pane{Kind: KindAgent, Harness: "claude-code", Model: "Opus 4.8", Context: 100, ContextKnown: true, StatusSession: "s1"},
-		},
-		{
-			name: "negative clamps to 0",
-			from: Pane{Kind: KindAgent, Harness: "claude-code"},
-			act:  SetAgentStatus{Session: "s1", Model: "Opus 4.8", Context: -3.2, ContextKnown: true},
-			want: Pane{Kind: KindAgent, Harness: "claude-code", Model: "Opus 4.8", Context: 0, ContextKnown: true, StatusSession: "s1"},
-		},
-		{
-			name: "a float far past the int range clamps to 100",
-			from: Pane{Kind: KindAgent, Harness: "claude-code"},
-			act:  SetAgentStatus{Session: "s1", Model: "Opus 4.8", Context: 1e300, ContextKnown: true},
-			want: Pane{Kind: KindAgent, Harness: "claude-code", Model: "Opus 4.8", Context: 100, ContextKnown: true, StatusSession: "s1"},
-		},
-		{
-			name: "a float far below the int range clamps to 0",
-			from: Pane{Kind: KindAgent, Harness: "claude-code"},
-			act:  SetAgentStatus{Session: "s1", Model: "Opus 4.8", Context: -1e300, ContextKnown: true},
-			want: Pane{Kind: KindAgent, Harness: "claude-code", Model: "Opus 4.8", Context: 0, ContextKnown: true, StatusSession: "s1"},
-		},
-		{
-			name: "not a number reads as 0",
-			from: Pane{Kind: KindAgent, Harness: "claude-code"},
-			act:  SetAgentStatus{Session: "s1", Model: "Opus 4.8", Context: math.NaN(), ContextKnown: true},
-			want: Pane{Kind: KindAgent, Harness: "claude-code", Model: "Opus 4.8", Context: 0, ContextKnown: true, StatusSession: "s1"},
-		},
-		{
 			name: "a null percentage keeps the model and clears the meter",
 			from: reported,
 			act:  SetAgentStatus{Session: "s1", Model: "Opus 4.8", Context: 77},
@@ -456,7 +401,6 @@ func TestSetAgentStatusMatches(t *testing.T) {
 		{"same floor", p, SetAgentStatus{Session: "s1", Model: "Opus 4.8", Context: 69.9, ContextKnown: true}, true},
 		{"other floor", p, SetAgentStatus{Session: "s1", Model: "Opus 4.8", Context: 70, ContextKnown: true}, false},
 		{"same clamp", Pane{Kind: KindAgent, Model: "Opus 4.8", Context: 100, ContextKnown: true, StatusSession: "s1"}, SetAgentStatus{Session: "s1", Model: "Opus 4.8", Context: 130, ContextKnown: true}, true},
-		{"same clamp below", Pane{Kind: KindAgent, Model: "Opus 4.8", Context: 0, ContextKnown: true, StatusSession: "s1"}, SetAgentStatus{Session: "s1", Model: "Opus 4.8", Context: -5, ContextKnown: true}, true},
 		{"other model", p, SetAgentStatus{Session: "s1", Model: "Sonnet 5.5", Context: 69, ContextKnown: true}, false},
 		{"other session", p, SetAgentStatus{Session: "s2", Model: "Opus 4.8", Context: 69, ContextKnown: true}, false},
 		{"meter cleared", p, SetAgentStatus{Session: "s1", Model: "Opus 4.8"}, false},

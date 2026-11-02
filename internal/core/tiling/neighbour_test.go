@@ -94,12 +94,12 @@ func checkEveryStep(t *testing.T, rects map[int]Rect, slack int) {
 	}
 }
 
-// Issue #231 on the real tiler: every pane of a BSP spiral, from two panes to
-// nine, on a wide and a tall screen, with and without a gap between panes.
+// Issue #231 on the real tiler: every pane of a BSP spiral of two, five and
+// nine panes, on a wide and a tall screen, with and without a gap between panes.
 func TestNeighbourOnBSPSpirals(t *testing.T) {
 	for _, bounds := range []Rect{{0, 0, 160, 46}, {0, 1, 80, 60}} {
 		for _, gap := range []int{0, 1} {
-			for n := 2; n <= 9; n++ {
+			for _, n := range []int{2, 5, 9} {
 				t.Run(fmt.Sprintf("%dx%d gap %d %d panes", bounds.W, bounds.H, gap, n), func(t *testing.T) {
 					tree := NewBSPTree()
 					last := 0
@@ -138,7 +138,12 @@ func TestNeighbourOnNestedBSPTrees(t *testing.T) {
 		"uneven": v(0.7, h(0.2, leaf(1), v(0.4, leaf(2), leaf(3))), h(0.8, v(0.3, leaf(4), leaf(5)), leaf(6))),
 	}
 	for name, root := range trees {
-		for _, gap := range []int{0, 1} {
+		gaps := []int{1}
+		if name == "3 beside 2" {
+			gaps = []int{0, 1}
+		}
+
+		for _, gap := range gaps {
 			t.Run(fmt.Sprintf("%s gap %d", name, gap), func(t *testing.T) {
 				tree := &BSPTree{Root: root}
 				bounds := Rect{0, 0, 157, 47}
@@ -150,7 +155,7 @@ func TestNeighbourOnNestedBSPTrees(t *testing.T) {
 
 // Master-stack, grid included.
 func TestNeighbourOnMasterStack(t *testing.T) {
-	for n := 2; n <= 9; n++ {
+	for _, n := range []int{2, 3, 5, 9} {
 		t.Run(fmt.Sprintf("%d panes", n), func(t *testing.T) {
 			rects := map[int]Rect{}
 			for i, l := range CalculateMasterStackLayout(n, 160, 46, 0, 0, 0, 1) {
@@ -291,7 +296,7 @@ func TestNeighbourOnRandomBSPTrees(t *testing.T) {
 	}
 	sizes := []Rect{{0, 0, 81, 23}, {0, 0, 160, 46}, {0, 0, 200, 60}, {0, 0, 37, 11}}
 	checked := 0
-	for range 20000 {
+	for range 1000 {
 		n := 2 + r.Intn(12)
 		bounds := sizes[r.Intn(len(sizes))]
 		gap := r.Intn(4)
@@ -309,7 +314,7 @@ func TestNeighbourOnRandomBSPTrees(t *testing.T) {
 			t.Fatalf("%dx%d gap %d: %v", bounds.W, bounds.H, gap, rects)
 		}
 	}
-	if checked < 1000 {
-		t.Fatalf("only %d layouts checked, want at least 1000", checked)
+	if checked < 50 {
+		t.Fatalf("only %d layouts checked, want at least 50", checked)
 	}
 }

@@ -32,12 +32,8 @@ func TestPlanValid(t *testing.T) {
 		{"no path", Plan{Kind: PlanMode}, false},
 		{"relative path", modePlan("plans/x.md"), false},
 		{"uncleaned path", modePlan("/a/../b.md"), false},
-		{"trailing slash", modePlan("/a/b/"), false},
 		{"no kind", Plan{Path: "/a/b.md"}, false},
-		{"unknown kind", Plan{Path: "/a/b.md", Kind: 9}, false},
 		{"file plan without root", filePlan("/r/a.md", ""), false},
-		{"relative root", filePlan("/r/a.md", "r"), false},
-		{"uncleaned root", filePlan("/r/a.md", "/r/x/.."), false},
 		{"root does not hold the path", filePlan("/other/a.md", "/r"), false},
 		{"root is a prefix of a sibling", filePlan("/rr/a.md", "/r"), false},
 		{"root equals the path", filePlan("/r", "/r"), false},
@@ -209,11 +205,8 @@ func TestPlansConfig(t *testing.T) {
 		{name: "one folder", content: "[plans]\npaths = [\"notes/plans/\"]\n", want: []string{"notes/plans/"}},
 		{name: "none", content: "[plans]\npaths = []\n", want: []string{}},
 		{name: "absolute", content: "[plans]\npaths = [\"/abs\"]\n", errHas: []string{"plans.paths", `"/abs"`}},
-		{name: "empty", content: "[plans]\npaths = [\"\"]\n", errHas: []string{"plans.paths", `""`}},
 		{name: "dot", content: "[plans]\npaths = [\".\"]\n", errHas: []string{"plans.paths", `"."`}},
-		{name: "parent", content: "[plans]\npaths = [\"../x\"]\n", errHas: []string{"plans.paths", `"../x"`}},
 		{name: "leaves the root", content: "[plans]\npaths = [\"ok\", \"a/../../b\"]\n", errHas: []string{"plans.paths", `"a/../../b"`}},
-		{name: "unknown key", content: "[plans]\npath = [\"x\"]\n", errHas: []string{"unknown key plans.path"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

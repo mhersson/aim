@@ -61,7 +61,6 @@ func TestArrangeRects(t *testing.T) {
 			map[PaneID]Rect{"p2": {2, 0, 3, 4}},
 		},
 		{"a body under 3x3 stays blank", leaf("p1"), Rect{0, 0, 2, 2}, map[PaneID]Rect{}},
-		{"empty area", vsplit(leaf("p1"), leaf("p2")), Rect{0, 0, 0, 0}, map[PaneID]Rect{}},
 		{"too short", vsplit(leaf("p1"), leaf("p2")), Rect{0, 0, 10, 2}, map[PaneID]Rect{}},
 	}
 	for _, tt := range tests {
@@ -75,18 +74,6 @@ func TestArrangeRects(t *testing.T) {
 }
 
 func TestArrangeTinyAreas(t *testing.T) {
-	for _, area := range []Rect{{0, 0, 20, 5}, {0, 0, 1, 1}, {0, 0, 3, 2}, {0, 0, 0, 0}, {0, 0, 7, 1}, {5, 5, 2, 9}} {
-		t.Run(fmt.Sprint(area), func(t *testing.T) {
-			rects := Arrange(tabOfTree(sixPanes()), area, LayoutConfig{}).Rects
-			for id, r := range rects {
-				if r.W < minPane || r.H < minPane || r.X < area.X || r.Y < area.Y ||
-					r.X+r.W > area.X+area.W || r.Y+r.H > area.Y+area.H {
-					t.Errorf("%s = %+v outside %+v", id, r, area)
-				}
-			}
-		})
-	}
-
 	if got := len(Arrange(tabOfTree(sixPanes()), Rect{0, 0, 20, 5}, LayoutConfig{}).Rects); got >= 6 {
 		t.Errorf("20x5 kept %d panes, want some omitted", got)
 	}

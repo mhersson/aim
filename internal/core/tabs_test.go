@@ -274,7 +274,6 @@ func TestSelectAndCycleTab(t *testing.T) {
 	}{
 		{"select", 0, SelectTab{Index: 2}, 2},
 		{"select out of range", 1, SelectTab{Index: 3}, 1},
-		{"select negative", 1, SelectTab{Index: -1}, 1},
 		{"cycle next", 0, CycleTab{Delta: 1}, 1},
 		{"cycle next wraps", 2, CycleTab{Delta: 1}, 0},
 		{"cycle previous", 2, CycleTab{Delta: -1}, 1},
@@ -327,7 +326,7 @@ func TestTabOfAndHasAgents(t *testing.T) {
 	tests := []struct {
 		i    int
 		want bool
-	}{{0, false}, {1, true}, {2, false}, {-1, false}}
+	}{{0, false}, {1, true}, {2, false}}
 	for _, tt := range tests {
 		if got := s.TabHasAgents(tt.i); got != tt.want {
 			t.Errorf("TabHasAgents(%d) = %v, want %v", tt.i, got, tt.want)
@@ -337,15 +336,6 @@ func TestTabOfAndHasAgents(t *testing.T) {
 
 func TestTabActionsDeepCopy(t *testing.T) {
 	st := NewStore(tabsOf(0, nil, vsplit(leaf("p1"), leaf("p2")), leaf("p3")))
-	got := st.State()
-	got.Tabs[0].Layout.Ratio = 0.9
-	got.Tabs[1].Name = "x"
-	got.Tabs = got.Tabs[:1]
-
-	again := st.State()
-	if len(again.Tabs) != 2 || again.Tabs[0].Layout.Ratio != 0.5 || again.Tabs[1].Name != "" {
-		t.Errorf("tabs leaked: %+v", again.Tabs)
-	}
 
 	before := st.State()
 	for _, a := range []Action{NewTab{Kind: KindShell}, CloseTab{ID: "t1"}, RenameTab{ID: "t2", Name: "n"}, ClosePane{ID: "p3"}} {

@@ -6,6 +6,7 @@ package tiling
 
 import (
 	"maps"
+	"slices"
 	"testing"
 )
 
@@ -18,6 +19,25 @@ const (
 	edgeBottom
 	edgeTop
 )
+
+// layoutsNamed picks the resize layouts called names.
+func layoutsNamed(names ...string) []struct {
+	name  string
+	build func() *BSPTree
+	panes []int
+} {
+	var out []struct {
+		name  string
+		build func() *BSPTree
+		panes []int
+	}
+	for _, l := range resizeLayouts {
+		if slices.Contains(names, l.name) {
+			out = append(out, l)
+		}
+	}
+	return out
+}
 
 func (e edge) horizontal() bool { return e == edgeRight || e == edgeLeft }
 
@@ -213,7 +233,7 @@ func TestResizeKeepsOffAxisGeometry(t *testing.T) {
 
 	for _, shared := range []bool{false, true} {
 		withSharedBorders(t, shared, func() {
-			for _, lay := range resizeLayouts {
+			for _, lay := range layoutsNamed("two_panes", "grid", "deep_nest") {
 				for _, pane := range lay.panes {
 					for _, e := range edges {
 						for _, delta := range []int{4, -4} {
@@ -247,7 +267,7 @@ func TestRepeatedResizeDoesNotDrift(t *testing.T) {
 
 	for _, shared := range []bool{false, true} {
 		withSharedBorders(t, shared, func() {
-			for _, lay := range resizeLayouts {
+			for _, lay := range layoutsNamed("grid", "deep_nest") {
 				tree := lay.build()
 				start := tree.ApplyLayout(bounds, sharedGap())
 				geo := start

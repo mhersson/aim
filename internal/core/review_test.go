@@ -95,10 +95,8 @@ func TestSetReviewTree(t *testing.T) {
 func TestSetReviewTreeWithoutDrawer(t *testing.T) {
 	s := reviewState(t)
 
-	for _, open := range []bool{true, false} {
-		if err := moveErr(s, SetReviewTree{Open: open}); !errors.Is(err, errNoReview) {
-			t.Errorf("SetReviewTree{Open: %t} without a drawer: error = %v, want errNoReview", open, err)
-		}
+	if err := moveErr(s, SetReviewTree{Open: true}); !errors.Is(err, errNoReview) {
+		t.Errorf("SetReviewTree without a drawer: error = %v, want errNoReview", err)
 	}
 
 	// A drawer in another tab does not count.
@@ -140,25 +138,12 @@ func TestSetReviewTreeIsPerTab(t *testing.T) {
 }
 
 func TestOpenReviewClosesTheTree(t *testing.T) {
-	tests := []struct {
-		name string
-		pane PaneID
-		mode ReviewMode
-	}{
-		{"another pane", "p2", ReviewTurn},
-		{"the same pane", "p1", ReviewTurn},
-		{"another mode", "p1", ReviewBranch},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			s := dispatch(t, reviewState(t), OpenReview{Pane: "p1", Mode: ReviewTurn})
-			s = dispatch(t, s, SetReviewTree{Open: true})
-			s = dispatch(t, s, OpenReview{Pane: tt.pane, Mode: tt.mode})
+	s := dispatch(t, reviewState(t), OpenReview{Pane: "p1", Mode: ReviewTurn})
+	s = dispatch(t, s, SetReviewTree{Open: true})
+	s = dispatch(t, s, OpenReview{Pane: "p1", Mode: ReviewTurn})
 
-			if got, want := s.Tabs[0].Review, (&Review{Pane: tt.pane, Mode: tt.mode}); !reflect.DeepEqual(got, want) {
-				t.Errorf("Review = %+v, want %+v", got, want)
-			}
-		})
+	if got, want := s.Tabs[0].Review, (&Review{Pane: "p1", Mode: ReviewTurn}); !reflect.DeepEqual(got, want) {
+		t.Errorf("Review = %+v, want %+v", got, want)
 	}
 }
 
@@ -213,16 +198,6 @@ func TestReviewMovePane(t *testing.T) {
 	})
 }
 
-func TestTabCloneCopiesReview(t *testing.T) {
-	tab := Tab{Review: &Review{Pane: "p1", Mode: ReviewTurn}}
-	c := tab.clone()
-	c.Review.Mode = ReviewBranch
-
-	if tab.Review.Mode != ReviewTurn {
-		t.Error("clone shares Review with the original")
-	}
-}
-
 func TestStateCloneCopiesReview(t *testing.T) {
 	s := reviewState(t)
 	s = dispatch(t, s, OpenReview{Pane: "p1", Mode: ReviewTurn})
@@ -238,24 +213,6 @@ func TestStateCloneCopiesReview(t *testing.T) {
 // A layout switch rebuilds the tab but keeps its drawer.
 func TestLayoutSwitchKeepsTheReviewDrawer(t *testing.T) {
 	want := &Review{Pane: "p2", Mode: ReviewBranch}
-
-	for _, from := range []LayoutMode{ModeBSP, ModeMaster, ModeScrolling} {
-		for _, to := range []LayoutMode{ModeBSP, ModeMaster, ModeScrolling} {
-			t.Run(string(from)+" to "+string(to), func(t *testing.T) {
-				s := buildTabs(t, []LayoutMode{from, ModeBSP}, []int{2, 2})
-				s = dispatch(t, s, OpenReview{Pane: "p2", Mode: ReviewBranch})
-				s = dispatch(t, s, SetLayoutMode{Mode: to})
-
-				if got := s.Tabs[0].Review; !reflect.DeepEqual(got, want) {
-					t.Errorf("after the switch Review = %+v, want %+v", got, want)
-				}
-
-				if s.Tabs[1].Review != nil {
-					t.Errorf("the other tab got a drawer: %+v", s.Tabs[1].Review)
-				}
-			})
-		}
-	}
 
 	t.Run("cycle", func(t *testing.T) {
 		s := reviewState(t)

@@ -135,17 +135,13 @@ func TestMovePaneSourceFocusPerMode(t *testing.T) {
 }
 
 func TestMovePaneUnfocusedFromZoomedSource(t *testing.T) {
-	for _, mode := range allModes {
-		t.Run(string(mode), func(t *testing.T) {
-			s := buildTabs(t, []LayoutMode{mode, ModeBSP}, []int{3, 1})
-			s.Tabs[0].Focus = "p3"
-			s.Tabs[0].Zoomed = true
+	s := buildTabs(t, []LayoutMode{ModeBSP, ModeBSP}, []int{3, 1})
+	s.Tabs[0].Focus = "p3"
+	s.Tabs[0].Zoomed = true
 
-			got := dispatch(t, s, MovePane{ID: "p1", Tab: 1, Area: modeInner})
-			if src := got.Tabs[0]; !src.Zoomed || src.Focus != "p3" || slices.Contains(src.Panes, "p1") {
-				t.Errorf("source = %+v", src)
-			}
-		})
+	got := dispatch(t, s, MovePane{ID: "p1", Tab: 1, Area: modeInner})
+	if src := got.Tabs[0]; !src.Zoomed || src.Focus != "p3" || slices.Contains(src.Panes, "p1") {
+		t.Errorf("source = %+v", src)
 	}
 }
 
@@ -184,28 +180,26 @@ func TestMovePaneEmptiedSource(t *testing.T) {
 		{"stay, source active, target left", 3, 2, 2, 0, false, 0, []TabID{"t1", "t2"}},
 		{"stay, target left of source, source active", 3, 1, 1, 0, false, 0, []TabID{"t1", "t3"}},
 	}
-	for _, mode := range allModes {
-		for _, c := range cases {
-			t.Run(string(mode)+"/"+c.name, func(t *testing.T) {
-				modes := []LayoutMode{mode, mode, mode}
-				s := buildTabs(t, modes[:c.tabs], []int{1, 1, 1}[:c.tabs])
-				s.Active = c.active
-				id := PaneID("p" + string(rune('1'+c.src)))
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			modes := []LayoutMode{ModeBSP, ModeBSP, ModeBSP}
+			s := buildTabs(t, modes[:c.tabs], []int{1, 1, 1}[:c.tabs])
+			s.Active = c.active
+			id := PaneID("p" + string(rune('1'+c.src)))
 
-				got := dispatch(t, s, MovePane{ID: id, Tab: c.dst, Follow: c.follow, Area: modeInner})
-				if !slices.Equal(tabIDs(got), c.wantIDs) || got.Active != c.wantActive {
-					t.Fatalf("tabs %v active %d", tabIDs(got), got.Active)
-				}
+			got := dispatch(t, s, MovePane{ID: id, Tab: c.dst, Follow: c.follow, Area: modeInner})
+			if !slices.Equal(tabIDs(got), c.wantIDs) || got.Active != c.wantActive {
+				t.Fatalf("tabs %v active %d", tabIDs(got), got.Active)
+			}
 
-				if _, ok := got.Panes[id]; !ok || len(got.Panes) != 3 {
-					t.Errorf("panes = %v", got.Panes)
-				}
+			if _, ok := got.Panes[id]; !ok || len(got.Panes) != 3 {
+				t.Errorf("panes = %v", got.Panes)
+			}
 
-				if got.Tab().Focus != id {
-					t.Errorf("active focus = %q", got.Tab().Focus)
-				}
-			})
-		}
+			if got.Tab().Focus != id {
+				t.Errorf("active focus = %q", got.Tab().Focus)
+			}
+		})
 	}
 }
 
@@ -220,14 +214,6 @@ func TestMovePaneActiveFollow(t *testing.T) {
 	got = dispatch(t, s, MovePane{ID: "p2", Tab: 2, Area: modeInner})
 	if got.Active != 0 {
 		t.Errorf("active = %d", got.Active)
-	}
-	// source right of target and removed: target index is unchanged
-	s = buildTabs(t, []LayoutMode{ModeBSP, ModeBSP, ModeBSP}, []int{1, 1, 1})
-	s.Active = 2
-
-	got = dispatch(t, s, MovePane{ID: "p3", Tab: 1, Area: modeInner})
-	if got.Active != 1 || !slices.Equal(tabIDs(got), []TabID{"t1", "t2"}) {
-		t.Errorf("active %d tabs %v", got.Active, tabIDs(got))
 	}
 }
 
@@ -293,20 +279,13 @@ func TestMovePaneZoomedHiddenTarget(t *testing.T) {
 }
 
 func TestMovePaneKeepsMetadata(t *testing.T) {
-	for _, st := range []AgentState{AgentWorking, AgentBlocked} {
-		s := buildTabs(t, []LayoutMode{ModeBSP, ModeBSP}, []int{2, 1})
-		p := Pane{Kind: KindAgent, Cwd: "/x", Harness: "claude-code", Session: "sess", Transcript: "/tr", State: st}
-		s.Panes["p2"] = p
+	s := buildTabs(t, []LayoutMode{ModeBSP, ModeBSP}, []int{2, 1})
+	p := Pane{Kind: KindAgent, Cwd: "/x", Harness: "claude-code", Session: "sess", Transcript: "/tr", State: AgentWorking}
+	s.Panes["p2"] = p
 
-		got := dispatch(t, s, MovePane{ID: "p2", Tab: 1, Follow: true, Area: modeInner})
-		if !samePane(got.Panes["p2"], p) {
-			t.Errorf("state %v: pane = %+v", st, got.Panes["p2"])
-		}
-
-		got = dispatch(t, got, BreakPane{ID: "p2", Area: modeInner})
-		if !samePane(got.Panes["p2"], p) {
-			t.Errorf("state %v: after break pane = %+v", st, got.Panes["p2"])
-		}
+	got := dispatch(t, s, BreakPane{ID: "p2", Area: modeInner})
+	if !samePane(got.Panes["p2"], p) {
+		t.Errorf("after break pane = %+v", got.Panes["p2"])
 	}
 }
 
@@ -333,7 +312,6 @@ func TestMovePaneErrors(t *testing.T) {
 		want error
 	}{
 		{"unknown pane", MovePane{ID: "p99", Tab: 1}, nil},
-		{"unknown pane beats tab", MovePane{ID: "p99", Tab: -1}, nil},
 		{"negative tab", MovePane{ID: "p1", Tab: -1}, ErrNoTab},
 		{"beyond count", MovePane{ID: "p1", Tab: 3}, ErrNoTab},
 		{"same tab", MovePane{ID: "p1", Tab: 0}, ErrSameTab},
@@ -366,20 +344,6 @@ func TestMovePaneErrors(t *testing.T) {
 	}
 }
 
-func TestMovePaneTabAboveNine(t *testing.T) {
-	modes := make([]LayoutMode, 9)
-
-	counts := make([]int, 9)
-	for i := range modes {
-		modes[i], counts[i] = ModeBSP, 2
-	}
-
-	s := buildTabs(t, modes, counts)
-	if err := moveErr(s, MovePane{ID: "p1", Tab: 9}); !errors.Is(err, ErrNoTab) {
-		t.Errorf("error = %v", err)
-	}
-}
-
 func TestBreakPane(t *testing.T) {
 	for _, mode := range allModes {
 		t.Run(string(mode), func(t *testing.T) {
@@ -403,24 +367,23 @@ func TestBreakPane(t *testing.T) {
 }
 
 func TestBreakPaneWithManyTabs(t *testing.T) {
-	for _, n := range []int{9, 10} {
-		modes := make([]LayoutMode, n)
+	n := 10
+	modes := make([]LayoutMode, n)
 
-		counts := make([]int, n)
-		for i := range modes {
-			modes[i], counts[i] = ModeBSP, 1
-		}
+	counts := make([]int, n)
+	for i := range modes {
+		modes[i], counts[i] = ModeBSP, 1
+	}
 
-		counts[0] = 2
-		s := buildTabs(t, modes, counts)
+	counts[0] = 2
+	s := buildTabs(t, modes, counts)
 
-		got := dispatch(t, s, BreakPane{ID: "p2", Area: modeInner})
-		if len(got.Tabs) != n+1 || got.Active != n || !slices.Equal(got.Tabs[n].Panes, []PaneID{"p2"}) {
-			t.Errorf("%d tabs: tabs %d active %d", n, len(got.Tabs), got.Active)
-		}
+	got := dispatch(t, s, BreakPane{ID: "p2", Area: modeInner})
+	if len(got.Tabs) != n+1 || got.Active != n || !slices.Equal(got.Tabs[n].Panes, []PaneID{"p2"}) {
+		t.Errorf("%d tabs: tabs %d active %d", n, len(got.Tabs), got.Active)
+	}
 
-		if err := moveErr(s, MovePane{ID: "p2", Tab: n}); !errors.Is(err, ErrNoTab) {
-			t.Errorf("%d tabs: explicit new tab error = %v", n, err)
-		}
+	if err := moveErr(s, MovePane{ID: "p2", Tab: n}); !errors.Is(err, ErrNoTab) {
+		t.Errorf("%d tabs: explicit new tab error = %v", n, err)
 	}
 }

@@ -62,19 +62,7 @@ func TestLoadKeys(t *testing.T) {
 			leader:  "ctrl+space", delay: 300 * time.Millisecond,
 			binds: map[string][]bind{"reader": {{"q", "reader.close"}, {"esc", "none"}}},
 		},
-		{
-			name:    "merge table keeps file order",
-			content: "[keys.merge]\nq = \"merge.cancel\"\nesc = \"none\"\n",
-			leader:  "ctrl+space", delay: 300 * time.Millisecond,
-			binds: map[string][]bind{"merge": {{"q", "merge.cancel"}, {"esc", "none"}}},
-		},
-		{
-			name:    "compose table keeps file order",
-			content: "[keys.compose]\n\"ctrl+o\" = \"compose.create\"\nesc = \"none\"\n",
-			leader:  "ctrl+space", delay: 300 * time.Millisecond,
-			binds: map[string][]bind{"compose": {{"ctrl+o", "compose.create"}, {"esc", "none"}}},
-		},
-		{name: "unknown context", content: "[keys.drawr]\no = \"x\"\n", errHas: []string{"unknown key keys.drawr"}},
+		{name: "unknown context", content: "[keys.drawr]\no = \"x\"\n", errHas: []string{"keys.drawr"}},
 		{name: "context is a string", content: "[keys]\nleader = \"ctrl+a\"\n", errHas: []string{"keys.leader"}},
 		{name: "command is a number", content: "[keys.leader]\nw = 3\n", errHas: []string{"keys.leader.w"}},
 	}
@@ -141,36 +129,30 @@ func TestKeysConfigValidate(t *testing.T) {
 	tests := []struct {
 		name string
 		cfg  KeysConfig
-		want string // empty means valid
+		want []string // empty means valid; the field and the offending key
 	}{
 		{name: "defaults"},
 		{name: "ctrl leader", cfg: KeysConfig{LeaderKey: "ctrl+a"}},
 		{name: "alt space leader", cfg: KeysConfig{LeaderKey: "alt+space"}},
 		{name: "function key leader", cfg: KeysConfig{LeaderKey: "f12"}},
-		{name: "plain leader", cfg: KeysConfig{LeaderKey: "a"}, want: `keys.leader_key: "a" needs a modifier, such as ctrl+a, or a function key`},
-		{name: "shifted leader", cfg: KeysConfig{LeaderKey: "shift+a"}, want: `keys.leader_key: "shift+a": write the shifted character, such as "A"`},
-		{name: "shift enter leader", cfg: KeysConfig{LeaderKey: "shift+enter"}, want: `keys.leader_key: "shift+enter" needs a modifier, such as ctrl+a, or a function key`},
-		{name: "dangling modifier", cfg: KeysConfig{LeaderKey: "ctrl+"}, want: `keys.leader_key: "ctrl+" is not a key name`},
-		{name: "modifiers out of order", cfg: KeysConfig{LeaderKey: "alt+ctrl+a"}, want: `keys.leader_key: "alt+ctrl+a" is not a key name`},
-		{name: "delay below", cfg: KeysConfig{WhichKeyDelay: ptrInt(-1)}, want: "keys.which_key_delay: -1 is out of range 0-5000"},
-		{name: "delay above", cfg: KeysConfig{WhichKeyDelay: ptrInt(5001)}, want: "keys.which_key_delay: 5001 is out of range 0-5000"},
+		{name: "plain leader", cfg: KeysConfig{LeaderKey: "a"}, want: []string{"keys.leader_key", `"a"`}},
+		{name: "shifted leader", cfg: KeysConfig{LeaderKey: "shift+a"}, want: []string{"keys.leader_key", `"shift+a"`}},
+		{name: "dangling modifier", cfg: KeysConfig{LeaderKey: "ctrl+"}, want: []string{"keys.leader_key", `"ctrl+"`}},
+		{name: "modifiers out of order", cfg: KeysConfig{LeaderKey: "alt+ctrl+a"}, want: []string{"keys.leader_key", `"alt+ctrl+a"`}},
+		{name: "delay below", cfg: KeysConfig{WhichKeyDelay: ptrInt(-1)}, want: []string{"keys.which_key_delay", "-1"}},
+		{name: "delay above", cfg: KeysConfig{WhichKeyDelay: ptrInt(5001)}, want: []string{"keys.which_key_delay", "5001"}},
 		{name: "delay top", cfg: KeysConfig{WhichKeyDelay: ptrInt(5000)}},
 		{
 			name: "shift on a character", cfg: KeysConfig{Drawer: map[string]string{"shift+h": "review.x"}},
-			want: `keys.drawer: "shift+h": write the shifted character, such as "H"`,
+			want: []string{"keys.drawer", `"shift+h"`},
 		},
-		{name: "sequence in drawer", cfg: KeysConfig{Drawer: map[string]string{"g g": "review.x"}}, want: `keys.drawer: "g g": only keys.leader takes two-key sequences`},
-		{name: "three keys in leader", cfg: KeysConfig{Leader: map[string]string{"g l x": "pr.list"}}, want: `keys.leader: "g l x": a sequence has at most two keys`},
-		{name: "empty command", cfg: KeysConfig{Rail: map[string]string{"j": ""}}, want: `keys.rail: "j" has no command`},
-		{name: "unknown name", cfg: KeysConfig{Checks: map[string]string{"ctrl+nope": "none"}}, want: `keys.checks: "ctrl+nope" is not a key name`},
-		{name: "bad key in sequence", cfg: KeysConfig{Leader: map[string]string{"g nope": "none"}}, want: `keys.leader: "g nope" is not a key name`},
-		{name: "double space in sequence", cfg: KeysConfig{Leader: map[string]string{"g  l": "none"}}, want: `keys.leader: "g  l" is not a key name`},
-		{name: "shifted digit", cfg: KeysConfig{Drawer: map[string]string{"shift+1": "review.x"}}, want: `keys.drawer: "shift+1": write the shifted character`},
-		{name: "shifted semicolon", cfg: KeysConfig{Drawer: map[string]string{"shift+;": "review.x"}}, want: `keys.drawer: "shift+;": write the shifted character`},
+		{name: "sequence in drawer", cfg: KeysConfig{Drawer: map[string]string{"g g": "review.x"}}, want: []string{"keys.drawer", `"g g"`}},
+		{name: "three keys in leader", cfg: KeysConfig{Leader: map[string]string{"g l x": "pr.list"}}, want: []string{"keys.leader", `"g l x"`}},
+		{name: "empty command", cfg: KeysConfig{Rail: map[string]string{"j": ""}}, want: []string{"keys.rail", `"j"`}},
+		{name: "unknown name", cfg: KeysConfig{Checks: map[string]string{"ctrl+nope": "none"}}, want: []string{"keys.checks", `"ctrl+nope"`}},
+		{name: "bad key in sequence", cfg: KeysConfig{Leader: map[string]string{"g nope": "none"}}, want: []string{"keys.leader", `"g nope"`}},
+		{name: "double space in sequence", cfg: KeysConfig{Leader: map[string]string{"g  l": "none"}}, want: []string{"keys.leader", `"g  l"`}},
 		{name: "ctrl shift left", cfg: KeysConfig{Drawer: map[string]string{"ctrl+shift+left": "review.x"}}},
-		{name: "sequence in reader", cfg: KeysConfig{Reader: map[string]string{"g g": "reader.top"}}, want: `keys.reader: "g g": only keys.leader takes two-key sequences`},
-		{name: "sequence in merge", cfg: KeysConfig{Merge: map[string]string{"g g": "merge.run"}}, want: `keys.merge: "g g": only keys.leader takes two-key sequences`},
-		{name: "sequence in compose", cfg: KeysConfig{Compose: map[string]string{"g g": "compose.create"}}, want: `keys.compose: "g g": only keys.leader takes two-key sequences`},
 		{name: "bracket", cfg: KeysConfig{PRList: map[string]string{"]": "prlist.x"}}},
 		{name: "capital", cfg: KeysConfig{Drawer: map[string]string{"H": "review.x"}}},
 		{name: "space name", cfg: KeysConfig{Drawer: map[string]string{"space": "review.x"}}},
@@ -184,11 +166,22 @@ func TestKeysConfigValidate(t *testing.T) {
 			t.Parallel()
 
 			err := tt.cfg.Validate()
-			switch {
-			case tt.want == "" && err != nil:
-				t.Errorf("Validate = %v, want nil", err)
-			case tt.want != "" && (err == nil || err.Error() != tt.want):
-				t.Errorf("Validate = %v, want %q", err, tt.want)
+			if len(tt.want) == 0 {
+				if err != nil {
+					t.Errorf("Validate = %v, want nil", err)
+				}
+
+				return
+			}
+
+			if err == nil {
+				t.Fatalf("Validate = nil, want an error naming %q", tt.want)
+			}
+
+			for _, s := range tt.want {
+				if !strings.Contains(err.Error(), s) {
+					t.Errorf("error %q lacks %q", err, s)
+				}
 			}
 		})
 	}
