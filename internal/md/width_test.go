@@ -177,6 +177,18 @@ func TestSplitClusterTakesFirstStyle(t *testing.T) {
 	}
 }
 
+// TestLongSplitClusterFits runs a cluster past maxJoin (16 repeats reach 64
+// bytes), where joining stops and the rest starts new cells.
+func TestLongSplitClusterFits(t *testing.T) {
+	t.Parallel()
+
+	src := "e" + strings.Repeat("**\u0301**~~\u0302~~", 40)
+
+	for _, w := range []int{1, 2, 20} {
+		assertSafe(t, layoutOf(src, w, ""), w)
+	}
+}
+
 func TestCodeLabelCutByCluster(t *testing.T) {
 	t.Parallel()
 
