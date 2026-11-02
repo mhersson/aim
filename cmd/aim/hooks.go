@@ -98,8 +98,8 @@ func setupHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.W
 	}
 
 	pid := os.Getpid()
-	settingsPath := filepath.Join(runDir, strconv.Itoa(pid)+"-claude.json")
 	sockPath := filepath.Join(runDir, strconv.Itoa(pid)+".sock")
+	settingsPath, _ := settingsForSock(sockPath)
 
 	if len(sockPath) > maxSockPath {
 		return hookRuntime{}, fmt.Errorf("socket path too long (%d bytes, at most %d)", len(sockPath), maxSockPath)
@@ -205,6 +205,17 @@ func sweepRunDir(logger *slog.Logger, dir string, alive func(pid int) bool) {
 			logger.Warn("remove stale run file", "name", e.Name(), "err", err)
 		}
 	}
+}
+
+// settingsForSock names the settings file that sits next to the socket
+// "<dir>/<pid>.sock", so the writer and the claude wrapper agree on it.
+func settingsForSock(sock string) (string, bool) {
+	base, ok := strings.CutSuffix(sock, ".sock")
+	if !ok {
+		return "", false
+	}
+
+	return base + "-claude.json", true
 }
 
 // runFilePid extracts the pid from "<pid>.sock", "<pid>-claude.json" and

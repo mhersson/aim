@@ -28,6 +28,10 @@ import (
 const closeTimeout = 3 * time.Second
 
 func main() {
+	if filepath.Base(os.Args[0]) == shimName {
+		os.Exit(runShim(os.Args[1:], os.Stderr))
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	err := newRootCmd().ExecuteContext(ctx)
 
