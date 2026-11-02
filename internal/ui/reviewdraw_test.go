@@ -671,11 +671,12 @@ func TestDrawerTitleAndTags(t *testing.T) {
 		scene func(s *reviewScene)
 		want  []string
 		not   []string
+		empty bool // the diff column holds the info row emptyRuns builds
 	}{
-		{"branch", false, func(s *reviewScene) { s.branch = true }, []string{" branch ─╮", "branch vs origin/main"}, []string{"turn 4/4"}},
-		{"branch icon", true, func(s *reviewScene) { s.branch = true }, []string{"\U000F062C branch ", "\U000F062C branch vs origin/main"}, nil},
-		{"empty branch", false, func(s *reviewScene) { s.res, s.branch = git.Result{}, true }, []string{"origin/main", "0 files"}, nil},
-		{"empty turn", false, func(s *reviewScene) { s.res, s.turn = git.Result{Turn: 3}, 3 }, []string{"turn 3"}, []string{"no snapshot"}},
+		{"branch", false, func(s *reviewScene) { s.branch = true }, []string{" branch ─╮", "branch vs origin/main"}, []string{"turn 4/4"}, false},
+		{"branch icon", true, func(s *reviewScene) { s.branch = true }, []string{"\U000F062C branch ", "\U000F062C branch vs origin/main"}, nil, false},
+		{"empty branch", false, func(s *reviewScene) { s.res, s.branch = git.Result{}, true }, []string{"0 files"}, nil, true},
+		{"empty turn", false, func(s *reviewScene) { s.res, s.turn = git.Result{Turn: 3}, 3 }, nil, []string{"no snapshot"}, true},
 	}
 
 	for _, tt := range tests {
@@ -697,6 +698,24 @@ func TestDrawerTitleAndTags(t *testing.T) {
 			for _, n := range tt.not {
 				if strings.Contains(text, n) {
 					t.Errorf("the frame holds %q", n)
+				}
+			}
+
+			if tt.empty {
+				d, _, ok := a.drawCtxFor(a.store.State())
+				if !ok {
+					t.Fatal("no drawer to draw")
+				}
+
+				var b strings.Builder
+
+				for _, run := range d.emptyRuns(0) {
+					b.WriteString(run.text)
+				}
+
+				row := strings.TrimSpace(b.String())
+				if row == "" || !strings.Contains(text, row) {
+					t.Errorf("the frame lacks the empty drawer's row %q:\n%s", row, text)
 				}
 			}
 		})
