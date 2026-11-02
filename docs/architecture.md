@@ -404,6 +404,8 @@ the followed place back, and one after a session change records nothing.
 | --- | --- | --- |
 | `<state dir>/state.json` | tabs, layouts, panes, sessions, plans | after every dispatch; atomic, fsynced |
 | `<state dir>/state.lock` | the `flock` that makes one instance the saver | held, not written |
+| `<state dir>/aim.log`, `aim.log.1` | the saver's log and its previous run's | per run; the saver rotates them at start |
+| `<state dir>/aim-<pid>.log` | a second instance's log | per run, appended; the saver sweeps one at start once its pid is dead and it is untouched 7 days |
 | `<state dir>/reviews/*.json` | reviewed-hunk marks, per repository | atomic, not fsynced |
 | `<state dir>/run/` | socket, settings, shell integration, temporary indexes | per run; swept |
 | `<user cache dir>/aim/` | index copies, fetched images | as used; swept at start: index copies not refreshed for 14 days, images untouched 30 |
@@ -418,6 +420,10 @@ the followed place back, and one after a session change records nothing.
   a fresh `claude` (`cmd/aim/restore.go`); the rest run `--resume <id>` in the
   saved `Cwd`. A refused resume exits fast with no `SessionStart`, and at the
   10 s probe the pane restarts once with a fresh `claude`.
+- **The lock before the log.** `run` takes `state.lock` before it opens a log
+  (`cmd/aim/main.go`, `cmd/aim/logfile.go`): a running instance keeps writing
+  to its open file, so a second one that rotated `aim.log` would move the
+  saver's log aside, and the start after that would delete it.
 - **Quit** closes the saver before any pane (`cmd/aim/main.go`), so agents that
   die on quit, `SIGHUP` or `SIGTERM` are not saved as shells.
 
