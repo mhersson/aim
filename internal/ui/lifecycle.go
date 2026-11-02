@@ -464,21 +464,15 @@ func (a *App) runProbe(p *pane) tea.Cmd {
 	p.cwdBusy = true
 	p.cwdAt = a.clock.Now()
 
-	return probe(p, false)
+	return probe(p, false, false)
 }
 
-// probe reads the pane's cwd and foreground process off the update loop.
-func probe(p *pane, due bool) tea.Cmd {
+// probe reads the pane's cwd and foreground process off the update loop. A due
+// probe (the grace and held-hook ones) leaves the cwd throttle alone; hook marks
+// the probe a held hook started.
+func probe(p *pane, due, hook bool) tea.Cmd {
 	return func() tea.Msg {
-		return paneCwdMsg{id: p.id, p: p, cwd: p.workingDir(), fg: p.foreground(), due: due}
-	}
-}
-
-// hookProbe is the probe a held hook starts; like the grace probe it leaves the
-// cwd throttle alone.
-func hookProbe(p *pane) tea.Cmd {
-	return func() tea.Msg {
-		return paneCwdMsg{id: p.id, p: p, cwd: p.workingDir(), fg: p.foreground(), due: true, hook: true}
+		return paneCwdMsg{id: p.id, p: p, cwd: p.workingDir(), fg: p.foreground(), due: due, hook: hook}
 	}
 }
 
@@ -490,7 +484,7 @@ func (a *App) onKindDue(msg paneKindDueMsg) tea.Cmd {
 		return nil
 	}
 
-	return probe(p, true)
+	return probe(p, true, false)
 }
 
 func (a *App) onCwdDue(msg paneCwdDueMsg) tea.Cmd {

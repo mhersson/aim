@@ -173,11 +173,13 @@ func TestHookEventsThatDoNotFit(t *testing.T) {
 		name string
 		ev   harness.Event
 		cmd  bool
+		// rearm allows the command that re-arms the event wait, with no probe.
+		rearm bool
 	}{
-		{"unknown pane", harness.Event{Pane: "p9", Name: "Stop", State: core.AgentIdle}, false},
-		{"empty pane", harness.Event{Name: "Stop", State: core.AgentIdle}, false},
-		{"shell pane", harness.Event{Pane: "p1", Name: "SessionStart", Session: "s9", Start: true, State: core.AgentWorking}, true},
-		{"out of range state", harness.Event{Pane: "p2", Name: "Stop", State: core.AgentState(99)}, false},
+		{"unknown pane", harness.Event{Pane: "p9", Name: "Stop", State: core.AgentIdle}, false, false},
+		{"empty pane", harness.Event{Name: "Stop", State: core.AgentIdle}, false, false},
+		{"shell pane", harness.Event{Pane: "p1", Name: "SessionStart", Session: "s9", Start: true, State: core.AgentWorking}, true, false},
+		{"out of range state", harness.Event{Pane: "p2", Name: "Stop", State: core.AgentState(99)}, false, true},
 	}
 
 	for _, tt := range tests {
@@ -187,7 +189,7 @@ func TestHookEventsThatDoNotFit(t *testing.T) {
 				t.Error("no command, want the probe that checks the held hook")
 			}
 
-			if !tt.cmd && tt.name != "out of range state" && cmd != nil {
+			if !tt.cmd && !tt.rearm && cmd != nil {
 				// Only the re-armed wait may remain, and there is no channel here.
 				t.Errorf("command = %v, want none", cmd)
 			}

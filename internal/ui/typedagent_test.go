@@ -168,6 +168,12 @@ func TestTypedAgentResumesWhereClaudeStarted(t *testing.T) {
 		t.Fatalf("pane = %+v, want an agent in /stale", m)
 	}
 
+	hook(a, startEvent("relative/dir"))
+
+	if got := cwd(); got != "/stale" {
+		t.Fatalf("cwd = %q after a SessionStart with a relative cwd, want /stale", got)
+	}
+
 	hook(a, startEvent(launch))
 
 	if got := cwd(); got != launch {

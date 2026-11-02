@@ -433,7 +433,7 @@ func probeAt(t *testing.T, r *restored, id core.PaneID, d time.Duration) {
 	t.Helper()
 
 	r.clk.Advance(d)
-	r.a.Update(probe(r.a.panes[id], true)())
+	r.a.Update(probe(r.a.panes[id], true, false)())
 }
 
 func TestResumeRestartsAgentWhoseClaudeNeverAppeared(t *testing.T) {
@@ -562,7 +562,7 @@ func TestResumeRestartSchedulesItsOwnProbe(t *testing.T) {
 
 	r.ticks.delays, r.ticks.msgs = nil, nil
 
-	_, cmd := r.a.Update(probe(r.a.panes["p1"], true)())
+	_, cmd := r.a.Update(probe(r.a.panes["p1"], true, false)())
 	if cmd == nil {
 		t.Fatal("no command after a restart")
 	}
@@ -717,7 +717,7 @@ func TestProbeMessagesCarryTheirPane(t *testing.T) {
 	r := resumeApp(t)
 	p := r.a.panes["p2"]
 
-	if m, ok := probe(p, false)().(paneCwdMsg); !ok || m.p != p {
+	if m, ok := probe(p, false, false)().(paneCwdMsg); !ok || m.p != p {
 		t.Errorf("probe message = %#v, want one bound to its pane", m)
 	}
 

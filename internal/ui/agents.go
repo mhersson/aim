@@ -151,7 +151,7 @@ func (a *App) holdHook(ev harness.Event) tea.Cmd {
 
 	p.heldProbe = true
 
-	return hookProbe(p)
+	return probe(p, true, true)
 }
 
 // replayHeld applies the held events in order, now that the pane is an agent.
