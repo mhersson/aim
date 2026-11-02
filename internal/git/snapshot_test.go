@@ -29,13 +29,9 @@ const (
 func seedRepo(t *testing.T) string {
 	t.Helper()
 
-	dir := newRepo(t)
-	writeFile(t, dir, "a.txt", "a\n")
-	writeFile(t, dir, "b.txt", "b\n")
-	writeFile(t, dir, "dir/c.txt", "c\n")
-	commitAll(t, dir, "init")
-
-	return dir
+	return copyTemplate(t, &seedTemplate, func(dir string) error {
+		return buildRepo(dir, map[string]string{"a.txt": "a\n", "b.txt": "b\n", "dir/c.txt": "c\n"})
+	})
 }
 
 func openRepo(t *testing.T, dir string) Repo {

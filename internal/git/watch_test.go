@@ -150,12 +150,9 @@ func settle(t *testing.T, w *Watcher) {
 func baseRepo(t *testing.T) string {
 	t.Helper()
 
-	dir := newRepo(t)
-	writeFile(t, dir, "tracked.txt", "one\n")
-	writeFile(t, dir, "src/a.go", "package a\n")
-	commitAll(t, dir, "init")
-
-	return dir
+	return copyTemplate(t, &baseTemplate, func(dir string) error {
+		return buildRepo(dir, map[string]string{"tracked.txt": "one\n", "src/a.go": "package a\n"})
+	})
 }
 
 func TestWatchWriteTrackedFile(t *testing.T) {

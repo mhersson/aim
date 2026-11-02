@@ -5,14 +5,107 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 )
+
+// repoTemplate is a fixture repository built once per test binary and copied
+// per test. It is built on first use and removed by TestMain.
+type repoTemplate struct {
+	once sync.Once
+	dir  string
+	err  error
+}
+
+var (
+	seedTemplate   repoTemplate
+	baseTemplate   repoTemplate
+	seededTemplate repoTemplate
+	updateTemplate repoTemplate
+	pushTemplate   repoTemplate
+)
+
+// copyTemplate copies tpl into a fresh symlink-free temp dir and returns its
+// path, building tpl first with build. Templates hold no symlinks (os.CopyFS
+// drops them), no refs/aim refs and no linked worktrees, and reach other
+// repositories by relative paths only.
+func copyTemplate(t *testing.T, tpl *repoTemplate, build func(dir string) error) string {
+	t.Helper()
+
+	tpl.once.Do(func() {
+		tpl.dir, tpl.err = os.MkdirTemp("", "git-template-")
+		if tpl.err == nil {
+			tpl.err = build(tpl.dir)
+		}
+	})
+
+	if tpl.err != nil {
+		t.Fatalf("build template: %v", tpl.err)
+	}
+
+	dst, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.CopyFS(dst, os.DirFS(tpl.dir)); err != nil {
+		t.Fatalf("copy template: %v", err)
+	}
+
+	return dst
+}
+
+// gitRun runs git for a template builder, with fixed commit dates so the ids
+// are the same on every run. The error carries git's output.
+func gitRun(dir string, args ...string) error {
+	const date = "2020-01-01T00:00:00Z"
+
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+
+	cmd.Env = append(os.Environ(), "GIT_AUTHOR_DATE="+date, "GIT_COMMITTER_DATE="+date)
+
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git %s: %w\n%s", strings.Join(args, " "), err, out)
+	}
+
+	return nil
+}
+
+// buildRepo makes dir a repository on main holding files and one commit.
+func buildRepo(dir string, files map[string]string) error {
+	if err := gitRun(dir, "init", "-q", "-b", "main"); err != nil {
+		return err
+	}
+
+	for name, content := range files {
+		if err := writeBuilt(dir, name, content); err != nil {
+			return err
+		}
+	}
+
+	if err := gitRun(dir, "add", "-A"); err != nil {
+		return err
+	}
+
+	return gitRun(dir, "commit", "-q", "-m", "init")
+}
+
+func writeBuilt(dir, rel, content string) error {
+	path := filepath.Join(dir, rel)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+
+	return os.WriteFile(path, []byte(content), 0o644)
+}
 
 // TestMain isolates git from the machine's config once for the binary, so
 // tests that build repositories need no t.Setenv. Its global config turns
@@ -44,6 +137,13 @@ func TestMain(m *testing.M) {
 	}
 
 	code := m.Run()
+
+	for _, tpl := range []*repoTemplate{&seedTemplate, &baseTemplate, &seededTemplate, &updateTemplate, &pushTemplate} {
+		if tpl.dir != "" {
+			_ = os.RemoveAll(tpl.dir)
+		}
+	}
+
 	_ = os.RemoveAll(dir)
 
 	os.Exit(code)

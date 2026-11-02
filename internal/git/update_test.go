@@ -16,12 +16,21 @@ import (
 func updateRepo(t *testing.T) string {
 	t.Helper()
 
-	return branchRepo(t, func(dir string) {
+	return copyTemplate(t, &updateTemplate, func(dir string) error {
+		files := map[string]string{}
 		for _, n := range []string{"a.txt", "b.txt", "c.txt", "dir/d.txt", "dir/e.txt"} {
-			writeFile(t, dir, n, numbered(n, 30))
+			files[n] = numbered(n, 30)
 		}
-	}, func(dir string) {
-		writeFile(t, dir, "a.txt", numbered("a.txt", 30)+"extra\n")
+
+		if err := buildRepo(dir, files); err != nil {
+			return err
+		}
+
+		if err := gitRun(dir, "checkout", "-q", "-b", "feature"); err != nil {
+			return err
+		}
+
+		return writeBuilt(dir, "a.txt", numbered("a.txt", 30)+"extra\n")
 	})
 }
 

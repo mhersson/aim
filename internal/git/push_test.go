@@ -28,15 +28,38 @@ type pushFixture struct {
 func newPushFixture(t *testing.T) pushFixture {
 	t.Helper()
 
-	root := newRepo(t)
-	writeFile(t, root, "f", "1\n")
-	commitAll(t, root, "init")
-	gitOut(t, root, "switch", "-q", "-c", "feat")
+	dir := copyTemplate(t, &pushTemplate, func(dir string) error {
+		root, bare := filepath.Join(dir, "root"), filepath.Join(dir, "bare")
 
-	bare := newBare(t)
-	gitOut(t, root, "remote", "add", "origin", bare)
+		for _, d := range []string{root, bare} {
+			if err := os.Mkdir(d, 0o755); err != nil {
+				return err
+			}
+		}
 
-	return pushFixture{root: root, bare: bare, repo: openRepo(t, root)}
+		if err := buildRepo(root, map[string]string{"f": "1\n"}); err != nil {
+			return err
+		}
+
+		for _, step := range []struct {
+			dir  string
+			args []string
+		}{
+			{root, []string{"switch", "-q", "-c", "feat"}},
+			{bare, []string{"init", "-q", "--bare", "-b", "main"}},
+			{root, []string{"remote", "add", "origin", "../bare"}},
+		} {
+			if err := gitRun(step.dir, step.args...); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+
+	root := filepath.Join(dir, "root")
+
+	return pushFixture{root: root, bare: filepath.Join(dir, "bare"), repo: openRepo(t, root)}
 }
 
 func newBare(t *testing.T) string {

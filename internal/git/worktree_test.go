@@ -14,9 +14,9 @@ import (
 func seededRepo(t *testing.T) (string, Repo) {
 	t.Helper()
 
-	dir := newRepo(t)
-	writeFile(t, dir, "a.txt", "a\n")
-	commitAll(t, dir, "init")
+	dir := copyTemplate(t, &seededTemplate, func(dir string) error {
+		return buildRepo(dir, map[string]string{"a.txt": "a\n"})
+	})
 
 	r, err := Open(t.Context(), dir)
 	if err != nil {
