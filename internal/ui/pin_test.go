@@ -234,6 +234,16 @@ func TestPinnedHookRefreshUsesItsRoot(t *testing.T) {
 		t.Fatalf("drawer shows %v with no watch on b and no hook", got)
 	}
 
+	// A's watch reports a batch, and it does not stand in for b's.
+	r.until(t, "the agent's watch on A", func() bool { return r.held(r.id) == r.rootA })
+	heads := r.fake.count("Head")
+	r.fake.watches.send(r.rootA, git.Batch{Git: true, Paths: []string{"a.txt"}})
+	r.until(t, "the batch for A to land", func() bool { return r.fake.count("Head") > heads && r.landed() })
+
+	if got := viewPaths(r.view()); len(got) != 0 {
+		t.Fatalf("drawer shows %v after a batch for A with no watch on b", got)
+	}
+
 	// The agent's own watch on A is held, and does not stand in for b's.
 	r.hookNow(idleHook(r.id))
 	r.until(t, "the hook to recompute the pinned drawer", r.viewHolds(func(v *reviewView) bool {
@@ -251,6 +261,7 @@ func TestPinnedWorktreeRemoved(t *testing.T) {
 	r.open(t, r.id)
 	r.pinTo(t, r.rootB)
 	r.until(t, "the drawer to show b", r.showing(r.rootB))
+	r.until(t, "the pin's watch", func() bool { return r.pinHeld(r.rootB) })
 
 	if err := os.RemoveAll(r.dirB); err != nil {
 		t.Fatal(err)

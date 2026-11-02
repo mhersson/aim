@@ -364,7 +364,8 @@ func mustRect(t *testing.T, r *drawerRig) core.Rect {
 }
 
 // settled feeds queued messages until the active view has no load running or
-// queued.
+// queued. It passes on the first poll when the view is already idle, so it never
+// proves an absence that depends on a message still in flight.
 func (r *drawerRig) settled(t *testing.T) {
 	t.Helper()
 

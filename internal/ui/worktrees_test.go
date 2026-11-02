@@ -848,6 +848,10 @@ func TestWorktreeListStatsHoldProbeSlots(t *testing.T) {
 	if got := r.fake.peak("Stats"); got != 2 {
 		t.Errorf("peak concurrent counts = %d, want 2: the free slots", got)
 	}
+
+	if got := r.fake.count("Stats"); got != 3 {
+		t.Errorf("%d rows were counted, want all 3: the third once a slot was free", got)
+	}
 }
 
 func TestWorktreeListCloseCancelsProbes(t *testing.T) {

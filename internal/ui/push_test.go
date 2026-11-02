@@ -20,9 +20,6 @@ import (
 	"github.com/mhersson/aim/internal/ui/palette"
 )
 
-// gitFileOnly limits git to local transports, so no push test can reach a network.
-const gitFileOnly = "GIT_ALLOW_PROTOCOL=file"
-
 // refreshRec records the repositories the poller was asked to refresh.
 type refreshRec struct {
 	*fakePRs

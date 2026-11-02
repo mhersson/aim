@@ -272,6 +272,9 @@ func hunkHolds(v *reviewView, path, text string) bool {
 	return false
 }
 
+// gitFileOnly limits git to local transports, so no bench can reach a network.
+const gitFileOnly = "GIT_ALLOW_PROTOCOL=file"
+
 // gitIn runs git in dir, with an identity and a config that need nothing from the host.
 func gitIn(t *testing.T, dir string, args ...string) {
 	t.Helper()
@@ -279,11 +282,16 @@ func gitIn(t *testing.T, dir string, args ...string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	cfg := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(cfg, []byte("[maintenance]\n\tauto = false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 
 	cmd.Env = append(os.Environ(),
-		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+filepath.Join(t.TempDir(), "gitconfig"),
+		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+cfg,
 		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t", gitFileOnly)
 
 	if out, err := cmd.CombinedOutput(); err != nil {

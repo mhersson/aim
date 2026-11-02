@@ -603,8 +603,8 @@ func TestComposeNotices(t *testing.T) {
 				t.Errorf("the box opened:\n%s", r.text())
 			}
 
-			if r.notice != tt.want {
-				t.Errorf("notice = %q, want %q", r.notice, tt.want)
+			if r.notice != tt.want || r.noticeLevel() != levelNotice {
+				t.Errorf("notice = %q at level %v, want %q at the notice level", r.notice, r.noticeLevel(), tt.want)
 			}
 		})
 	}
@@ -761,6 +761,10 @@ func TestComposeBaseChangeRecount(t *testing.T) {
 
 	// Log ran for mid and failed with errNoBaseRef, not an empty list.
 	logs := r.fake.calls("Log")
+	if len(logs) == 0 {
+		t.Fatal("no Log call was recorded for the new base")
+	}
+
 	if last := logs[len(logs)-1]; len(last.Args) == 0 || last.Args[0] != "origin/mid" {
 		t.Errorf("last Log call = %+v, want one for origin/mid", last)
 	}

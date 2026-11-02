@@ -482,7 +482,7 @@ func TestIdleAppDoesNoProbes(t *testing.T) {
 			w.until(t, "the probes", nil, func() bool {
 				for _, p := range []core.PaneID{id, shell} {
 					rp := w.rail.panes[p]
-					if rp == nil || !rp.probe.known || rp.head.busy || rp.stats.busy {
+					if rp == nil || !rp.probe.known || rp.head.busy || rp.stats.busy || rp.nameSlot.busy {
 						return false
 					}
 				}

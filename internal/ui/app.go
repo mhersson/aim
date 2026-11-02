@@ -190,9 +190,9 @@ type App struct {
 	watches     watchState
 	prs         prState
 	edits       editState
-	storeVer    uint64    // counts the dispatches the store accepted
-	marks       markFiles // the reviewed-hunk files; nil keeps marks for the session only
-	git         Git
+	storeVer    uint64        // counts the dispatches the store accepted
+	marks       markFiles     // the reviewed-hunk files; nil keeps marks for the session only
+	git         Git           // every git call the app makes
 	engine      DiffEngine    // nil when the rail's diff stats and the review drawer's diffs are off
 	probeSem    chan struct{} // its capacity bounds the head, stats and name probes running at once
 	probeBudget time.Duration // each probe's time limit, counted from the start of its run
