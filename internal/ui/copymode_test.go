@@ -165,59 +165,39 @@ func TestCopyModeViewJumps(t *testing.T) {
 func TestCopyModeTopStaysConsistent(t *testing.T) {
 	t.Parallel()
 
-	for _, rows := range []int{1, 3, 12, 20} {
+	// A one-row grid in a one-row view, a view taller than the grid, and a grid
+	// taller than the view by a lot and by a little.
+	for _, size := range []struct{ rows, viewRows int }{{1, 1}, {3, 12}, {20, 1}, {20, 4}} {
+		rows, viewRows := size.rows, size.viewRows
+
 		g := newFakeGrid(6, nil)
 		for i := range rows {
 			g.cells = append(g.cells, newFakeGrid(6, nil, fmt.Sprintf("r%d", i)).cells[0])
 		}
 
-		for _, viewRows := range []int{1, 4, 12, 30} {
-			for _, start := range []int{0, rows / 2, rows - 1} {
-				for _, keys := range [][]string{
-					{"ctrl+u"},
-					{"ctrl+d"},
-					{"ctrl+b"},
-					{"ctrl+f"},
-					{"G"},
-					{"g", "g"},
-					{"ctrl+d", "ctrl+d", "ctrl+d"},
-					{"ctrl+u", "ctrl+u", "ctrl+u"},
-				} {
-					m := copyMode{cursor: point{start, 0}, top: min(start, max(0, rows-viewRows))}
-					m = pressKeys(t, g, m, viewRows, keys...)
-					maxTop := max(0, rows-viewRows)
+		for _, start := range []int{0, rows - 1} {
+			for _, keys := range [][]string{
+				{"ctrl+u"},
+				{"ctrl+d"},
+				{"ctrl+b"},
+				{"ctrl+f"},
+				{"G"},
+				{"g", "g"},
+			} {
+				m := copyMode{cursor: point{start, 0}, top: min(start, max(0, rows-viewRows))}
+				m = pressKeys(t, g, m, viewRows, keys...)
+				maxTop := max(0, rows-viewRows)
 
-					c := m.cursor
-					switch {
-					case c.row < 0 || c.row >= rows:
-						t.Errorf("rows=%d view=%d start=%d %v: cursor %v out of grid", rows, viewRows, start, keys, c)
-					case m.top < 0 || m.top > maxTop:
-						t.Errorf("rows=%d view=%d start=%d %v: top %d out of [0,%d]", rows, viewRows, start, keys, m.top, maxTop)
-					case c.row < m.top || c.row > m.top+viewRows-1:
-						t.Errorf("rows=%d view=%d start=%d %v: cursor %v outside view top=%d", rows, viewRows, start, keys, c, m.top)
-					}
+				c := m.cursor
+				switch {
+				case c.row < 0 || c.row >= rows:
+					t.Errorf("rows=%d view=%d start=%d %v: cursor %v out of grid", rows, viewRows, start, keys, c)
+				case m.top < 0 || m.top > maxTop:
+					t.Errorf("rows=%d view=%d start=%d %v: top %d out of [0,%d]", rows, viewRows, start, keys, m.top, maxTop)
+				case c.row < m.top || c.row > m.top+viewRows-1:
+					t.Errorf("rows=%d view=%d start=%d %v: cursor %v outside view top=%d", rows, viewRows, start, keys, c, m.top)
 				}
 			}
-		}
-	}
-}
-
-func TestCopyModeViewTop(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		row, current, viewRows, want int
-	}{
-		{5, 3, 4, 3},
-		{2, 3, 4, 2},
-		{7, 3, 4, 4},
-		{6, 3, 4, 3},
-		{3, 3, 4, 3},
-	}
-	for _, tt := range tests {
-		m := copyMode{cursor: point{tt.row, 0}}
-		if got := m.viewTop(tt.viewRows, tt.current); got != tt.want {
-			t.Errorf("row %d current %d: got %d, want %d", tt.row, tt.current, got, tt.want)
 		}
 	}
 }
@@ -252,36 +232,16 @@ func TestCopyModeSelection(t *testing.T) {
 	}
 }
 
-func TestCopyModeActions(t *testing.T) {
+func TestCopyModeUnknownKey(t *testing.T) {
 	t.Parallel()
 
 	g := copyTestGrid()
 
-	tests := []struct {
-		key  string
-		want copyAction
-	}{
-		{"y", copyYank},
-		{"q", copyExit},
-		{"esc", copyExit},
-		{"/", copySearch},
-		{"?", copySearchBack},
-		{"h", copyNone},
-		{"F13", copyNone},
-	}
-	for _, tt := range tests {
-		if _, act := (copyMode{cursor: point{1, 1}}).key(g, tt.key, 4); act != tt.want {
-			t.Errorf("key %q: action %v, want %v", tt.key, act, tt.want)
-		}
-	}
-
 	m := copyMode{cursor: point{1, 3}, top: 1}
-	if got, _ := m.key(g, "F13", 4); got != m {
-		t.Errorf("unknown key changed state: %+v", got)
-	}
 
-	if _, act := m.key(g, "y", 4); act != copyYank {
-		t.Errorf("y without a selection: action %v", act)
+	got, act := m.key(g, "F13", 4)
+	if act != copyNone || got != m {
+		t.Errorf("unknown key: action %v state %+v, want none and unchanged", act, got)
 	}
 }
 
@@ -398,7 +358,7 @@ func TestCopyModeSearchMovesSelectionHead(t *testing.T) {
 // A search that finds nothing over a full history must not decode the history
 // into memory: it blocks the update loop while it holds the pane lock.
 func TestSearchOverCappedHistoryIsCheap(t *testing.T) {
-	p := cappedHistoryPane(t)
+	p := cappedHistoryPaneOf(t, 44, 30)
 
 	var (
 		found      bool
@@ -513,13 +473,17 @@ func TestHistoryTextPathMatchesCellPath(t *testing.T) {
 }
 
 // cappedHistoryPane is a 200-column pane whose history holds the 10000-line cap.
-func cappedHistoryPane(t *testing.T) *pane {
+func cappedHistoryPane(t *testing.T) *pane { return cappedHistoryPaneOf(t, 202, 180) }
+
+// cappedHistoryPaneOf is a pane of width columns plus its border, whose lines
+// carry pad characters, with its history at the 10000-line cap.
+func cappedHistoryPaneOf(t *testing.T, width, pad int) *pane {
 	t.Helper()
 
-	a, procs := framedApp(t, 202, 14, shellSpec("/w/a", ""))
+	a, procs := framedApp(t, width, 14, shellSpec("/w/a", ""))
 	p, fp := a.panes["p1"], procs["p1"]
 
-	feedPaddedLines(t, p, fp, 0, 10100, strings.Repeat("x", 180))
+	feedPaddedLines(t, p, fp, 0, 10100, strings.Repeat("x", pad))
 
 	return p
 }

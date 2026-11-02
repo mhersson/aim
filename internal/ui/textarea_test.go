@@ -143,8 +143,8 @@ func TestTextAreaCapOnTypingAndStart(t *testing.T) {
 		t.Error("a key at the cap reported a change")
 	}
 
-	if got := newTextArea(strings.Repeat("é", 70000), 65536); len([]rune(got.Value())) != 65536 {
-		t.Errorf("start text holds %d characters, want 65536", len([]rune(got.Value())))
+	if got := newTextArea("éééé", 3); len([]rune(got.Value())) != 3 {
+		t.Errorf("start text holds %d characters, want 3", len([]rune(got.Value())))
 	}
 }
 

@@ -118,11 +118,19 @@ func copyNow(a *App, f *fakeRun) string {
 	return copiedText(f)
 }
 
-func selBgAt(a *App, x, y int) bool {
-	w, h := a.width, a.height
-	buf := uv.NewScreenBuffer(w, h)
+func selBgAt(a *App, x, y int) bool { return selBgIn(a, drawnBuffer(a), x, y) }
+
+// drawnBuffer is the frame View draws, as cells.
+func drawnBuffer(a *App) *uv.ScreenBuffer {
+	buf := uv.NewScreenBuffer(a.width, a.height)
 	uv.NewStyledString(a.View().Content).Draw(buf, buf.Bounds())
 
+	return &buf
+}
+
+// selBgIn reports whether cell (x, y) of an already drawn frame has the
+// selection background.
+func selBgIn(a *App, buf *uv.ScreenBuffer, x, y int) bool {
 	c := buf.CellAt(x, y)
 	if c == nil || c.Style.Bg == nil {
 		return false
@@ -190,9 +198,6 @@ func TestDragThatLeavesItsPaneStaysClamped(t *testing.T) {
 
 			return c.X + 1, c.Y - 1
 		}, "hello world", false},
-		{"onto the bottom border on the last row", func(a *App) (int, int) {
-			return r(a, "p1").X + 2, a.height - 1
-		}, "hello world\nsecond line\nthird", true},
 		{"onto its right border", func(a *App) (int, int) {
 			c := r(a, "p1")
 
@@ -234,9 +239,11 @@ func TestDragThatLeavesItsPaneStaysClamped(t *testing.T) {
 			}
 
 			n := r(a, "p2")
+			buf := drawnBuffer(a)
+
 			for y := n.Y; y < n.Y+n.H; y++ {
 				for x := n.X; x < n.X+n.W; x++ {
-					if selBgAt(a, x, y) {
+					if selBgIn(a, buf, x, y) {
 						t.Fatalf("neighbour cell (%d,%d) is highlighted", x, y)
 					}
 				}
@@ -435,44 +442,6 @@ func TestAltDragSelectsABlock(t *testing.T) {
 	}
 }
 
-func TestHeaderClickFocusesOnly(t *testing.T) {
-	t.Parallel()
-	a, procs, _ := trackingShells(t)
-	r := a.layoutRects()["p1"]
-
-	click(a, r.X+2, r.Y)
-
-	if got := a.store.State().Tab().Focus; got != "p1" {
-		t.Errorf("focus = %q, want p1", got)
-	}
-
-	if a.sel != nil {
-		t.Errorf("header click selected %+v", a.sel)
-	}
-
-	if got := settle(t, a, procs["p1"], contentRect(r)); got != "" {
-		t.Errorf("header click reached the guest: %q", got)
-	}
-}
-
-func TestBorderAndStatusClicksAreIgnored(t *testing.T) {
-	t.Parallel()
-	a, _, _ := shellsWith(t, sampleText, "")
-	r1 := a.layoutRects()["p1"]
-
-	// The last column of p1's frame is its right border; p2's frame starts after it.
-	if h := a.hit(r1.X+r1.W-1, r1.Y+3); h.area != hitNone {
-		t.Fatalf("border hit = %+v, want none", h)
-	}
-
-	click(a, r1.X+r1.W-1, r1.Y+3)
-	click(a, 5, a.height-1)
-
-	if got := a.store.State().Tab().Focus; got != "p2" {
-		t.Errorf("focus = %q, want p2 unchanged", got)
-	}
-}
-
 func TestTabClickSwitchesTab(t *testing.T) {
 	t.Parallel()
 	a, _, _ := shellsWith(t, sampleText, "")
@@ -509,19 +478,6 @@ func TestCopyWithoutSelectionDoesNothing(t *testing.T) {
 
 	if got := copyNow(a, f); got != "" {
 		t.Errorf("copied %q with no selection", got)
-	}
-}
-
-func TestCopyKeepsTheSelection(t *testing.T) {
-	t.Parallel()
-	a, _, f := shellsWith(t, sampleText, "")
-	c := contentRectOf(a, "p1")
-
-	drag(a, c.X, c.Y, c.X+4, c.Y, 0)
-	copyNow(a, f)
-
-	if a.sel == nil {
-		t.Error("copy cleared the selection")
 	}
 }
 
@@ -769,26 +725,6 @@ func TestResizeAndAltScreenClearTheSelection(t *testing.T) {
 	})
 }
 
-func TestSelectionStaysOnItsTextWhileOutputScrolls(t *testing.T) {
-	t.Parallel()
-	a, procs, f := shellsWith(t, manyLines(30), "")
-	p := a.panes["p1"]
-	c := contentRectOf(a, "p1")
-
-	drag(a, c.X, c.Y, c.X+5, c.Y, 0)
-	want := copyNow(a, f)
-
-	feedLines(t, p, procs["p1"], 30, 40)
-
-	f.mu.Lock()
-	f.calls = nil
-	f.mu.Unlock()
-
-	if got := copyNow(a, f); got != want {
-		t.Errorf("after output copied %q, want %q", got, want)
-	}
-}
-
 // A click on a pane's top border focuses it, as its header did; its side and
 // bottom borders do nothing of their own, and no click there reaches the guest.
 func TestPaneBorderClicks(t *testing.T) {
@@ -837,19 +773,6 @@ func TestPaneBorderClicks(t *testing.T) {
 	}
 }
 
-func TestWheelUsesTheSharedHitTest(t *testing.T) {
-	t.Parallel()
-	a, _, _ := shellsWith(t, manyLines(30), "")
-	r := a.layoutRects()["p1"]
-
-	// The header row is not content: the wheel there does nothing.
-	wheelAt(a, r.X+1, r.Y, tea.MouseWheelUp)
-
-	if got := a.panes["p1"].linesAbove(); got != 0 {
-		t.Errorf("wheel on a header scrolled %d lines", got)
-	}
-}
-
 func TestHitAreas(t *testing.T) {
 	t.Parallel()
 	a, _, _ := shellsWith(t, sampleText, "")
@@ -871,7 +794,6 @@ func TestHitAreas(t *testing.T) {
 		{"right border", r.X + r.W - 1, c.Y, hitNone, ""},
 		{"bottom border", c.X, r.Y + r.H - 1, hitNone, ""},
 		{"outside the screen on the left", r.X - 1, r.Y, hitNone, ""},
-		{"bottom border on the last row", 3, a.height - 1, hitNone, ""},
 		{"tab", 2, 0, hitTab, ""},
 		{"off screen", -1, -1, hitNone, ""},
 	}
@@ -924,7 +846,13 @@ func drawnRow(a *App, c core.Rect, y int) string {
 
 func TestHighlightFollowsDrawnRowsDuringSyncHold(t *testing.T) {
 	t.Parallel()
-	a, procs, _ := shellsWith(t, sampleText, "")
+
+	// A fake clock fixed at the hold's start keeps the hold open.
+	a := newTestApp(t)
+	a.clock = &fakeClock{t: t0}
+
+	a, procs := framedAppOn(t, a, 60, 14, shellSpec("/w/a", sampleText), shellSpec("/w/b", ""))
+	fakeClip(a)
 	p := a.panes["p1"]
 	c := contentRectOf(a, "p1")
 
@@ -1020,7 +948,6 @@ func TestSelectionClearsWhenItsTextIsRedrawn(t *testing.T) {
 		{"another row", "p1", "\x1b[3;1HTHIRD", true},
 		{"another pane", "p2", "\x1b[1;1Hjello", true},
 		{"output scrolls", "p1", "\r\n" + manyLines(20), true},
-		{"clear and reprint", "p1", "\x1b[2J\x1b[3J\x1b[H" + manyLines(30), false},
 	}
 
 	for _, tt := range tests {

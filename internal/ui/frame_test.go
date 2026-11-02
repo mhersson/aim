@@ -29,7 +29,14 @@ type paneSpec struct {
 func framedApp(t *testing.T, w, h int, specs ...paneSpec) (*App, map[core.PaneID]*fakeProc) {
 	t.Helper()
 
-	a := newTestApp(t)
+	return framedAppOn(t, newTestApp(t), w, h, specs...)
+}
+
+// framedAppOn is framedApp on an app the caller made, to set it up first: the
+// panes read a.clock for their sync hold.
+func framedAppOn(t *testing.T, a *App, w, h int, specs ...paneSpec) (*App, map[core.PaneID]*fakeProc) {
+	t.Helper()
+
 	sized(t, a, w, h)
 
 	texts := map[core.PaneID]string{}
@@ -46,7 +53,7 @@ func framedApp(t *testing.T, w, h int, specs ...paneSpec) (*App, map[core.PaneID
 }
 
 // attachPanes gives every pane in the state a fake process sized to its
-// content rect and feeds it its text.
+// content rect and feeds it its text. The panes read the app's clock.
 func attachPanes(t *testing.T, a *App, texts map[core.PaneID]string) map[core.PaneID]*fakeProc {
 	t.Helper()
 
@@ -56,7 +63,7 @@ func attachPanes(t *testing.T, a *App, texts map[core.PaneID]string) map[core.Pa
 	for id := range a.store.State().Panes {
 		c := contentRect(rects[id])
 		fp := newFakeProc()
-		p := newPane(id, fp, max(c.W, 1), max(c.H, 1), realClock{})
+		p := newPane(id, fp, max(c.W, 1), max(c.H, 1), a.clock)
 
 		t.Cleanup(func() { _ = p.close() })
 

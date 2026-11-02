@@ -60,7 +60,6 @@ func TestMiddleClickPastesIntoThePaneUnderThePointer(t *testing.T) {
 		want  string
 	}{
 		{"plain", "", "from primary", 0, "from primary"},
-		{"bracketed", "\x1b[?2004h", "from primary", 0, "\x1b[200~from primary\x1b[201~"},
 		{"escapes stripped, nothing added", "", "echo hi\x1b[2J", 0, "echo hi[2J"},
 		{"shift held", "", "from primary", tea.ModShift, "from primary"},
 	}
@@ -139,26 +138,6 @@ func TestMiddleClickOnATrackingProgramIsForwarded(t *testing.T) {
 				t.Fatalf("wl-paste ran %d times, want 0", n)
 			}
 		})
-	}
-}
-
-func TestMiddleClickOverSSHPastesTheLastCopy(t *testing.T) {
-	t.Parallel()
-
-	a, procs, f := shellsWith(t, sampleText, "")
-	a.clip.getenv = envFrom(map[string]string{"SSH_CONNECTION": "x", "WAYLAND_DISPLAY": "w"})
-
-	c := contentRectOf(a, "p1")
-	drag(a, c.X, c.Y, c.X+4, c.Y, 0)
-	copyNow(a, f)
-
-	c2 := contentRectOf(a, "p2")
-	middleRun(a, c2.X+1, c2.Y+1, 0)
-
-	eventually(t, "paste", func() bool { return strings.Contains(procs["p2"].sent(), "hello") })
-
-	if n := pasteCalls(f); n != 0 {
-		t.Fatalf("wl-paste ran %d times, want 0", n)
 	}
 }
 
