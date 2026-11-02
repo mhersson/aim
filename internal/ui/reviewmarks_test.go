@@ -111,7 +111,6 @@ func marksRepo(t *testing.T) *fakeRepo {
 	return r
 }
 
-// commonOf is the key the marks of dir's repository are kept under.
 func (v *reviewView) countRows(kind reviewRowKind) int {
 	n := 0
 

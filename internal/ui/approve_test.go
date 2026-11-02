@@ -8,7 +8,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/golden"
 
@@ -215,9 +217,18 @@ func TestApproveFromBranchMode(t *testing.T) {
 		r.poll()
 		r.opened(t)
 
-		r.typed("a")
+		// a's place answer lands after b, as it would; its follow-up is fed by hand.
+		place := r.step(keyRune('a'))
+		if place == nil {
+			t.Fatalf("a asked for nothing; notice = %q", r.notice)
+		}
+
 		r.typed("b")
-		r.settle()
+
+		if fetch := r.step(place()); fetch != nil {
+			r.run(r.step(fetch()))
+		}
+
 		r.settled(t)
 
 		if r.confirm != nil {
@@ -370,6 +381,27 @@ func TestApproveWithoutActions(t *testing.T) {
 	}
 }
 
+// feedUntil feeds queued messages to the app until one of type T has been
+// delivered, and returns it.
+func feedUntil[T tea.Msg](t *testing.T, r *drawerRig) T {
+	t.Helper()
+
+	deadline := time.After(10 * time.Second)
+
+	for {
+		select {
+		case m := <-r.pm.msgs:
+			r.run(r.step(m))
+
+			if v, ok := m.(T); ok {
+				return v
+			}
+		case <-deadline:
+			t.Fatalf("no %T arrived", *new(T))
+		}
+	}
+}
+
 func TestApproveEndsAtClose(t *testing.T) {
 	t.Parallel()
 
@@ -382,6 +414,7 @@ func TestApproveEndsAtClose(t *testing.T) {
 
 	r.cancel()
 	r.settle()
+	feedUntil[approvedMsg](t, r.drawerRig)
 	r.settled(t)
 
 	if r.notice != "" {

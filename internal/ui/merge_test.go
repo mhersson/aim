@@ -182,7 +182,8 @@ func TestMergeAtTheShownHead(t *testing.T) {
 	f.mu.Unlock()
 
 	r.keys(keyEnter)
-	r.until(t, "the merge", func() bool { return len(f.merged()) == 1 && r.noticeLevel() == levelSuccess })
+
+	answer := feedUntil[mergedMsg](t, r.drawerRig)
 
 	got := f.merged()[0]
 	if got.repo != prRepo || got.pr.Number != 7 || got.pr.HeadBranch != "feat/x" || got.info.DefaultBranch != "main" ||
@@ -192,6 +193,10 @@ func TestMergeAtTheShownHead(t *testing.T) {
 
 	if r.merge != nil {
 		t.Error("the box is still open after enter")
+	}
+
+	if answer.err != nil || !answer.res.BranchDeleted || answer.method != github.Squash {
+		t.Errorf("merge answer = %+v, want a squash that deleted the branch", answer)
 	}
 
 	if !strings.Contains(r.notice, prNumberText(7)) || !strings.Contains(r.notice, string(github.Squash)) || r.noticeLevel() != levelSuccess {
@@ -429,6 +434,7 @@ func TestMergeErrors(t *testing.T) {
 		name  string
 		fail  error
 		res   github.Merged
+		is    error    // what the answer's error is, by errors.Is
 		has   []string // what the toast carries
 		lacks []string // what tells it from the generic failure toast
 		level toastLevel
@@ -436,6 +442,7 @@ func TestMergeErrors(t *testing.T) {
 		{
 			"head moved", fmt.Errorf("%w: sha mismatch", github.ErrHeadMoved),
 			github.Merged{},
+			github.ErrHeadMoved,
 			[]string{prNumberText(7)},
 			[]string{"sha mismatch", github.ErrHeadMoved.Error()},
 			levelError,
@@ -443,16 +450,18 @@ func TestMergeErrors(t *testing.T) {
 		{
 			"not mergeable", fmt.Errorf("%w: base branch policy", github.ErrNotMergeable),
 			github.Merged{},
+			github.ErrNotMergeable,
 			[]string{prNumberText(7), github.ErrNotMergeable.Error(), "base branch policy"},
 			nil, levelError,
 		},
 		{
 			"delete failed", nil,
 			github.Merged{SHA: "m1", DeleteErr: errors.New("protected branch")},
+			nil,
 			[]string{prNumberText(7), string(github.MergeCommit), "feat/x", "protected branch"},
 			nil, levelSuccess,
 		},
-		{"plain success", nil, github.Merged{SHA: "m1"}, []string{prNumberText(7), string(github.MergeCommit)}, []string{"protected branch"}, levelSuccess},
+		{"plain success", nil, github.Merged{SHA: "m1"}, nil, []string{prNumberText(7), string(github.MergeCommit)}, []string{"protected branch"}, levelSuccess},
 	}
 
 	for _, tc := range tests {
@@ -464,7 +473,12 @@ func TestMergeErrors(t *testing.T) {
 
 			r.typed("M")
 			r.keys(keyEnter)
-			r.until(t, "the toast", func() bool { return r.notice != "" && !strings.HasPrefix(r.notice, "merging") })
+
+			m := feedUntil[mergedMsg](t, r.drawerRig)
+
+			if tc.is != nil && !errors.Is(m.err, tc.is) || tc.is == nil && m.err != nil {
+				t.Errorf("answer error = %v, want %v", m.err, tc.is)
+			}
 
 			for _, w := range tc.has {
 				if !strings.Contains(r.notice, w) {
@@ -515,6 +529,7 @@ func TestMergeOnce(t *testing.T) {
 
 	r.cancel()
 	r.settle()
+	r.until(t, "the cancelled merge to answer", func() bool { return len(r.merging) == 0 })
 	r.settled(t)
 
 	if got := len(f.merged()); got != 1 {

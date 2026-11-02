@@ -339,6 +339,11 @@ func TestPRModeHoldsItsPR(t *testing.T) {
 
 	openIn(t, r.App, core.SetPaneCwd{ID: r.focus(), Cwd: other.Root()})
 	r.settle()
+	r.until(t, "the follow to resolve", func() bool {
+		w := r.watches.panes[r.focus()]
+
+		return w != nil && w.want == other.Root()
+	})
 	r.settled(t)
 
 	if rv := r.review(); rv.PR == nil || rv.PR.Number != 7 || r.view().pr.Number != 7 || r.view().root != r.root {
@@ -673,6 +678,7 @@ func TestOpenWithPR(t *testing.T) {
 		r.poll()
 
 		pane := r.focus()
+		asked := r.drawer.prSeq
 		stale := r.openWithPR(pane, &prWant{repo: prRepoKey, number: 7, root: r.root}, thenNothing)
 
 		r.leader('d')
@@ -680,11 +686,18 @@ func TestOpenWithPR(t *testing.T) {
 		r.idle(t)
 
 		for _, m := range flatten(stale) {
-			r.run(r.step(m))
+			// A live answer would start the fetch; deliver its result too.
+			if fetch := r.step(m); fetch != nil {
+				r.run(r.step(fetch()))
+			}
 		}
 
 		r.settle()
 		r.settled(t)
+
+		if r.drawer.prSeq != asked {
+			t.Error("the stale open asked for the pull request")
+		}
 
 		if rv := r.review(); rv == nil || rv.PR != nil {
 			t.Errorf("review = %+v, want a drawer that shows no pull request", rv)
