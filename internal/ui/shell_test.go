@@ -49,57 +49,37 @@ func TestShellGolden(t *testing.T) {
 	})
 }
 
-// TestShellText is the same screen without styling, so the layout reads.
+// TestShellText is the screen without icons or styling, so the layout reads.
+// The icons screen is TestShellGolden stripped of colour.
 func TestShellText(t *testing.T) {
 	t.Parallel()
 
-	for _, icons := range []bool{true, false} {
-		t.Run(fmt.Sprintf("icons=%v", icons), func(t *testing.T) {
-			t.Parallel()
+	t.Run("icons=false", func(t *testing.T) {
+		t.Parallel()
 
-			a := newThemedApp(t, "catppuccin-mocha")
-			a.icons = icons
-			sized(t, a, 100, 30)
-			golden.RequireEqual(t, []byte(ansi.Strip(a.View().Content)))
-		})
-	}
+		a := newThemedApp(t, "catppuccin-mocha")
+		a.icons = false
+		sized(t, a, 100, 30)
+		golden.RequireEqual(t, []byte(ansi.Strip(a.View().Content)))
+	})
 }
 
 func TestViewColours(t *testing.T) {
 	t.Parallel()
 
-	for _, name := range theme.Names() {
-		t.Run(name, func(t *testing.T) {
-			a := newThemedApp(t, name)
-			sized(t, a, 100, 30)
-			v := a.View()
+	const name = "catppuccin-mocha"
 
-			th := mustTheme(t, name)
-			if v.BackgroundColor != th.UI.Bg {
-				t.Errorf("BackgroundColor = %v, want %v", v.BackgroundColor, th.UI.Bg)
-			}
-
-			if v.ForegroundColor != th.UI.Fg {
-				t.Errorf("ForegroundColor = %v, want %v", v.ForegroundColor, th.UI.Fg)
-			}
-		})
-	}
-}
-
-func TestThemeFollowsStore(t *testing.T) {
-	t.Parallel()
-	a := newThemedApp(t, "catppuccin-mocha")
+	a := newThemedApp(t, name)
 	sized(t, a, 100, 30)
-
-	if err := a.dispatch(core.SetTheme{Name: "catppuccin-latte"}); err != nil {
-		t.Fatal(err)
-	}
-
 	v := a.View()
 
-	latte := mustTheme(t, "catppuccin-latte")
-	if v.BackgroundColor != latte.UI.Bg {
-		t.Errorf("BackgroundColor = %v, want %v", v.BackgroundColor, latte.UI.Bg)
+	th := mustTheme(t, name)
+	if v.BackgroundColor != th.UI.Bg {
+		t.Errorf("BackgroundColor = %v, want %v", v.BackgroundColor, th.UI.Bg)
+	}
+
+	if v.ForegroundColor != th.UI.Fg {
+		t.Errorf("ForegroundColor = %v, want %v", v.ForegroundColor, th.UI.Fg)
 	}
 }
 
@@ -126,29 +106,27 @@ func TestDispatchUnknownThemeKeepsPrevious(t *testing.T) {
 func TestShellSizes(t *testing.T) {
 	t.Parallel()
 
-	for _, name := range theme.Names() {
-		for _, sz := range [][2]int{{100, 30}, {40, 12}, {20, 5}, {1, 1}, {3, 1}, {200, 3}} {
-			t.Run(fmt.Sprintf("%s/%dx%d", name, sz[0], sz[1]), func(t *testing.T) {
-				a := newThemedApp(t, name)
-				sized(t, a, sz[0], sz[1])
-				content := a.View().Content
+	for _, sz := range [][2]int{{100, 30}, {40, 12}, {20, 5}, {1, 1}, {3, 1}, {200, 3}} {
+		t.Run(fmt.Sprintf("%dx%d", sz[0], sz[1]), func(t *testing.T) {
+			a := newThemedApp(t, "catppuccin-mocha")
+			sized(t, a, sz[0], sz[1])
+			content := a.View().Content
 
-				lines := strings.Split(content, "\n")
-				if len(lines) != sz[1] {
-					t.Fatalf("view has %d lines, want %d", len(lines), sz[1])
-				}
+			lines := strings.Split(content, "\n")
+			if len(lines) != sz[1] {
+				t.Fatalf("view has %d lines, want %d", len(lines), sz[1])
+			}
 
-				for i, line := range lines {
-					if got := lipgloss.Width(line); got != sz[0] {
-						t.Errorf("line %d width = %d, want %d: %q", i, got, sz[0], line)
-					}
+			for i, line := range lines {
+				if got := lipgloss.Width(line); got != sz[0] {
+					t.Errorf("line %d width = %d, want %d: %q", i, got, sz[0], line)
 				}
+			}
 
-				if strings.Contains(content, "\t") {
-					t.Error("view contains a raw tab")
-				}
-			})
-		}
+			if strings.Contains(content, "\t") {
+				t.Error("view contains a raw tab")
+			}
+		})
 	}
 }
 

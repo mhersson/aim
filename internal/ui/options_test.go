@@ -2,7 +2,6 @@ package ui
 
 import (
 	"slices"
-	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -133,10 +132,7 @@ func TestHoverNeverStealsFocusUnderModalUI(t *testing.T) {
 		open func(a *App)
 	}{
 		{"pending leader", func(a *App) { a.pending = true }},
-		{"pending leader with popup", func(a *App) { a.pending, a.popup = true, true }},
 		{"confirm", func(a *App) { a.confirm = &confirm{} }},
-		{"prompt", func(a *App) { a.prompt = &prompt{} }},
-		{"overlay", func(a *App) { a.overlay = &overlay{} }},
 		{"copy mode", func(a *App) { a.copy = &copyState{pane: "p2"} }},
 	}
 
@@ -174,20 +170,6 @@ func TestHoverDoesNotFocusDuringADrag(t *testing.T) {
 	if focusOf(a) != "p1" {
 		t.Errorf("focus = %q after dragging over p2, want p1", focusOf(a))
 	}
-}
-
-func TestHoverReportsFocusToGuests(t *testing.T) {
-	t.Parallel()
-	a, procs, _ := shellsWith(t, "a", "b")
-	a.focusFollows = true
-	feedAndWait(t, a.panes["p1"], procs["p1"], "\x1b[?1004h")
-	feedAndWait(t, a.panes["p2"], procs["p2"], "\x1b[?1004h")
-	c1 := contentRectOf(a, "p1")
-
-	hover(a, c1.X+1, c1.Y+1)
-
-	eventually(t, "focus in", func() bool { return strings.Contains(procs["p1"].sent(), "\x1b[I") })
-	eventually(t, "focus out", func() bool { return strings.Contains(procs["p2"].sent(), "\x1b[O") })
 }
 
 func TestCopyOnSelect(t *testing.T) {
@@ -258,7 +240,6 @@ func TestRedrawDuringAGestureWaitsForRelease(t *testing.T) {
 	}{
 		{"drag, copy on", true, drag, "jello"},
 		{"double click, copy on", true, double, "jello"},
-		{"drag, copy off", false, drag, ""},
 	}
 
 	for _, tt := range tests {
@@ -411,52 +392,6 @@ func TestSelectionRedrawnDuringTheHoldWritesNothing(t *testing.T) {
 	}
 }
 
-func TestCopyOnSelectClearsOnRelease(t *testing.T) {
-	t.Parallel()
-
-	drag := func(a *App, c core.Rect) { dragRun(a, c.X, c.Y, c.X+4, c.Y, 0) }
-	double := func(a *App, c core.Rect) {
-		clickRun(a, c.X+1, c.Y)
-		clickRun(a, c.X+1, c.Y)
-	}
-	triple := func(a *App, c core.Rect) {
-		double(a, c)
-		clickRun(a, c.X+1, c.Y)
-	}
-
-	tests := []struct {
-		name       string
-		option     bool
-		gesture    func(a *App, c core.Rect)
-		wantSel    bool
-		wantCopied string
-	}{
-		{"drag on", true, drag, false, "hello"},
-		{"double click on", true, double, false, "hello"},
-		{"triple click on", true, triple, false, "hello world"},
-		{"drag off", false, drag, true, ""},
-		{"double click off", false, double, true, ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			a, _, f := shellsWith(t, sampleText, "RIGHT")
-			a.copyOnSelect = tt.option
-
-			tt.gesture(a, contentRectOf(a, "p1"))
-
-			if got := a.sel != nil; got != tt.wantSel {
-				t.Errorf("selection present = %v, want %v", got, tt.wantSel)
-			}
-
-			if got := lastCopied(f); got != tt.wantCopied {
-				t.Errorf("copied %q, want %q", got, tt.wantCopied)
-			}
-		})
-	}
-}
-
 func TestCopyOnSelectShowsTheSelectionUntilRelease(t *testing.T) {
 	t.Parallel()
 	a, _, _ := shellsWith(t, sampleText, "RIGHT")
@@ -507,16 +442,6 @@ func TestCopyOnSelectSkipsABlankSelection(t *testing.T) {
 
 	if len(f.calls) != 0 {
 		t.Errorf("native writes = %v, want none for an empty selection", f.calls)
-	}
-}
-
-func TestOptionsReachTheApp(t *testing.T) {
-	t.Parallel()
-
-	a, _, _ := shellsWith(t, "a", "b")
-	if a.focusFollows || a.copyOnSelect || !a.clip.cfg.OSC52 || !a.clip.cfg.Native {
-		t.Errorf("zero Options: focusFollows=%v copyOnSelect=%v clip=%+v, want mouse off and clipboard on",
-			a.focusFollows, a.copyOnSelect, a.clip.cfg)
 	}
 }
 

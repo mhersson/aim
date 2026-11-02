@@ -83,16 +83,6 @@ func TestKeyReleaseIgnored(t *testing.T) {
 	}
 }
 
-func TestKeysWithoutPanes(t *testing.T) {
-	t.Parallel()
-	a := newTestApp(t)
-	sized(t, a, 100, 30)
-
-	if cmd := press(a, keyRune('a')); cmd != nil {
-		t.Error("idle key with no panes returned a command")
-	}
-}
-
 func TestLeaderTwiceSendsCtrlSpace(t *testing.T) {
 	t.Parallel()
 

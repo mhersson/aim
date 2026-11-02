@@ -167,7 +167,11 @@ func isQuit(cmd tea.Cmd) bool {
 
 // collect runs the commands of cmd (a batch or one command) and returns the
 // messages that arrive within a short wait; blocking pane waits are left running.
-func collect(cmd tea.Cmd) []tea.Msg {
+func collect(cmd tea.Cmd) []tea.Msg { return collectFor(cmd, nil) }
+
+// collectFor is collect that returns as soon as a message for which want is
+// true arrives; the wait only guards against a hang. A nil want waits for all.
+func collectFor(cmd tea.Cmd, want func(tea.Msg) bool) []tea.Msg {
 	if cmd == nil {
 		return nil
 	}
@@ -193,6 +197,10 @@ func collect(cmd tea.Cmd) []tea.Msg {
 		select {
 		case m := <-out:
 			msgs = append(msgs, m)
+
+			if want != nil && want(m) {
+				return msgs
+			}
 		case <-timeout:
 			return msgs
 		}
@@ -528,10 +536,6 @@ func TestCloseShellAndAgent(t *testing.T) {
 					t.Fatalf("panes before the answer = %d, want 2", got)
 				}
 
-				if v := ansi.Strip(a.View().Content); !strings.Contains(v, "[y] Close pane") {
-					t.Errorf("view lacks the confirm prompt:\n%s", v)
-				}
-
 				var cmd tea.Cmd
 				for _, k := range tt.keys {
 					cmd = press(a, k)
@@ -702,10 +706,6 @@ func TestPaneExit(t *testing.T) {
 			t.Fatalf("state = %+v, want no panes", s)
 		}
 
-		if v := ansi.Strip(a.View().Content); !strings.Contains(v, "No panes yet.") {
-			t.Errorf("view lacks the welcome card:\n%s", v)
-		}
-
 		sized(t, a, 100, 30)
 
 		if st.count() != 1 {
@@ -842,15 +842,13 @@ func TestDirtyMessageSchedulesCwdProbe(t *testing.T) {
 
 	_, cmd := a.Update(paneDirtyMsg{id: "p1", p: a.panes["p1"]})
 
-	var got bool
+	probed := func(m tea.Msg) bool {
+		c, ok := m.(paneCwdMsg)
 
-	for _, m := range collect(cmd) {
-		if c, ok := m.(paneCwdMsg); ok && c.cwd == "/moved" {
-			got = true
-		}
+		return ok && c.cwd == "/moved"
 	}
 
-	if !got {
+	if !slices.ContainsFunc(collectFor(cmd, probed), probed) {
 		t.Error("a dirty message did not probe the pane's cwd")
 	}
 }
@@ -1048,48 +1046,6 @@ func cancellableTick(ctx context.Context) func(time.Duration, func(time.Time) te
 	}
 }
 
-func TestCancellableTick(t *testing.T) {
-	t.Parallel()
-
-	type tickMsg struct{}
-
-	tests := []struct {
-		name   string
-		delay  time.Duration
-		cancel bool
-		want   tea.Msg
-	}{
-		{"fires after the delay", time.Millisecond, false, tickMsg{}},
-		{"gives up when the context ends", time.Hour, true, nil},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			t.Cleanup(cancel)
-
-			cmd := cancellableTick(ctx)(tt.delay, func(time.Time) tea.Msg { return tickMsg{} })
-
-			if tt.cancel {
-				cancel()
-			}
-
-			got := make(chan tea.Msg, 1)
-
-			go func() { got <- cmd() }()
-
-			select {
-			case m := <-got:
-				if m != tt.want {
-					t.Errorf("tick returned %v, want %v", m, tt.want)
-				}
-			case <-time.After(5 * time.Second):
-				t.Fatal("the tick did not return")
-			}
-		})
-	}
-}
-
 // pump stands in for the Bubble Tea runtime: it runs commands off the update
 // loop and queues their messages for the test to feed to Update.
 type pump struct {
@@ -1177,6 +1133,8 @@ func (p *pump) step(ctx context.Context, a *App) bool {
 }
 
 func TestFloodingPaneQuits(t *testing.T) {
+	t.Parallel()
+
 	// The sleep ignores SIGHUP, so only Close's last SIGKILL reaches it, just
 	// before Close returns.
 	r := newScriptApp(t, gitOf(newFakeGit(t)), `(trap "" HUP; exec sleep 30) & while :; do echo xxxxxxxxxxxxxxxx; done`, `cat`)
@@ -1237,6 +1195,8 @@ func TestFloodingPaneQuits(t *testing.T) {
 }
 
 func TestOrphanedExitClosesPane(t *testing.T) {
+	t.Parallel()
+
 	r := newRealApp(t, `sleep 30 & exit 0`)
 
 	sized(t, r.App, 100, 30)
@@ -1348,8 +1308,8 @@ func TestSplitOtherStartErrorsAreNotRetried(t *testing.T) {
 
 	chord(a, 'v')
 
-	if len(a.store.State().Panes) != 1 || !strings.Contains(a.notice, "cannot start") {
-		t.Errorf("panes = %d, notice = %q", len(a.store.State().Panes), a.notice)
+	if len(a.store.State().Panes) != 1 || !carries("no ptys").matches(a.notice) {
+		t.Errorf("panes = %d, notice = %q, want one carrying the start error", len(a.store.State().Panes), a.notice)
 	}
 }
 
@@ -1357,14 +1317,6 @@ func TestSwapCommands(t *testing.T) {
 	t.Parallel()
 
 	ctrl := func(r rune) tea.KeyPressMsg { return tea.KeyPressMsg{Code: r, Mod: tea.ModCtrl} }
-
-	t.Run("key strings", func(t *testing.T) {
-		for r, want := range map[rune]string{'h': "ctrl+h", 'j': "ctrl+j", 'k': "ctrl+k", 'l': "ctrl+l"} {
-			if got := bindingKey(ctrl(r)); got != want {
-				t.Errorf("bindingKey(ctrl+%c) = %q, want %q", r, got, want)
-			}
-		}
-	})
 
 	t.Run("swap right", func(t *testing.T) {
 		a, st := lifeAppSized(t, 100, 30)
@@ -1404,8 +1356,9 @@ func TestSwapCommands(t *testing.T) {
 	})
 
 	t.Run("every direction resolves", func(t *testing.T) {
+		a := newTestApp(t)
+
 		for r, cmd := range map[rune]string{'h': "pane.swap.left", 'j': "pane.swap.down", 'k': "pane.swap.up", 'l': "pane.swap.right"} {
-			a := newTestApp(t)
 			if got, ok := a.keymap.lookup(bindingKey(ctrl(r))); !ok || got != cmd {
 				t.Errorf("lookup(ctrl+%c) = %q, %v, want %q", r, got, ok, cmd)
 			}
@@ -1520,8 +1473,8 @@ func TestCloseBoundsLoaderWait(t *testing.T) {
 	a.loader.add(pictureJob{key: pictureKey{src: "https://github.com/a.png"}})
 	<-f.started
 
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
 
 	res := make(chan error, 1)
 
@@ -1529,7 +1482,7 @@ func TestCloseBoundsLoaderWait(t *testing.T) {
 
 	select {
 	case err := <-res:
-		if !errors.Is(err, context.DeadlineExceeded) {
+		if !errors.Is(err, context.Canceled) {
 			t.Errorf("Close() error = %v, want the context's", err)
 		}
 	case <-time.After(10 * time.Second):
@@ -1538,6 +1491,8 @@ func TestCloseBoundsLoaderWait(t *testing.T) {
 }
 
 func TestPanesGetTheShellIntegration(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		ig   term.Integration

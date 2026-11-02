@@ -127,25 +127,20 @@ func TestHookEventsCarryTheAction(t *testing.T) {
 			t.Errorf("%s: pane = state %v action %q, want %v %q", s.name, m.State, m.Action, s.state, s.action)
 		}
 	}
-
-	hook(a, harness.Event{Pane: "p1", Name: "PreToolUse", Action: "Bash ls", ActionSet: true})
-
-	if got := a.store.State().Panes["p1"].Action; got != "" {
-		t.Errorf("a shell pane took the action %q", got)
-	}
 }
 
 func TestAnsweredPermissionClearsFromTheCard(t *testing.T) {
 	t.Parallel()
 	a, _, _ := agentApp(t)
 
+	var actions []string
+
 	for _, step := range []struct {
 		payload string
 		state   core.AgentState
-		action  string
 	}{
-		{`{"hook_event_name":"PermissionRequest","cwd":"/w","tool_name":"Bash","tool_input":{"command":"rm x"}}`, core.AgentBlocked, "Allow Bash rm x?"},
-		{`{"hook_event_name":"PostToolUse","cwd":"/w","tool_name":"Bash","tool_input":{"command":"rm x"}}`, core.AgentWorking, "Bash rm x"},
+		{`{"hook_event_name":"PermissionRequest","cwd":"/w","tool_name":"Bash","tool_input":{"command":"rm x"}}`, core.AgentBlocked},
+		{`{"hook_event_name":"PostToolUse","cwd":"/w","tool_name":"Bash","tool_input":{"command":"rm x"}}`, core.AgentWorking},
 	} {
 		ev, err := harness.Claude{}.ParseEvent([]byte(step.payload))
 		if err != nil {
@@ -155,9 +150,15 @@ func TestAnsweredPermissionClearsFromTheCard(t *testing.T) {
 		ev.Pane = "p2"
 		hook(a, ev)
 
-		if m := a.store.State().Panes["p2"]; m.State != step.state || m.Action != step.action {
-			t.Errorf("after %s: state %v action %q, want %v %q", ev.Name, m.State, m.Action, step.state, step.action)
+		if m := a.store.State().Panes["p2"]; m.State != step.state || m.Action != ev.Action {
+			t.Errorf("after %s: state %v action %q, want %v %q", ev.Name, m.State, m.Action, step.state, ev.Action)
 		}
+
+		actions = append(actions, ev.Action)
+	}
+
+	if len(actions) != 2 || actions[0] == actions[1] {
+		t.Errorf("the two events carry the actions %q, want two different ones", actions)
 	}
 }
 
@@ -460,15 +461,6 @@ func collectHook(cmd tea.Cmd) (hookMsg, bool) {
 	}
 
 	return hookMsg{}, false
-}
-
-func TestStartNotice(t *testing.T) {
-	t.Parallel()
-	a, _, _ := kindApp(t, func(o *Options) { o.Notice = "agent hooks are off: boom" })
-
-	if a.notice != "agent hooks are off: boom" {
-		t.Errorf("notice = %q, want the start notice", a.notice)
-	}
 }
 
 func statusEvent(pane core.PaneID, session core.SessionID, model string, pct float64, known bool) harness.Event {

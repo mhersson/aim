@@ -191,8 +191,8 @@ func TestRecordTapFailureStopsRecording(t *testing.T) {
 		t.Errorf("writes = %d, want the header, the size and the one failing record", fw.calls)
 	}
 
-	if n := strings.Count(logs.String(), "recording stopped"); n != 1 {
-		t.Errorf("failure logged %d times, want once:\n%s", n, logs.String())
+	if n := strings.Count(logs.String(), "level=WARN"); n != 1 {
+		t.Errorf("failure logged %d warnings, want one:\n%s", n, logs.String())
 	}
 }
 
@@ -260,8 +260,8 @@ func TestRecordTapDropsWhenBehind(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if n := strings.Count(logs.String(), "falling behind"); n != 1 {
-		t.Errorf("overflow logged %d times, want once:\n%s", n, logs.String())
+	if n := strings.Count(logs.String(), "level=WARN"); n != 1 {
+		t.Errorf("overflow logged %d warnings, want one:\n%s", n, logs.String())
 	}
 }
 
@@ -294,7 +294,7 @@ func TestRecordDirCollisionSetsNotice(t *testing.T) {
 
 	app.Update(tea.WindowSizeMsg{Width: 40, Height: 11})
 
-	if app.panes["p1"] == nil || !strings.Contains(app.notice, "recording is off for p1") {
+	if app.panes["p1"] == nil || !carries("p1").matches(app.notice) {
 		t.Fatalf("pane = %v, notice = %q; want the pane running and a recording notice", app.panes["p1"], app.notice)
 	}
 }

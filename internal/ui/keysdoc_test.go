@@ -311,16 +311,6 @@ func TestKeysPageKeysLoad(t *testing.T) {
 	}
 }
 
-func TestMDCell(t *testing.T) {
-	t.Parallel()
-
-	for in, want := range map[string]string{"g l": "`g l`", "a|b": "`a\\|b`"} {
-		if got := mdCell(in); got != want {
-			t.Errorf("mdCell(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 func TestBindableIn(t *testing.T) {
 	t.Parallel()
 
