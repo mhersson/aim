@@ -357,9 +357,8 @@ func railCases() []railCase {
 // TestRailGolden draws each case once in colour, in the default theme with icons.
 // TestRailText covers icons off and TestScreensTakeTheirColoursFromTheTheme the other theme
 // for the scenes it picks.
+// It compares highlighted colours (the no-agents welcome card's sample), so it runs serially (docs/gotchas.md).
 func TestRailGolden(t *testing.T) {
-	t.Parallel()
-
 	for _, c := range railCases() {
 		t.Run("catppuccin-mocha/icons=true/"+c.name, func(t *testing.T) {
 			golden.RequireEqual(t, []byte(c.build(t, "catppuccin-mocha", true).View().Content))
@@ -444,8 +443,8 @@ func TestRailTakesColumnsFromPanes(t *testing.T) {
 func TestRailFramesKeepTheirWidth(t *testing.T) {
 	t.Parallel()
 
-	// Widths either side of the rail's 64 and 84 column edges; heights either side of the
-	// rows where the counts, the search row and the hint row (14) drop.
+	// Widths either side of the rail's 64 and 84 column edges; heights 4 and 5 around the
+	// smallest frame the rail draws, 13 and 14 around the hint row's edge (railHintsMinInner).
 	for _, w := range []int{63, 64, 83, 84, 110} {
 		for _, h := range []int{4, 5, 13, 14, 30} {
 			a := drawApp(t, "catppuccin-mocha", true, w, h, railFixtureAgents())

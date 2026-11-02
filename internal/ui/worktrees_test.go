@@ -1018,6 +1018,40 @@ func lineHolding(lines []string, sub string) int {
 	return slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, sub) })
 }
 
+func TestWorktreeListCountsArrive(t *testing.T) {
+	t.Parallel()
+
+	s := reviewScene{theme: "catppuccin-mocha", icons: true, w: 120, h: 30, res: turn4Result(), turn: 4, turns: 4, focused: true}
+	a := s.build(t)
+
+	rows := wtDemoRows()
+	for i := range rows {
+		rows[i].stats, rows[i].statsKnown = git.Stats{}, false
+	}
+
+	l := showList(a, rows, "other · main", 0)
+
+	before := plainLines(listLines(t, a))
+	if i := lineHolding(before, "other · main  latest"); i < 0 || strings.Contains(before[i], "+") {
+		t.Fatalf("a row shows counts before they arrived: %q", before[i])
+	}
+
+	a.Update(wtStatsMsg{gen: l.gen, root: "/w/other", stats: git.Stats{Files: 3, Added: 41, Removed: 7}})
+	a.Update(wtStatsMsg{gen: l.gen + 1, root: "/w/p1/.worktrees/feat-a", stats: git.Stats{Files: 1, Added: 12}})
+
+	after := plainLines(listLines(t, a))
+
+	i := lineHolding(after, "other · main  latest")
+	if i < 0 || !strings.Contains(after[i], "+41 -7  3 files") {
+		t.Errorf("the counted row reads %q, want +41 -7  3 files", after[i])
+	}
+
+	// An answer for another list does not count.
+	if j := lineHolding(after, "feat/follow-edits"); j < 0 || strings.Contains(after[j], "+12") {
+		t.Errorf("the row of another generation's answer reads %q", after[j])
+	}
+}
+
 func TestWorktreeListBlocksMouse(t *testing.T) {
 	t.Parallel()
 
