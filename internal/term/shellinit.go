@@ -2,17 +2,23 @@ package term
 
 import (
 	"embed"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 //go:embed shellinit
 var shellInitFS embed.FS
 
+type script struct{ embedded, path string }
+
 // scripts maps each embedded script to its place under the integration dir.
-var scripts = []struct{ embedded, path string }{
-	{"shellinit/zshenv", "zsh/.zshenv"},
+func scripts() []script {
+	return []script{
+		{"shellinit/zshenv", "zsh/.zshenv"},
+	}
 }
 
 // Integration is the per-instance shell integration. The zero value is off.
@@ -37,6 +43,9 @@ func NewIntegration(dir string, getenv func(string) string) Integration {
 	}
 
 	ig := Integration{Dir: dir}
+	if zdot == "" {
+		return ig
+	}
 
 	for _, f := range []string{".zshenv", ".zprofile", ".zshrc", ".zlogin"} {
 		if _, err := os.Stat(filepath.Join(zdot, f)); err == nil {
@@ -53,6 +62,10 @@ func NewIntegration(dir string, getenv func(string) string) Integration {
 // (0600) in 0700 subdirs, and bin/claude as a symlink to wrapper. On error it
 // removes dir again.
 func WriteIntegration(dir, wrapper string) (err error) {
+	if dir == "" {
+		return errors.New("write integration: empty dir")
+	}
+
 	defer func() {
 		if err != nil {
 			_ = os.RemoveAll(dir)
@@ -67,7 +80,7 @@ func WriteIntegration(dir, wrapper string) (err error) {
 		return fmt.Errorf("create integration dir: %w", err)
 	}
 
-	for _, s := range scripts {
+	for _, s := range scripts() {
 		data, err := shellInitFS.ReadFile(s.embedded)
 		if err != nil {
 			return fmt.Errorf("read %s: %w", s.embedded, err)
@@ -114,7 +127,7 @@ func (ig Integration) env(base []string, sh string, shellRoot bool, extra []stri
 	var hasZdot bool
 
 	for _, kv := range base {
-		switch k, v, _ := cutEnv(kv); k {
+		switch k, v, _ := strings.Cut(kv, "="); k {
 		case "PATH":
 			path = v
 		case "ZDOTDIR":

@@ -185,7 +185,12 @@ func TestNewIntegration(t *testing.T) {
 
 	for _, tt := range tests {
 		for _, viaZdot := range []bool{false, true} {
-			t.Run(tt.name, func(t *testing.T) {
+			name := tt.name
+			if viaZdot {
+				name += " via ZDOTDIR"
+			}
+
+			t.Run(name, func(t *testing.T) {
 				t.Parallel()
 
 				home, zd := t.TempDir(), t.TempDir()
@@ -241,6 +246,18 @@ func TestNewIntegration(t *testing.T) {
 		}
 	})
 
+	t.Run("no HOME and no ZDOTDIR", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+
+		if err := os.WriteFile(".zshrc", nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		if NewIntegration("/d", func(string) string { return "" }).Zsh {
+			t.Error("Zsh = true from a .zshrc in the working directory")
+		}
+	})
+
 	t.Run("empty dir is off", func(t *testing.T) {
 		t.Parallel()
 
@@ -262,7 +279,7 @@ func TestWriteIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		for _, s := range scripts {
+		for _, s := range scripts() {
 			want, err := shellInitFS.ReadFile(s.embedded)
 			if err != nil {
 				t.Fatal(err)
@@ -315,6 +332,14 @@ func TestWriteIntegration(t *testing.T) {
 
 		if _, err := os.Stat(stray); !os.IsNotExist(err) {
 			t.Errorf("stray file survived: %v", err)
+		}
+	})
+
+	t.Run("empty dir fails", func(t *testing.T) {
+		t.Parallel()
+
+		if err := WriteIntegration("", "/w"); err == nil {
+			t.Error("WriteIntegration(\"\") succeeded")
 		}
 	})
 

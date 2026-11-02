@@ -8,13 +8,15 @@ import (
 )
 
 // PaneEnv returns base with the terminal variables replaced by the values a
-// pane emulator provides and the inherited pane identity and shell integration variables removed.
+// pane emulator provides and the inherited pane identity and shell
+// integration variables removed.
 func PaneEnv(base []string) []string {
 	out := make([]string, 0, len(base)+2)
 
 	for _, kv := range base {
 		switch k, _, _ := strings.Cut(kv, "="); k {
-		case "TERM", "COLORTERM", "TMUX", "TMUX_PANE", "AIM_PANE", "AIM_SOCK", "AIM_SHELL_DIR", "AIM_ZDOTDIR", "AIM_ENV":
+		case "TERM", "COLORTERM", "TMUX", "TMUX_PANE", "AIM_PANE", "AIM_SOCK",
+			"AIM_SHELL_DIR", "AIM_ZDOTDIR", "AIM_ENV":
 		default:
 			out = append(out, kv)
 		}
@@ -95,13 +97,11 @@ func runIn(env func(string) string, ig Integration, dir, program string, args, e
 // dropKeys is env without the entries named in keys.
 func dropKeys(env []string, keys ...string) []string {
 	return slices.DeleteFunc(slices.Clone(env), func(kv string) bool {
-		k, _, _ := cutEnv(kv)
+		k, _, _ := strings.Cut(kv, "=")
 
 		return slices.Contains(keys, k)
 	})
 }
-
-func cutEnv(kv string) (k, v string, ok bool) { return strings.Cut(kv, "=") }
 
 func shellPath(env func(string) string) string {
 	if sh := env("SHELL"); sh != "" {
