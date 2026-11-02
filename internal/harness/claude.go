@@ -16,6 +16,9 @@ import (
 // Claude is the Claude Code adapter.
 type Claude struct{}
 
+// settingsFlag is Claude Code's flag for an extra settings file.
+const settingsFlag = "--settings"
+
 const hookTimeout = 5 // seconds; the hook command answers in milliseconds
 
 // claudeEvents returns the hook events AIM registers.
@@ -33,7 +36,7 @@ func (Claude) Program() string { return "claude" }
 func (Claude) Launch(settings string, resume core.SessionID) []string {
 	argv := []string{"claude"}
 	if settings != "" {
-		argv = append(argv, "--settings", settings)
+		argv = append(argv, settingsFlag, settings)
 	}
 
 	if resume != "" {
@@ -41,6 +44,26 @@ func (Claude) Launch(settings string, resume core.SessionID) []string {
 	}
 
 	return argv
+}
+
+// WithSettings puts the settings flag in front of args. It leaves args alone
+// when settings is empty or the user passed the flag before a "--".
+func (Claude) WithSettings(args []string, settings string) []string {
+	if settings == "" {
+		return args
+	}
+
+	for _, a := range args {
+		if a == "--" {
+			break
+		}
+
+		if a == settingsFlag || strings.HasPrefix(a, settingsFlag+"=") {
+			return args
+		}
+	}
+
+	return append([]string{settingsFlag, settings}, args...)
 }
 
 // Settings registers the hooks in the exec form, so no shell parses exe. The

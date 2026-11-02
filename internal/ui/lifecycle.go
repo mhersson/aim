@@ -23,14 +23,15 @@ const cwdProbeEvery = 500 * time.Millisecond
 const agentGrace = 10 * time.Second
 
 // paneCwdMsg carries a pane's looked-up working directory and foreground
-// process name; each is empty when unknown. due marks the probe that
-// paneKindDueMsg starts, which is outside the cwd throttle.
+// process name; each is empty when unknown. due marks any probe outside the
+// cwd throttle, hook the one that held hooks started.
 type paneCwdMsg struct {
-	id  core.PaneID
-	p   *pane
-	cwd string
-	fg  string
-	due bool
+	id   core.PaneID
+	p    *pane
+	cwd  string
+	fg   string
+	due  bool
+	hook bool
 }
 
 // paneKindDueMsg is the probe agentGrace after an agent launch.
@@ -184,17 +185,17 @@ func (a *App) startPaneRunning(id core.PaneID, kind core.PaneKind, cwd string, c
 		env = append(env, "AIM_SOCK="+a.hookSock)
 	}
 
-	c := term.ShellCommand(a.getenv, cwd, env)
+	c := term.ShellCommand(a.getenv, a.shell, cwd, env)
 
 	switch {
 	case kind == core.KindAgent:
 		// Restored and restarted agents use the app's harness; a second harness
 		// must pass the pane's own (harness.ByID(Pane.Harness)).
-		c = term.AgentCommand(a.getenv, cwd, a.harness.Launch(a.hookSettings, resume), env)
+		c = term.AgentCommand(a.getenv, a.shell, cwd, a.harness.Launch(a.hookSettings, resume), env)
 	case run != nil && run.once:
-		c = term.EditorOnlyCommand(a.getenv, cwd, run.program, run.args, env)
+		c = term.EditorOnlyCommand(a.getenv, a.shell, cwd, run.program, run.args, env)
 	case run != nil:
-		c = term.EditorCommand(a.getenv, cwd, run.program, run.args, env)
+		c = term.EditorCommand(a.getenv, a.shell, cwd, run.program, run.args, env)
 	}
 
 	// On the update loop: user-initiated, fork/exec takes a millisecond or two, and State and the registry stay in step.
@@ -463,13 +464,15 @@ func (a *App) runProbe(p *pane) tea.Cmd {
 	p.cwdBusy = true
 	p.cwdAt = a.clock.Now()
 
-	return probe(p, false)
+	return probe(p, false, false)
 }
 
-// probe reads the pane's cwd and foreground process off the update loop.
-func probe(p *pane, due bool) tea.Cmd {
+// probe reads the pane's cwd and foreground process off the update loop. A due
+// probe (the grace and held-hook ones) leaves the cwd throttle alone; hook marks
+// the probe a held hook started.
+func probe(p *pane, due, hook bool) tea.Cmd {
 	return func() tea.Msg {
-		return paneCwdMsg{id: p.id, p: p, cwd: p.workingDir(), fg: p.foreground(), due: due}
+		return paneCwdMsg{id: p.id, p: p, cwd: p.workingDir(), fg: p.foreground(), due: due, hook: hook}
 	}
 }
 
@@ -481,7 +484,7 @@ func (a *App) onKindDue(msg paneKindDueMsg) tea.Cmd {
 		return nil
 	}
 
-	return probe(p, true)
+	return probe(p, true, false)
 }
 
 func (a *App) onCwdDue(msg paneCwdDueMsg) tea.Cmd {
@@ -509,12 +512,28 @@ func (a *App) onCwd(msg paneCwdMsg) tea.Cmd {
 		p.cwdBusy = false
 	}
 
-	if msg.cwd != "" && a.store.State().Panes[msg.id].Cwd != msg.cwd {
+	if msg.hook {
+		p.heldProbe = false
+	}
+
+	m := a.store.State().Panes[msg.id]
+
+	// An agent's Cwd is its launch directory; the foreground's cwd may be stale.
+	if m.Kind == core.KindShell && msg.cwd != "" && m.Cwd != msg.cwd {
 		// dispatch logs its own failures.
 		_ = a.dispatch(core.SetPaneCwd{ID: msg.id, Cwd: msg.cwd})
 	}
 
-	return a.applyKind(p, msg.fg)
+	kind := a.applyKind(p, msg.fg)
+
+	switch {
+	case len(p.held) > 0 && a.store.State().Panes[msg.id].Kind == core.KindAgent:
+		return tea.Batch(kind, a.replayHeld(p))
+	case msg.hook:
+		p.held = nil
+	}
+
+	return kind
 }
 
 // harnessOf is the harness that recognises the pane's agent: its own, else the
@@ -563,6 +582,7 @@ func (a *App) applyKind(p *pane, fg string) tea.Cmd {
 	case m.Kind == core.KindShell && fg == h.Program():
 		p.seen = true
 		p.launched = time.Time{}
+		p.launchDue = true
 
 		// dispatch logs its own failures.
 		_ = a.dispatch(core.SetPaneKind{ID: p.id, Kind: core.KindAgent, Harness: h.ID()})
@@ -572,6 +592,7 @@ func (a *App) applyKind(p *pane, fg string) tea.Cmd {
 	case m.Kind == core.KindAgent && (p.seen || !a.clock.Now().Before(p.launched.Add(agentGrace))):
 		p.seen = false
 		p.launched = time.Time{}
+		p.launchDue = false
 
 		// dispatch logs its own failures.
 		_ = a.dispatch(core.SetPaneKind{ID: p.id, Kind: core.KindShell})

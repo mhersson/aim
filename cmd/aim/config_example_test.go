@@ -212,6 +212,7 @@ func normalized(c core.Config) core.Config {
 	c.Icons = new(c.IconsOn())
 	c.Clipboard.OSC52 = new(c.Clipboard.OSC52On())
 	c.Clipboard.Native = new(c.Clipboard.NativeOn())
+	c.Shell.Integration = new(c.Shell.IntegrationOn())
 	c.Layout.MasterGrid = new(c.Layout.MasterGrid == nil || *c.Layout.MasterGrid)
 	c.Keys.WhichKeyDelay = new(int(c.Keys.Delay() / time.Millisecond))
 	c.Keys.LeaderKey = c.Keys.LeaderName()
@@ -262,6 +263,7 @@ func allowedByKey() map[string]allowedSpec {
 		"mouse.copy_on_select":      bools,
 		"clipboard.osc52":           bools,
 		"clipboard.native":          bools,
+		"shell.integration":         bools,
 		"diff.layout":               {values: core.DiffLayouts()},
 		"diff.mode":                 {values: names(core.ReviewModes())},
 		"diff.max_files":            {lo: core.MinDiffLimit, hi: -1},

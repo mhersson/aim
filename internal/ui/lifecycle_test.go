@@ -196,7 +196,7 @@ func TestStartupOpensShell(t *testing.T) {
 	}
 
 	c := st.cmds[0]
-	want := term.ShellCommand(testGetenv, testCwd, nil)
+	want := term.ShellCommand(testGetenv, term.Integration{}, testCwd, nil)
 
 	if !slices.Equal(c.Argv, want.Argv) || c.Dir != testCwd {
 		t.Errorf("command = %v in %q, want %v in %q", c.Argv, c.Dir, want.Argv, testCwd)
@@ -301,9 +301,9 @@ func TestSplitCommands(t *testing.T) {
 				t.Errorf("state = %+v, want p2 (%s) focused in /elsewhere", s, tt.kind)
 			}
 
-			want := term.ShellCommand(testGetenv, "/elsewhere", nil)
+			want := term.ShellCommand(testGetenv, term.Integration{}, "/elsewhere", nil)
 			if tt.kind == core.KindAgent {
-				want = term.AgentCommand(testGetenv, "/elsewhere", []string{"claude"}, nil)
+				want = term.AgentCommand(testGetenv, term.Integration{}, "/elsewhere", []string{"claude"}, nil)
 			}
 
 			if got := st.cmds[1]; !slices.Equal(got.Argv, want.Argv) || got.Dir != "/elsewhere" {
@@ -1492,5 +1492,32 @@ func TestCloseBoundsLoaderWait(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("Close did not return while a loader worker was stuck")
+	}
+}
+
+func TestPanesGetTheShellIntegration(t *testing.T) {
+	tests := []struct {
+		name string
+		ig   term.Integration
+		want bool
+	}{
+		{"on", term.Integration{Dir: "/run/1-shell"}, true},
+		{"off", term.Integration{}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			a, st := lifeApp(t)
+			a.shell = tt.ig
+
+			sized(t, a, 100, 30)
+
+			got := slices.Contains(st.cmds[0].Env, "AIM_SHELL_DIR=/run/1-shell")
+			if got != tt.want {
+				t.Errorf("env has AIM_SHELL_DIR = %v, want %v: %q", got, tt.want, st.cmds[0].Env)
+			}
+		})
 	}
 }

@@ -50,6 +50,10 @@ The last row, `new worktree…` (`+ new worktree…` with `icons = false`), open
 
 - `ctrl+space s` opens a shell below the focused pane, `ctrl+space v` one to its right. Both start in the focused pane's working directory and take focus. That is where a BSP tab puts them; the other layouts place a new pane by their own rule, see [Layouts](layouts.md).
 - Run `claude` in a shell and the pane becomes an agent pane; when Claude exits in an agent pane, it becomes a shell again. The rail lists agent panes only.
+- A `claude` you type in a shell AIM started is a full agent: hooks, states, turns, follow, context, model, usage and resume, in the directory it started in. AIM does this without touching your shell startup files: a wrapper first on the shell's PATH adds the hooks to your `claude`, and a `claude` function in the shell calls it.
+- It may not be one when typed by full path, through `npx` or `bunx`, inside a shell or `tmux` started in the pane, in a terminal inside an editor (such as an nvim terminal) or another program run in the pane, in a shell other than zsh, bash or fish, under macOS's `/bin/bash`, in zsh when `/etc/zshenv` sets `ZDOTDIR`, or with its own `--settings`. Such a `claude` still makes the pane an agent pane, but may show under No hooks.
+- To see it: the shell's PATH starts with an AIM directory, and `type claude` names a function.
+- `[shell] integration = false` in the config turns it off; every pane then starts as it did without it (see [Configuration](config.md)).
 - At most 64 panes fit: past that, the notice is `at most 64 panes`.
 
 ### Focus, resize, swap and zoom
@@ -116,6 +120,8 @@ Agents are grouped as Blocked, Working, Idle (and No hooks, for an agent that ha
 4. the diff stats against the base branch: lines added, lines removed and the file count.
 
 ## Claude usage
+
+AIM replaces Claude Code's own status line in its agent panes, to read the context, model and usage; outside AIM your own status line is unchanged.
 
 With a Claude subscription the tray shows how much of its limits you have used: `5h` for the 5-hour window and `7d` for the weekly one, each with its percent. With icons on, the module starts with a gauge icon. The figures come from the agents' status lines, so they appear after an agent's first reply and are the latest any agent reported; a status line that repeats an older, lower figure for the same window does not pull it down.
 

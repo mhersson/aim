@@ -1,0 +1,37 @@
+# AIM's shell integration for zsh. zsh reads this file as $ZDOTDIR/.zshenv
+# because AIM pointed ZDOTDIR here. It puts the user's ZDOTDIR back, runs the
+# user's .zshenv, and leaves the rest to the first prompt, after the user's files.
+() {
+  emulate -L zsh
+  if [[ -n ${AIM_ZDOTDIR+x} ]]; then
+    export ZDOTDIR=$AIM_ZDOTDIR
+  else
+    unset ZDOTDIR
+  fi
+  if [[ -o interactive ]]; then
+    typeset -ga precmd_functions
+    precmd_functions+=(_aim_shell_init)
+  fi
+}
+
+_aim_shell_init() {
+  emulate -L zsh
+  precmd_functions=(${precmd_functions:#_aim_shell_init})
+  (( $#precmd_functions )) || unset precmd_functions
+  unfunction _aim_shell_init
+  [[ -n $AIM_SHELL_DIR ]] || return 0
+  path=("$AIM_SHELL_DIR/bin" ${path:#$AIM_SHELL_DIR/bin})
+  if (( ! $+functions[claude] )); then
+    function claude {
+      if [[ -x $AIM_SHELL_DIR/bin/claude ]]; then
+        "$AIM_SHELL_DIR/bin/claude" "$@"
+      else
+        command claude "$@"
+      fi
+    }
+  fi
+}
+
+if [[ -r "${ZDOTDIR:-$HOME}/.zshenv" ]]; then
+  builtin source "${ZDOTDIR:-$HOME}/.zshenv"
+fi

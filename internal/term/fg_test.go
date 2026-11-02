@@ -109,6 +109,8 @@ func shellTestEnv(t *testing.T) (out string) {
 		"XDG_STATE_HOME":  filepath.Join(root, "xdg-state"),
 		"OUT_DIR":         out,
 		"AIM_PANE":        "inherited",
+		// Ubuntu's /etc/zsh/zshrc runs compinit, which can prompt and block the shell.
+		"skip_global_compinit": "1",
 	} {
 		if strings.HasPrefix(k, "XDG_") || k == "HOME" || k == "ZDOTDIR" {
 			if err := os.MkdirAll(v, 0o755); err != nil {
@@ -151,7 +153,7 @@ func TestAgentCommandRunsArgvVerbatim(t *testing.T) {
 			// Absolute path: a login profile may reset PATH.
 			fake := filepath.Join(filepath.Dir(out), "bin", "claude")
 
-			c := AgentCommand(os.Getenv, dir, append([]string{fake}, args...), []string{"AIM_PANE=p7"})
+			c := AgentCommand(os.Getenv, Integration{}, dir, append([]string{fake}, args...), []string{"AIM_PANE=p7"})
 			startCommand(t, c)
 
 			raw := waitFile(t, filepath.Join(out, "args"))
@@ -192,7 +194,7 @@ func TestAgentCommandLeadsForeground(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			p := startCommand(t, AgentCommand(os.Getenv, t.TempDir(), []string{fake}, nil))
+			p := startCommand(t, AgentCommand(os.Getenv, Integration{}, t.TempDir(), []string{fake}, nil))
 
 			waitForeground(t, p, "claude")
 		})

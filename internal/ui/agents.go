@@ -44,11 +44,15 @@ func (a *App) waitEvent() tea.Cmd {
 	}
 }
 
-// onHook applies a hook or status event. An event for a pane that is not an open
-// agent is ignored, so a late or misaddressed event never disturbs the state.
+// onHook applies a hook or status event. An event for a pane that is not open is
+// ignored, and one for a shell pane is held until the probe answers (holdHook).
 func (a *App) onHook(ev harness.Event) tea.Cmd {
 	m, ok := a.store.State().Panes[ev.Pane]
-	if !ok || m.Kind != core.KindAgent {
+	if ok && m.Kind != core.KindAgent {
+		return a.holdHook(ev)
+	}
+
+	if !ok {
 		a.log.Debug("hook event ignored", "pane", ev.Pane, "event", ev.Name)
 
 		return nil
@@ -78,6 +82,15 @@ func (a *App) onHook(ev harness.Event) tea.Cmd {
 	case ev.Start:
 		if p, ok := a.panes[ev.Pane]; ok {
 			p.resuming = false
+
+			// A typed claude's first SessionStart names where it was started, which is where --resume must run.
+			if p.launchDue && filepath.IsAbs(ev.Cwd) {
+				p.launchDue = false
+
+				if ev.Cwd != m.Cwd {
+					_ = a.dispatch(core.SetPaneCwd{ID: ev.Pane, Cwd: ev.Cwd})
+				}
+			}
 		}
 
 		// dispatch logs its own failures.
@@ -112,6 +125,46 @@ func (a *App) onHook(ev harness.Event) tea.Cmd {
 	}
 
 	return tea.Batch(probes, a.setAgentState(ev.Pane, ev.State))
+}
+
+// holdHook keeps an event for a pane still marked a shell until a probe decides
+// whether Claude is in its foreground. The first held event starts that probe.
+func (a *App) holdHook(ev harness.Event) tea.Cmd {
+	p, ok := a.panes[ev.Pane]
+	if !ok {
+		a.log.Debug("hook event ignored", "pane", ev.Pane, "event", ev.Name)
+
+		return nil
+	}
+
+	if len(p.held) >= maxHeld {
+		a.log.Debug("held hook dropped", "pane", ev.Pane, "event", ev.Name)
+
+		return nil
+	}
+
+	p.held = append(p.held, ev)
+
+	if p.heldProbe {
+		return nil
+	}
+
+	p.heldProbe = true
+
+	return probe(p, true, true)
+}
+
+// replayHeld applies the held events in order, now that the pane is an agent.
+func (a *App) replayHeld(p *pane) tea.Cmd {
+	held := p.held
+	p.held = nil
+
+	cmds := make([]tea.Cmd, 0, len(held))
+	for _, ev := range held {
+		cmds = append(cmds, a.onHook(ev))
+	}
+
+	return tea.Batch(cmds...)
 }
 
 // onStatus records the model, context and account usage a status event reports.

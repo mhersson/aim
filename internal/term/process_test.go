@@ -136,6 +136,23 @@ func TestStartSizeAndResize(t *testing.T) {
 	}
 }
 
+func TestStartSetsPaneTTY(t *testing.T) {
+	p := startSh(t, `echo "A=$AIM_TTY"; echo "B=$(tty)"; sleep 5`, []string{"AIM_TTY=/dev/bogus"}, 80, 24)
+
+	out := readUntil(t, p, "B=/")
+	got := map[string]string{}
+
+	for line := range strings.SplitSeq(out, "\n") {
+		if k, v, ok := strings.Cut(strings.TrimSpace(line), "="); ok {
+			got[k] = v
+		}
+	}
+
+	if got["A"] == "" || got["A"] != got["B"] {
+		t.Errorf("AIM_TTY = %q, tty = %q; want the same slave path", got["A"], got["B"])
+	}
+}
+
 func TestEnvReachesChild(t *testing.T) {
 	env := PaneEnv([]string{"TMUX=x", "TERM=dumb"})
 	p := startSh(t, "echo $TERM $COLORTERM ${TMUX:-none}", env, 80, 24)

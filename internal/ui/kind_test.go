@@ -128,7 +128,7 @@ func TestKindFollowsForeground(t *testing.T) {
 		clk.Advance(agentGrace)
 
 		a.Update(paneKindDueMsg{id: "p2", p: a.panes["p2"]})
-		a.Update(probe(a.panes["p2"], true)())
+		a.Update(probe(a.panes["p2"], true, false)())
 
 		if kindOf(a, "p2") != core.KindShell {
 			t.Error("Claude never appeared, yet the pane is still an agent after the grace period")

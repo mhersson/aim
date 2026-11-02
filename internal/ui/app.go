@@ -45,6 +45,8 @@ type Options struct {
 	HookSettings string
 	// HookSock is AIM_SOCK for every pane; empty sets none.
 	HookSock string
+	// Shell is the shell integration every pane gets; the zero value is off.
+	Shell term.Integration
 	// Events delivers hook events; nil means none arrive.
 	Events <-chan harness.Event
 	// Notice is shown as a toast at start; empty for none.
@@ -200,6 +202,7 @@ type App struct {
 	harness                    harness.Harness
 	tick                       func(time.Duration, func(time.Time) tea.Msg) tea.Cmd // tea.Tick; tests replace it
 	hookSettings, hookSock     string
+	shell                      term.Integration
 	events                     <-chan harness.Event
 	spin                       int         // badge spinner frame
 	agentTicking               bool        // an agentTickMsg is outstanding
@@ -276,7 +279,7 @@ func New(opts Options) (*App, error) {
 	}
 
 	a := &App{
-		harness: h, tick: tea.Tick, hookSettings: opts.HookSettings, hookSock: opts.HookSock,
+		harness: h, tick: tea.Tick, hookSettings: opts.HookSettings, hookSock: opts.HookSock, shell: opts.Shell,
 		events: opts.Events, notice: opts.Notice, save: opts.Save, marks: opts.Marks,
 		log: opts.Logger, store: opts.Store, reg: reg, keymap: km, keys: tables,
 		panes: map[core.PaneID]*pane{}, outerFocused: true,

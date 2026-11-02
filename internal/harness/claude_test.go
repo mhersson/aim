@@ -1077,3 +1077,32 @@ func TestByID(t *testing.T) {
 		t.Errorf("ByID(codex) = %v, %v", h, ok)
 	}
 }
+
+func TestWithSettings(t *testing.T) {
+	t.Parallel()
+
+	const s = "/run/1-claude.json"
+
+	tests := []struct {
+		name     string
+		args     []string
+		settings string
+		want     []string
+	}{
+		{"no args", nil, s, []string{"--settings", s}},
+		{"args kept in order", []string{"a", "b c"}, s, []string{"--settings", s, "a", "b c"}},
+		{"own settings", []string{"--settings", "U", "x"}, s, []string{"--settings", "U", "x"}},
+		{"own settings with equals", []string{"--settings=U"}, s, []string{"--settings=U"}},
+		{"settings after a double dash is a word", []string{"-p", "--", "--settings"}, s, []string{"--settings", s, "-p", "--", "--settings"}},
+		{"no settings file", []string{"a"}, "", []string{"a"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := (Claude{}).WithSettings(tt.args, tt.settings); !slices.Equal(got, tt.want) {
+				t.Errorf("WithSettings(%q, %q) = %q, want %q", tt.args, tt.settings, got, tt.want)
+			}
+		})
+	}
+}

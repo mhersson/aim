@@ -54,7 +54,7 @@ func Start(ctx context.Context, c Command, cols, rows int) (*Process, error) {
 		return nil
 	}
 
-	f, err := pty.StartWithSize(cmd, winsize(cols, rows))
+	f, err := startOnPTY(cmd, winsize(cols, rows))
 	if err != nil {
 		return nil, fmt.Errorf("start %s: %w", c.Argv[0], err)
 	}
@@ -70,6 +70,41 @@ func Start(ctx context.Context, c Command, cols, rows int) (*Process, error) {
 	}()
 
 	return p, nil
+}
+
+// startOnPTY does what pty.StartWithSize does, and also puts the slave's path in
+// the child's AIM_TTY so a wrapper can tell the pane's terminal from a nested one.
+func startOnPTY(cmd *exec.Cmd, ws *pty.Winsize) (*os.File, error) {
+	master, slave, err := pty.Open()
+	if err != nil {
+		return nil, fmt.Errorf("open pty: %w", err)
+	}
+
+	defer func() { _ = slave.Close() }()
+
+	if err := pty.Setsize(master, ws); err != nil {
+		_ = master.Close()
+
+		return nil, fmt.Errorf("size pty: %w", err)
+	}
+
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true}
+
+	env := cmd.Env
+	if env == nil {
+		env = os.Environ()
+	}
+
+	cmd.Env = append(dropKeys(env, "AIM_TTY"), "AIM_TTY="+slave.Name())
+
+	if err := cmd.Start(); err != nil {
+		_ = master.Close()
+
+		return nil, err
+	}
+
+	return master, nil
 }
 
 // Read returns io.EOF when the child closes the terminal; EIO is the normal

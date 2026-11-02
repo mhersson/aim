@@ -172,16 +172,24 @@ func TestHookEventsThatDoNotFit(t *testing.T) {
 	tests := []struct {
 		name string
 		ev   harness.Event
+		cmd  bool
+		// rearm allows the command that re-arms the event wait, with no probe.
+		rearm bool
 	}{
-		{"unknown pane", harness.Event{Pane: "p9", Name: "Stop", State: core.AgentIdle}},
-		{"empty pane", harness.Event{Name: "Stop", State: core.AgentIdle}},
-		{"shell pane", harness.Event{Pane: "p1", Name: "SessionStart", Session: "s9", Start: true, State: core.AgentWorking}},
-		{"out of range state", harness.Event{Pane: "p2", Name: "Stop", State: core.AgentState(99)}},
+		{"unknown pane", harness.Event{Pane: "p9", Name: "Stop", State: core.AgentIdle}, false, false},
+		{"empty pane", harness.Event{Name: "Stop", State: core.AgentIdle}, false, false},
+		{"shell pane", harness.Event{Pane: "p1", Name: "SessionStart", Session: "s9", Start: true, State: core.AgentWorking}, true, false},
+		{"out of range state", harness.Event{Pane: "p2", Name: "Stop", State: core.AgentState(99)}, false, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if cmd := hook(a, tt.ev); tt.name != "out of range state" && cmd != nil {
+			cmd := hook(a, tt.ev)
+			if tt.cmd && cmd == nil {
+				t.Error("no command, want the probe that checks the held hook")
+			}
+
+			if !tt.cmd && !tt.rearm && cmd != nil {
 				// Only the re-armed wait may remain, and there is no channel here.
 				t.Errorf("command = %v, want none", cmd)
 			}
@@ -588,20 +596,21 @@ func TestStatusEventsThatDoNotFit(t *testing.T) {
 	tests := []struct {
 		name string
 		ev   harness.Event
+		cmd  bool // the probe that checks a held event
 	}{
-		{"unknown pane", statusEvent("p9", "s2", "Haiku 4.5", 10, true)},
-		{"empty pane", statusEvent("", "s2", "Haiku 4.5", 10, true)},
-		{"shell pane", statusEvent("p1", "s2", "Haiku 4.5", 10, true)},
-		{"empty session", statusEvent("p2", "", "Haiku 4.5", 10, true)},
-		{"older session", statusEvent("p2", "s1", "Haiku 4.5", 10, true)},
+		{"unknown pane", statusEvent("p9", "s2", "Haiku 4.5", 10, true), false},
+		{"empty pane", statusEvent("", "s2", "Haiku 4.5", 10, true), false},
+		{"shell pane", statusEvent("p1", "s2", "Haiku 4.5", 10, true), true},
+		{"empty session", statusEvent("p2", "", "Haiku 4.5", 10, true), false},
+		{"older session", statusEvent("p2", "s1", "Haiku 4.5", 10, true), false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ver := a.storeVer
 
-			if cmd := hook(a, tt.ev); cmd != nil {
-				t.Errorf("command = %v, want none", cmd)
+			if cmd := hook(a, tt.ev); (cmd != nil) != tt.cmd {
+				t.Errorf("command = %v, want one: %v", cmd, tt.cmd)
 			}
 
 			if got := a.store.State(); !reflect.DeepEqual(got.Panes["p1"], before.Panes["p1"]) || !reflect.DeepEqual(got.Panes["p2"], before.Panes["p2"]) || a.storeVer != ver {
