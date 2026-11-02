@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -181,9 +182,18 @@ func (r *shellRig) start(t *testing.T, c Command) *rigTerm {
 
 		b := make([]byte, 4096)
 
+		var carry []byte
+
 		for {
 			n, err := p.Read(b)
 			if n > 0 {
+				var replies int
+
+				replies, carry = daQueries(carry, b[:n])
+				for range replies {
+					_, _ = p.Write([]byte(daReply))
+				}
+
 				rt.mu.Lock()
 				rt.buf.Write(b[:n])
 				rt.mu.Unlock()
@@ -208,6 +218,26 @@ func (r *shellRig) start(t *testing.T, c Command) *rigTerm {
 	})
 
 	return rt
+}
+
+// daReply answers a Primary Device Attributes query.
+const daReply = "\x1b[?62;22c"
+
+// daQueries counts the Primary Device Attributes queries (ESC [ c, ESC [ 0 c)
+// in chunk, which may continue carry, and returns the bytes to carry into the
+// next chunk. fish waits up to 10 s for the reply before it starts, so a rig
+// that never answers makes every fish test slow; zsh and bash never ask.
+func daQueries(carry, chunk []byte) (int, []byte) {
+	data := append(slices.Clone(carry), chunk...)
+	n := bytes.Count(data, []byte("\x1b[c")) + bytes.Count(data, []byte("\x1b[0c"))
+
+	// Keep an unfinished query only; a finished one must not count twice.
+	i := bytes.LastIndexByte(data, 0x1b)
+	if i < 0 || len(data)-i > 3 || bytes.HasSuffix(data, []byte("c")) {
+		return n, nil
+	}
+
+	return n, slices.Clone(data[i:])
 }
 
 // typeLine types s and Enter.
