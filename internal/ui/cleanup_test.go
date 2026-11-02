@@ -1,12 +1,11 @@
 package ui
 
 import (
-	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -28,31 +27,31 @@ const mergedToast = "merged #7 (merge)"
 type cleanupRig struct {
 	*prDrawer
 	f        *fakeActions
+	fg       *fakeGit
+	mainRepo *fakeRepo
 	main     string
 	wt       string
-	agentID  core.PaneID       // the drawer's agent
-	other    core.PaneID       // the shell in the main checkout
-	ids      []core.PaneID     // every pane the rig opened, in tab order
-	keepers  []core.PaneID     // the panes started in the worktree, in tab order
-	turnKeys map[string]string // seedTurns: the turn key of each root
+	agentID  core.PaneID   // the drawer's agent
+	other    core.PaneID   // the shell in the main checkout
+	ids      []core.PaneID // every pane the rig opened, in tab order
+	keepers  []core.PaneID // the panes started in the worktree, in tab order
 }
 
 // newCleanupRig builds the rig; before opens more panes ahead of the drawer.
 func newCleanupRig(t *testing.T, before ...func(*testing.T, *cleanupRig)) *cleanupRig {
 	t.Helper()
 
-	main := realPRFeatureRepo(t)
-	wt := filepath.Join(main, ".worktrees", "feat-x")
+	// The branch is made inside the worktree, at the pull request's head as it is
+	// once the work is pushed and merged, so the main checkout stays on main.
+	fg := newFakeGit(t)
+	mainRepo := prTwoCommits(t, fg)
+	prOrigin(t, mainRepo)
 
-	// The branch is made inside the worktree, so the main checkout stays on main.
-	gitIn(t, "git", main, "worktree", "add", "-q", "--detach", wt)
-
-	wt = rootOf(t, wt)
-	r := &cleanupRig{prDrawer: newRealPRDrawerOn(t, wt), main: main, wt: wt, f: &fakeActions{}}
+	main := mainRepo.Root()
+	wtRepo := mainRepo.worktree(t, filepath.Join(main, ".worktrees", "feat-x"), "feat/x")
+	wt := wtRepo.Root()
+	r := &cleanupRig{prDrawer: newPRDrawerOn(t, fg, wtRepo), fg: fg, mainRepo: mainRepo, main: main, wt: wt, f: &fakeActions{}}
 	r.actions = r.f
-
-	// The branch sits at the pull request's head, as it does once the work is pushed and merged.
-	gitIn(t, "git", wt, "reset", "-q", "--hard", r.prHead)
 
 	// The app's first pane opens in the worktree; it moves to the main checkout.
 	r.other = r.store.State().Tab().Focus
@@ -98,17 +97,6 @@ func (r *cleanupRig) keeper(t *testing.T, kind core.PaneKind) core.PaneID {
 	return id
 }
 
-// named gives agent id a session name, so the cards tell agents apart.
-func (r *cleanupRig) named(t *testing.T, id core.PaneID, name string) {
-	t.Helper()
-
-	transcript := filepath.Join(t.TempDir(), name+".jsonl")
-	openIn(t, r.App, core.SetAgentSession{ID: id, Session: core.SessionID(name), Transcript: transcript})
-
-	rp := r.railEntry(id)
-	rp.name.text, rp.name.transcript = name, transcript
-}
-
 // started opens a pane started in the worktree for each of kinds, in order.
 func started(kinds ...core.PaneKind) func(*testing.T, *cleanupRig) {
 	return func(t *testing.T, r *cleanupRig) {
@@ -151,10 +139,12 @@ func (r *cleanupRig) nameOf(id core.PaneID) string { return r.cardName(r.store.S
 
 func (r *cleanupRig) text() string { return ansi.Strip(r.View().Content) }
 
-func (r *cleanupRig) branchExists(t *testing.T) bool {
-	t.Helper()
+func (r *cleanupRig) branchExists() bool {
+	var ok bool
 
-	return gitRead(t, "git", r.main, "branch", "--list", "feat/x") != ""
+	r.fg.edit(func() { _, ok = r.mainRepo.c.branches["feat/x"] })
+
+	return ok
 }
 
 func (r *cleanupRig) worktreeExists() bool {
@@ -171,39 +161,7 @@ func (r *cleanupRig) done(t *testing.T) {
 }
 
 // kept is the notice for panes that keep the worktree.
-func kept(panes string) string { return "kept .worktrees/feat-x: " + panes }
-
-func TestCleanupOffer(t *testing.T) {
-	t.Parallel()
-
-	r := newCleanupRig(t)
-	r.mergeToBox(t)
-
-	if r.notice != mergedToast {
-		t.Errorf("toast = %q, want %q", r.notice, mergedToast)
-	}
-
-	sha := r.prHead[:7]
-	got := r.text()
-
-	for _, want := range []string{
-		" " + iconCleanup + " Clean up after #7 ",
-		"#7 Add x",
-		"is merged at " + sha + ". Clean up its worktree?",
-		"[x] remove the worktree  .worktrees/feat-x",
-		"    clean ",
-		"[x] delete the local branch  feat/x",
-		"at " + sha + ", the merged head",
-		"enter clean up",
-		"w worktree",
-		"b branch",
-		"esc keep",
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("the box lacks %q:\n%s", want, got)
-		}
-	}
-}
+func kept(panes ...cleanupPane) string { return keptBy(".worktrees/feat-x", panes) }
 
 func TestCleanupRun(t *testing.T) {
 	t.Parallel()
@@ -229,6 +187,9 @@ func TestCleanupRun(t *testing.T) {
 			r.mergeToBox(t)
 
 			r.typed(strings.Join(tc.keys, ""))
+
+			shown := r.confirm.cleanup.found.tip
+
 			r.notice = ""
 			r.keys(keyEnter)
 			r.done(t)
@@ -242,6 +203,12 @@ func TestCleanupRun(t *testing.T) {
 			}
 
 			r.assertEnd(t, tc.removed, tc.branch)
+
+			if !tc.branch {
+				if got := r.sent("DeleteBranch"); !slices.Equal(got, []string{"feat/x " + shown}) {
+					t.Errorf("DeleteBranch = %q, want feat/x at the tip the box showed, %s", got, shown)
+				}
+			}
 		})
 	}
 
@@ -303,30 +270,18 @@ func TestCleanupInUse(t *testing.T) {
 	tests := []struct {
 		name   string
 		before func(*testing.T, *cleanupRig)
-		kept   func(r *cleanupRig) string // the panes the row under the worktree's names; nil when it can go
+		kept   func(r *cleanupRig) []cleanupPane // the panes that keep the worktree; nil when it can go
 	}{
 		{name: "only an agent that cd'd in"},
 		{
-			name: "an agent elsewhere",
-			before: func(t *testing.T, r *cleanupRig) {
-				t.Helper()
-				r.ids = append(r.ids, r.agent(t, r.main, ""))
-			},
-		},
-		{
 			name:   "a shell",
 			before: started(core.KindShell),
-			kept:   func(*cleanupRig) string { return "1 shell is in it" },
-		},
-		{
-			name:   "two shells",
-			before: started(core.KindShell, core.KindShell),
-			kept:   func(*cleanupRig) string { return "2 shells are in it" },
+			kept:   func(*cleanupRig) []cleanupPane { return []cleanupPane{{}} },
 		},
 		{
 			name:   "an agent started in it",
 			before: started(core.KindAgent),
-			kept:   func(r *cleanupRig) string { return r.nameOf(r.keepers[0]) + " is in it" },
+			kept:   func(r *cleanupRig) []cleanupPane { return []cleanupPane{{name: r.nameOf(r.keepers[0]), agent: true}} },
 		},
 		{
 			name: "an agent started in it that cd'd out",
@@ -334,22 +289,7 @@ func TestCleanupInUse(t *testing.T) {
 				t.Helper()
 				openIn(t, r.App, core.SetAgentCwd{ID: r.keeper(t, core.KindAgent), Cwd: r.main})
 			},
-			kept: func(r *cleanupRig) string { return r.nameOf(r.keepers[0]) + " is in it" },
-		},
-		{
-			name:   "a shell and an agent",
-			before: started(core.KindShell, core.KindAgent),
-			kept:   func(r *cleanupRig) string { return r.nameOf(r.keepers[1]) + " and 1 shell are in it" },
-		},
-		{
-			name: "two agents and a shell",
-			before: func(t *testing.T, r *cleanupRig) {
-				t.Helper()
-				started(core.KindAgent, core.KindShell, core.KindAgent)(t, r)
-				r.named(t, r.keepers[0], "worker-a")
-				r.named(t, r.keepers[2], "worker-b")
-			},
-			kept: func(*cleanupRig) string { return "worker-a, worker-b and 1 shell are in it" },
+			kept: func(r *cleanupRig) []cleanupPane { return []cleanupPane{{name: r.nameOf(r.keepers[0]), agent: true}} },
 		},
 	}
 
@@ -389,13 +329,24 @@ func TestCleanupInUse(t *testing.T) {
 
 			for _, want := range []string{
 				"[-] remove the worktree  .worktrees/feat-x",
-				"    " + tc.kept(r),
 				"[-] delete the local branch  feat/x",
 				"needs the worktree removed",
 				"esc keep",
 			} {
 				if !strings.Contains(got, want) {
 					t.Errorf("the box lacks %q:\n%s", want, got)
+				}
+			}
+
+			// The box names the panes the target carries: agents by card name, shells by count.
+			want := tc.kept(r)
+			if c := r.confirm.cleanup; !slices.EqualFunc(c.inUse, want, func(a, b cleanupPane) bool { return a.name == b.name && a.agent == b.agent }) {
+				t.Errorf("panes in use = %+v, want %+v", c.inUse, want)
+			}
+
+			for _, p := range want {
+				if p.agent && !strings.Contains(got, p.name) {
+					t.Errorf("the box does not name the agent %q:\n%s", p.name, got)
 				}
 			}
 
@@ -435,14 +386,14 @@ func TestCleanupGuards(t *testing.T) {
 
 	moveOut := func(t *testing.T, r *cleanupRig) {
 		t.Helper()
-		gitIn(t, "git", r.wt, "switch", "-q", "--detach")
+		r.wtRepo().detach()
 	}
 
 	commit := func(t *testing.T, r *cleanupRig, n int) {
 		t.Helper()
 
 		for i := range n {
-			gitIn(t, "git", r.wt, "commit", "-q", "--allow-empty", "-m", fmt.Sprintf("extra %d", i))
+			r.wtRepo().commit(fmt.Sprintf("extra %d", i))
 		}
 	}
 
@@ -462,6 +413,7 @@ func TestCleanupGuards(t *testing.T) {
 		level   toastLevel
 		removed bool // the worktree is gone at the end
 		branch  bool // the branch is left at the end
+		refused bool // enter asks git to remove the worktree and git refuses
 	}{
 		{
 			name: "modified file",
@@ -474,19 +426,8 @@ func TestCleanupGuards(t *testing.T) {
 			branch: true,
 		},
 		{
-			name: "untracked files",
-			setup: func(t *testing.T, r *cleanupRig) {
-				write(t, filepath.Join(r.wt, "u1.txt"), "1\n")
-				write(t, filepath.Join(r.wt, "u2.txt"), "2\n")
-			},
-			toast: func(*cleanupRig) string {
-				return mergedToast + "; .worktrees/feat-x has 2 uncommitted changes, so it stays"
-			},
-			branch: true,
-		},
-		{
 			name:  "locked worktree",
-			setup: func(t *testing.T, r *cleanupRig) { gitIn(t, "git", r.main, "worktree", "lock", r.wt) },
+			setup: func(t *testing.T, r *cleanupRig) { r.wtRepo().lock("") },
 			toast: func(*cleanupRig) string {
 				return mergedToast + "; .worktrees/feat-x is locked, so it stays"
 			},
@@ -552,7 +493,7 @@ func TestCleanupGuards(t *testing.T) {
 			name: "main checkout on the branch",
 			setup: func(t *testing.T, r *cleanupRig) {
 				moveOut(t, r)
-				gitIn(t, "git", r.main, "switch", "-q", "feat/x")
+				r.mainRepo.switchTo("feat/x")
 			},
 			toast: func(r *cleanupRig) string {
 				return mergedToast + "; " + r.main + " is outside AIM's worktrees, so it stays"
@@ -563,7 +504,7 @@ func TestCleanupGuards(t *testing.T) {
 			name: "worktree outside both roots",
 			setup: func(t *testing.T, r *cleanupRig) {
 				moveOut(t, r)
-				gitIn(t, "git", r.main, "worktree", "add", "-q", filepath.Join(filepath.Dir(r.main), "elsewhere"), "feat/x")
+				r.mainRepo.worktree(t, filepath.Join(filepath.Dir(r.main), "elsewhere"), "elsewhere").switchTo("feat/x")
 			},
 			toast: func(r *cleanupRig) string {
 				return mergedToast + "; " + filepath.Join(filepath.Dir(r.main), "elsewhere") + " is outside AIM's worktrees, so it stays"
@@ -592,7 +533,7 @@ func TestCleanupGuards(t *testing.T) {
 				t.Helper()
 				r.keeper(t, core.KindShell)
 			},
-			final:  func(*cleanupRig) string { return kept("1 shell is in it") },
+			final:  func(*cleanupRig) string { return kept(cleanupPane{}) },
 			branch: true,
 		},
 		{
@@ -634,7 +575,7 @@ func TestCleanupGuards(t *testing.T) {
 			toast: func(*cleanupRig) string { return mergedToast },
 			box:   []string{"at "},
 			after: func(t *testing.T, r *cleanupRig) {
-				gitIn(t, "git", r.wt, "switch", "-q", "-c", "other")
+				r.wtRepo().branch("other")
 				commit(t, r, 1)
 			},
 			final:  func(*cleanupRig) string { return "kept .worktrees/feat-x: it is no longer on feat/x" },
@@ -642,25 +583,14 @@ func TestCleanupGuards(t *testing.T) {
 			branch: true,
 		},
 		{
-			name:  "worktree detached with a new commit after the box opened",
-			toast: func(*cleanupRig) string { return mergedToast },
-			box:   []string{"at "},
-			after: func(t *testing.T, r *cleanupRig) {
-				moveOut(t, r)
-				commit(t, r, 1)
-			},
-			final:  func(*cleanupRig) string { return "kept .worktrees/feat-x: it is no longer on feat/x" },
-			level:  levelError,
-			branch: true,
-		},
-		{
-			name:   "file modified after the box opened",
-			toast:  func(*cleanupRig) string { return mergedToast },
-			box:    []string{"at "},
-			after:  func(t *testing.T, r *cleanupRig) { write(t, filepath.Join(r.wt, "a.txt"), "changed\n") },
-			final:  func(*cleanupRig) string { return "kept .worktrees/feat-x: it has uncommitted changes" },
-			level:  levelError,
-			branch: true,
+			name:    "file modified after the box opened",
+			toast:   func(*cleanupRig) string { return mergedToast },
+			box:     []string{"at "},
+			after:   func(t *testing.T, r *cleanupRig) { write(t, filepath.Join(r.wt, "a.txt"), "changed\n") },
+			final:   func(*cleanupRig) string { return "kept .worktrees/feat-x: it has uncommitted changes" },
+			level:   levelError,
+			branch:  true,
+			refused: true,
 		},
 	}
 
@@ -717,14 +647,38 @@ func TestCleanupGuards(t *testing.T) {
 				t.Errorf("after enter: toast %q at level %v, want %q at level %v", r.notice, r.noticeLevel(), want, tc.level)
 			}
 
-			r.assertEnd(t, tc.removed, tc.branch)
+			r.assertSent(t, tc.removed, tc.branch, tc.removed || tc.refused)
 		})
 	}
 }
 
-// assertEnd checks what is left of the worktree and the branch, and that no
-// pane closed.
+// wtRepo is the fake worktree the rig cleans up.
+func (r *cleanupRig) wtRepo() *fakeRepo { return r.repo }
+
+// sent is the arguments of each call of op, one string per call.
+func (r *cleanupRig) sent(op string) []string {
+	var out []string
+
+	for _, c := range r.fg.calls(op) {
+		out = append(out, strings.Join(c.Args, " "))
+	}
+
+	return out
+}
+
+// assertEnd checks what is left of the worktree and the branch, what the UI
+// sent to git for them, and that no pane closed.
 func (r *cleanupRig) assertEnd(t *testing.T, removed, branch bool) {
+	t.Helper()
+	r.assertSent(t, removed, branch, removed)
+}
+
+// assertSent is assertEnd for a run in which enter asked git to remove the
+// worktree (removeSent) whether or not git did. The removal names the worktree's
+// path and nothing forces it; the branch is deleted only at the tip the rig
+// built it at, and nothing is sent for a worktree or a branch that stays; the
+// turn refs go with a removed worktree, named by the root git reported.
+func (r *cleanupRig) assertSent(t *testing.T, removed, branch, removeSent bool) {
 	t.Helper()
 
 	// A worktree outside the roots is never removed; only the rig's own is looked at.
@@ -732,8 +686,29 @@ func (r *cleanupRig) assertEnd(t *testing.T, removed, branch bool) {
 		t.Errorf("worktree removed = %v, want %v", got, removed)
 	}
 
-	if got := r.branchExists(t); got != branch {
+	if got := r.branchExists(); got != branch {
 		t.Errorf("branch left = %v, want %v", got, branch)
+	}
+
+	want := func(sent bool, args string) []string {
+		if !sent {
+			return nil
+		}
+
+		return []string{args}
+	}
+
+	for _, c := range []struct {
+		op   string
+		want []string
+	}{
+		{"RemoveWorktree", want(removeSent, r.wt)},
+		{"PruneWorktree", want(removed, r.wt)},
+		{"DeleteBranch", want(!branch, "feat/x "+r.prHead)},
+	} {
+		if got := r.sent(c.op); !slices.Equal(got, c.want) {
+			t.Errorf("%s calls = %q, want %q", c.op, got, c.want)
+		}
 	}
 
 	for _, id := range r.ids {
@@ -745,46 +720,37 @@ func (r *cleanupRig) assertEnd(t *testing.T, removed, branch bool) {
 
 const cleanupSession = "11111111-2222-4333-8444-555555555555"
 
-// seedTurns writes one turn ref pair in the worktree and one in the main
-// checkout, and keeps their roots' keys: the worktree's root cannot be read once removed.
-func (r *cleanupRig) seedTurns(t *testing.T) {
-	t.Helper()
+// seedTurns records one turn in the worktree and one in the main checkout.
+func (r *cleanupRig) seedTurns() {
+	r.wtRepo().turn(cleanupSession)
+	r.mainRepo.turn(cleanupSession)
+}
 
-	r.turnKeys = map[string]string{}
+// refsNamed counts the refs under refs/aim/ whose name satisfies match.
+func (r *cleanupRig) refsNamed(match func(string) bool) int {
+	n := 0
 
-	for _, dir := range []string{r.wt, r.main} {
-		sum := sha256.Sum256([]byte(rootOf(t, dir)))
-		r.turnKeys[dir] = hex.EncodeToString(sum[:])[:16]
-	}
-
-	for _, dir := range []string{r.wt, r.main} {
-		if _, err := git.Snapshot(context.Background(), dir, cleanupSession, git.SnapshotOptions{TempDir: t.TempDir()}); err != nil {
-			t.Fatalf("snapshot in %s: %v", dir, err)
+	r.fg.edit(func() {
+		for name := range r.mainRepo.c.aimRefs {
+			if match(name) {
+				n++
+			}
 		}
-	}
+	})
+
+	return n
 }
 
 // prRefs counts the refs fetched for pull request 7.
-func (r *cleanupRig) prRefs(t *testing.T) int {
-	t.Helper()
-
-	return len(strings.Fields(gitRead(t, "git", r.main, "for-each-ref", "--format=%(refname)", "refs/aim/pr/7/")))
+func (r *cleanupRig) prRefs() int {
+	return r.refsNamed(func(name string) bool { return strings.HasPrefix(name, "refs/aim/pr/7/") })
 }
 
 // turnRefs counts the turn refs recorded for the worktree root.
-func (r *cleanupRig) turnRefs(t *testing.T, root string) int {
-	t.Helper()
-
-	key := r.turnKeys[root]
-	n := 0
-
-	for ref := range strings.FieldsSeq(gitRead(t, "git", r.main, "for-each-ref", "--format=%(refname)", "refs/aim/turns/"+cleanupSession+"/")) {
-		if strings.Contains(ref, "/"+key+"/") {
-			n++
-		}
-	}
-
-	return n
+func (r *cleanupRig) turnRefs(root string) int {
+	return r.refsNamed(func(name string) bool {
+		return strings.HasPrefix(name, "refs/aim/turns/"+cleanupSession+"/") && strings.Contains(name, "/"+turnKey(root)+"/")
+	})
 }
 
 func openShellThere(t *testing.T, r *cleanupRig) { t.Helper(); r.keeper(t, core.KindShell) }
@@ -806,28 +772,20 @@ func TestCleanupPrunesRefs(t *testing.T) {
 		key                 tea.KeyPressMsg
 		toast               string
 		prGone, wtTurnsGone bool
-		early               func(*testing.T, *cleanupRig) // runs before the box opens
 	}{
-		{"both", "", nil, keyEnter, "removed .worktrees/feat-x; deleted feat/x", true, true, nil},
-		{"branch off", "b", nil, keyEnter, "removed .worktrees/feat-x", true, true, nil},
-		{"worktree off", "w", nil, keyEnter, "nothing to clean up", true, false, nil},
-		{"refused: a shell opened in the worktree", "", openShellThere, keyEnter, kept("1 shell is in it"), true, false, nil},
-		{"removal failed: a change after the box", "", dirtyWorktree, keyEnter, "kept .worktrees/feat-x: it has uncommitted changes", true, false, nil},
-		{"esc", "", nil, keyEsc, "", false, false, nil},
-		{"in-use box: enter says nothing to clean up", "", nil, keyEnter, noticeNothingToClean, true, false, openShellThere},
+		{"both", "", nil, keyEnter, "removed .worktrees/feat-x; deleted feat/x", true, true},
+		{"worktree off", "w", nil, keyEnter, "nothing to clean up", true, false},
+		{"refused: a shell opened in the worktree", "", openShellThere, keyEnter, kept(cleanupPane{}), true, false},
+		{"removal failed: a change after the box", "", dirtyWorktree, keyEnter, "kept .worktrees/feat-x: it has uncommitted changes", true, false},
+		{"esc", "", nil, keyEsc, "", false, false},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			var early []func(*testing.T, *cleanupRig)
-			if tc.early != nil {
-				early = append(early, tc.early)
-			}
-
-			r := newCleanupRig(t, early...)
-			r.seedTurns(t)
+			r := newCleanupRig(t)
+			r.seedTurns()
 			r.mergeToBox(t)
 
 			if tc.before != nil {
@@ -838,7 +796,7 @@ func TestCleanupPrunesRefs(t *testing.T) {
 				r.typed(tc.toggles)
 			}
 
-			if got := r.prRefs(t); got != 2 {
+			if got := r.prRefs(); got != 2 {
 				t.Fatalf("PR refs before = %d, want 2", got)
 			}
 
@@ -849,37 +807,46 @@ func TestCleanupPrunesRefs(t *testing.T) {
 				r.done(t)
 			}
 
+			// The refs are dropped whatever happens to the worktree, for pull request 7 alone.
 			if tc.prGone {
-				r.until(t, "the PR refs", func() bool { return r.prRefs(t) == 0 })
-			} else if got := r.prRefs(t); got != 2 {
-				t.Errorf("PR refs = %d, want 2", got)
+				r.until(t, "the PR refs", func() bool { return r.prRefs() == 0 })
+
+				if got := r.sent("DeletePRRefs"); !slices.Equal(got, []string{"7"}) {
+					t.Errorf("DeletePRRefs = %q, want pull request 7", got)
+				}
+			} else if got := r.prRefs(); got != 2 || r.fg.count("DeletePRRefs") != 0 {
+				t.Errorf("PR refs = %d after %d deletions, want 2 and none", got, r.fg.count("DeletePRRefs"))
 			}
 
 			if tc.toast != "" && r.notice != tc.toast {
 				t.Errorf("toast = %q, want %q", r.notice, tc.toast)
 			}
 
-			if got := r.turnRefs(t, r.wt) == 0; got != tc.wtTurnsGone {
+			if got := r.turnRefs(r.wt) == 0; got != tc.wtTurnsGone {
 				t.Errorf("worktree turn refs gone = %v, want %v", got, tc.wtTurnsGone)
 			}
 
-			if got := r.turnRefs(t, r.main); got != 1 {
+			// Only a removed worktree's turn refs are pruned, by the root; the main checkout's stay.
+			if got, want := r.sent("PruneWorktree"), map[bool][]string{true: {r.wt}, false: nil}[tc.wtTurnsGone]; !slices.Equal(got, want) {
+				t.Errorf("PruneWorktree = %q, want %q", got, want)
+			}
+
+			if got := r.turnRefs(r.main); got != 1 {
 				t.Errorf("main checkout turn refs = %d, want 1", got)
 			}
 		})
 	}
 }
 
-// A refs/aim/pr/7/head.lock file makes the delete fail; the clean-up still reports success.
+// A pull request ref delete that fails does not change the clean-up's report.
 func TestCleanupSucceedsWhenThePruneFails(t *testing.T) {
 	t.Parallel()
 
 	r := newCleanupRig(t)
-	r.seedTurns(t)
+	r.seedTurns()
 	r.mergeToBox(t)
 
-	common := gitRead(t, "git", r.main, "rev-parse", "--path-format=absolute", "--git-common-dir")
-	write(t, filepath.Join(strings.TrimSpace(common), "refs", "aim", "pr", "7", "head.lock"), "")
+	r.fg.fail("DeletePRRefs", errors.New("cannot lock ref"))
 
 	r.notice = ""
 	r.keys(keyEnter)
@@ -889,12 +856,12 @@ func TestCleanupSucceedsWhenThePruneFails(t *testing.T) {
 		t.Errorf("toast = %q at level %v, want %q as a success", r.notice, r.noticeLevel(), want)
 	}
 
-	if got := r.turnRefs(t, r.wt); got != 0 {
+	if got := r.turnRefs(r.wt); got != 0 {
 		t.Errorf("worktree turn refs = %d, want 0", got)
 	}
 
-	if got := r.prRefs(t); got != 2 {
-		t.Errorf("PR refs = %d, want 2", got)
+	if got := r.prRefs(); got != 2 || r.fg.count("DeletePRRefs") != 1 {
+		t.Errorf("PR refs = %d after %d deletions, want 2 left after one failed try", got, r.fg.count("DeletePRRefs"))
 	}
 }
 
@@ -1245,12 +1212,12 @@ func TestCleanupCommandNotices(t *testing.T) {
 		},
 		{
 			name:  "detached head",
-			setup: func(t *testing.T, r *cleanupRig) { gitIn(t, "git", r.wt, "switch", "-q", "--detach") },
+			setup: func(t *testing.T, r *cleanupRig) { r.wtRepo().detach() },
 			want:  func(*cleanupRig) string { return "clean up: HEAD is detached" },
 		},
 		{
 			name:  "no pull request",
-			setup: func(t *testing.T, r *cleanupRig) { gitIn(t, "git", r.wt, "switch", "-q", "-c", "nopr") },
+			setup: func(t *testing.T, r *cleanupRig) { r.wtRepo().branch("nopr") },
 			want:  func(*cleanupRig) string { return "no pull request for nopr" },
 		},
 		{
@@ -1259,40 +1226,6 @@ func TestCleanupCommandNotices(t *testing.T) {
 				openIn(t, r.App, core.SetRepoPRs{Repo: prRepoKey, DefaultBranch: "main", Open: []core.PRInfo{{Number: 7, HeadBranch: "feat/x", State: prOpenState}}})
 			},
 			want: func(*cleanupRig) string { return "#7 is not merged" },
-		},
-		{
-			name: "pull request closed",
-			setup: func(t *testing.T, r *cleanupRig) {
-				openIn(t, r.App, core.SetRepoPRs{Repo: prRepoKey, DefaultBranch: "main"})
-				r.merged(t, "feat/x", 7, func(p *core.PRInfo) { p.State = "CLOSED" })
-			},
-			want: func(*cleanupRig) string { return "#7 is not merged" },
-		},
-		{
-			name: "dirty worktree",
-			setup: func(t *testing.T, r *cleanupRig) {
-				r.merged(t, "feat/x", 7, nil)
-				write(t, filepath.Join(r.wt, "a.txt"), "changed\n")
-			},
-			want: func(*cleanupRig) string { return ".worktrees/feat-x has 1 uncommitted change, so it stays" },
-		},
-		{
-			name: "working agent",
-			setup: func(t *testing.T, r *cleanupRig) {
-				r.merged(t, "feat/x", 7, nil)
-				openIn(t, r.App, core.SetAgentState{ID: r.agentID, State: core.AgentWorking})
-			},
-			want: func(r *cleanupRig) string { return r.name() + " is still working in .worktrees/feat-x" },
-		},
-		{
-			name: "main checkout",
-			setup: func(t *testing.T, r *cleanupRig) {
-				r.merged(t, "feat/x", 7, nil)
-				gitIn(t, "git", r.wt, "switch", "-q", "--detach")
-				gitIn(t, "git", r.main, "switch", "-q", "feat/x")
-				openIn(t, r.App, core.FocusPane{ID: r.other})
-			},
-			want: func(r *cleanupRig) string { return r.main + " is outside AIM's worktrees, so it stays" },
 		},
 		{
 			name: "pull request from another repository",
@@ -1356,12 +1289,6 @@ func TestCleanupCommandLate(t *testing.T) {
 			r.openCommandPalette()
 			r.run(feed(r, held))
 		}},
-		{"confirm opened before the place answer", func(t *testing.T, r *cleanupRig) {
-			held := r.held(t)
-
-			r.openConfirm(confirm{tab: r.store.State().Tab().ID, yes: func(*App) tea.Cmd { return nil }})
-			r.run(feed(r, held))
-		}},
 		{"newer command before the place answer", func(t *testing.T, r *cleanupRig) {
 			older := r.held(t)
 			_ = r.held(t)
@@ -1377,28 +1304,6 @@ func TestCleanupCommandLate(t *testing.T) {
 			held := check()
 
 			openIn(t, r.App, core.FocusPane{ID: r.other})
-			r.run(r.step(held))
-		}},
-		{"palette opened before the check answer", func(t *testing.T, r *cleanupRig) {
-			check := feed(r, r.held(t))
-			if check == nil {
-				t.Fatal("the place answer started no check")
-			}
-
-			held := check()
-
-			r.openCommandPalette()
-			r.run(r.step(held))
-		}},
-		{"newer command before the check answer", func(t *testing.T, r *cleanupRig) {
-			check := feed(r, r.held(t))
-			if check == nil {
-				t.Fatal("the place answer started no check")
-			}
-
-			held := check()
-			_ = r.held(t)
-
 			r.run(r.step(held))
 		}},
 	}

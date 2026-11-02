@@ -93,14 +93,26 @@ func closeApp(t *testing.T, a *App) {
 func lifeApp(t *testing.T) (*App, *starts) {
 	t.Helper()
 
-	a, err := New(Options{
-		Git:    SystemGit{},
+	return lifeAppWith(t, func(o *Options) { o.Git = SystemGit{} })
+}
+
+// lifeAppWith is lifeApp with its options tuned by opts.
+func lifeAppWith(t *testing.T, opts ...func(*Options)) (*App, *starts) {
+	t.Helper()
+
+	o := Options{
 		Logger: testLogger(),
 		Store:  core.NewStore(core.InitialState(core.Config{Theme: "catppuccin-mocha"})),
 		Getenv: testGetenv,
 		Cwd:    testCwd,
 		Icons:  true,
-	})
+	}
+
+	for _, f := range opts {
+		f(&o)
+	}
+
+	a, err := New(o)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

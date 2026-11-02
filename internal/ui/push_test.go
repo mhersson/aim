@@ -1,10 +1,7 @@
 package ui
 
 import (
-	"context"
 	"fmt"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -46,26 +43,6 @@ func (r *refreshRec) refreshed() []github.Repo {
 	defer r.rmu.Unlock()
 
 	return slices.Clone(r.repos)
-}
-
-// gitRead runs the real git in dir and returns its trimmed output.
-func gitRead(t *testing.T, bin, dir string, args ...string) string {
-	t.Helper()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Dir = dir
-
-	cmd.Env = append(os.Environ(), gitFileOnly)
-
-	out, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("git %v: %v", args, err)
-	}
-
-	return strings.TrimSpace(string(out))
 }
 
 // churnMsgs is churn that also returns every message it fed back.

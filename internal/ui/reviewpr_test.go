@@ -21,8 +21,7 @@ import (
 
 // prDrawer is a drawer rig on a worktree of feat/x whose origin holds main and
 // pull request 7. The worktree has a commit of its own that the pull request
-// lacks. The fake rig fills repo and origin; the real rig (newRealPRDrawerOn)
-// fills bare instead.
+// lacks.
 type prDrawer struct {
 	*drawerRig
 	rec     *refreshRec
@@ -30,7 +29,6 @@ type prDrawer struct {
 	root    string
 	repo    *fakeRepo
 	origin  *fakeRemote
-	bare    string
 	prHead  string // the commit pull request 7 holds on the remote
 	localOK string // the worktree's HEAD
 
@@ -59,10 +57,9 @@ func prTwoCommits(t *testing.T, f *fakeGit) *fakeRepo {
 	return r
 }
 
-// prScaffold gives r, two commits on main, an origin that holds main at the
-// first commit and pull request 7 at the second, then moves r to feat/x with a
-// commit of its own.
-func prScaffold(t *testing.T, r *fakeRepo) *fakeRepo {
+// prOrigin gives r, two commits on main, an origin that holds main at the first
+// commit and pull request 7 at the second.
+func prOrigin(t *testing.T, r *fakeRepo) {
 	t.Helper()
 
 	var chain []string
@@ -70,7 +67,7 @@ func prScaffold(t *testing.T, r *fakeRepo) *fakeRepo {
 	r.f.edit(func() { chain = r.f.chain(r.headOID()) })
 
 	if len(chain) != 2 {
-		t.Fatalf("prScaffold: %d commits, want 2", len(chain))
+		t.Fatalf("prOrigin: %d commits, want 2", len(chain))
 	}
 
 	head, base := chain[0], chain[1]
@@ -78,6 +75,13 @@ func prScaffold(t *testing.T, r *fakeRepo) *fakeRepo {
 	rm.setBranch("main", base)
 	r.track("origin", "main", base)
 	rm.pr(7, head)
+}
+
+// prScaffold is prOrigin, then moves r to feat/x with a commit of its own.
+func prScaffold(t *testing.T, r *fakeRepo) *fakeRepo {
+	t.Helper()
+
+	prOrigin(t, r)
 	r.branch("feat/x")
 	write(t, filepath.Join(r.Root(), "local.txt"), "not pushed\n")
 	r.commit("local only")
@@ -118,66 +122,6 @@ func newPRDrawer(t *testing.T, opts ...func(*Options)) *prDrawer {
 	f := newFakeGit(t)
 
 	return newPRDrawerOn(t, f, prFeatureRepo(t, f), opts...)
-}
-
-// realPRWorktree makes the repository dir (on feat/x, two commits past main)
-// with a bare origin that has main and refs/pull/7/head, and a commit past the
-// pull request in dir. It returns the bare repository, the pull request's head
-// and the worktree's.
-func realPRWorktree(t *testing.T, dir string) (bare, prHead, local string) {
-	t.Helper()
-
-	bare, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	gitIn(t, "git", bare, "init", "-q", "--bare", "-b", "main")
-	gitIn(t, "git", dir, "remote", "add", "origin", bare)
-
-	base := gitRead(t, "git", dir, "rev-list", "--max-parents=0", "HEAD")
-	gitIn(t, "git", dir, "push", "-q", "origin", base+":refs/heads/main")
-	gitIn(t, "git", dir, "switch", "-q", "-c", "feat/x")
-	gitIn(t, "git", dir, "push", "-q", "origin", "HEAD:refs/pull/7/head")
-
-	prHead = gitRead(t, "git", dir, "rev-parse", "HEAD")
-
-	write(t, filepath.Join(dir, "local.txt"), "not pushed\n")
-	commitEverything(t, dir, "local only")
-
-	return bare, prHead, gitRead(t, "git", dir, "rev-parse", "HEAD")
-}
-
-// realPRFeatureRepo is prTwoCommits on the real git.
-func realPRFeatureRepo(t *testing.T) string {
-	t.Helper()
-
-	dir := newRepoDir(t)
-	write(t, filepath.Join(dir, "a.txt"), "a\n")
-	write(t, filepath.Join(dir, "b.txt"), "b\n")
-	commitEverything(t, dir, "init")
-	write(t, filepath.Join(dir, "a.txt"), "a changed\n")
-	write(t, filepath.Join(dir, "new.txt"), "new\n")
-	commitEverything(t, dir, "feature work")
-
-	return dir
-}
-
-// newRealPRDrawerOn is the PR drawer rig on the real git and a bare origin.
-func newRealPRDrawerOn(t *testing.T, dir string, opts ...func(*Options)) *prDrawer {
-	t.Helper()
-
-	bare, prHead, local := realPRWorktree(t, dir)
-	p := &prDrawer{
-		rec: &refreshRec{fakePRs: newFakePRs()}, dir: dir, root: rootOf(t, dir),
-		bare: bare, prHead: prHead, localOK: local, found: map[string]github.PR{},
-	}
-
-	opts = append([]func(*Options){func(o *Options) { o.PRs, o.PRLookup = p.rec, p.lookup }}, opts...)
-	p.drawerRig = newKeysRig(t, dir, opts...)
-	p.prs.resolve = p.resolve
-
-	return p
 }
 
 func (p *prDrawer) resolve(_ context.Context, _, _ string) (github.Repo, error) {
