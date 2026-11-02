@@ -1032,7 +1032,13 @@ func TestWorktreeListCountsArrive(t *testing.T) {
 	l := showList(a, rows, "other · main", 0)
 
 	before := plainLines(listLines(t, a))
-	if i := lineHolding(before, "other · main  latest"); i < 0 || strings.Contains(before[i], "+") {
+
+	i := lineHolding(before, "other · main  latest")
+	if i < 0 {
+		t.Fatalf("no row for the latest place:\n%s", strings.Join(before, "\n"))
+	}
+
+	if strings.Contains(before[i], "+") {
 		t.Fatalf("a row shows counts before they arrived: %q", before[i])
 	}
 
@@ -1041,9 +1047,8 @@ func TestWorktreeListCountsArrive(t *testing.T) {
 
 	after := plainLines(listLines(t, a))
 
-	i := lineHolding(after, "other · main  latest")
-	if i < 0 || !strings.Contains(after[i], "+41 -7  3 files") {
-		t.Errorf("the counted row reads %q, want +41 -7  3 files", after[i])
+	if i = lineHolding(after, "other · main  latest"); i < 0 || !strings.Contains(after[i], "+41 -7  3 files") {
+		t.Errorf("the counted row (line %d) is not +41 -7  3 files:\n%s", i, strings.Join(after, "\n"))
 	}
 
 	// An answer for another list does not count.

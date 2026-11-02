@@ -443,8 +443,9 @@ func TestRailTakesColumnsFromPanes(t *testing.T) {
 func TestRailFramesKeepTheirWidth(t *testing.T) {
 	t.Parallel()
 
-	// Widths either side of the rail's 64 and 84 column edges; heights 4 and 5 around the
-	// smallest frame the rail draws, 13 and 14 around the hint row's edge (railHintsMinInner).
+	// Widths either side of the rail's 64 and 84 column edges. The rail box is the screen
+	// height less 2 rows: it is drawn from 5 rows (minFrame is 3) and shows its hint row from
+	// 14 (an inner height of railHintsMinInner, 10), so 4 and 5, 13 and 14 sit either side.
 	for _, w := range []int{63, 64, 83, 84, 110} {
 		for _, h := range []int{4, 5, 13, 14, 30} {
 			a := drawApp(t, "catppuccin-mocha", true, w, h, railFixtureAgents())
