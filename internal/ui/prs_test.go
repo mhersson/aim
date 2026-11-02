@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -124,6 +123,13 @@ func newPRApp(t *testing.T, opts ...func(*Options)) *prApp {
 	return p
 }
 
+// newFakePRApp is newPRApp on a fresh fake git.
+func newFakePRApp(t *testing.T) *prApp {
+	t.Helper()
+
+	return newPRApp(t, gitOf(newFakeGit(t)))
+}
+
 func (p *prApp) lookup(_ context.Context, r github.Repo, branch string) (github.PR, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -145,19 +151,17 @@ func (p *prApp) lookedUp() []string {
 }
 
 // prRepo makes a repository on branch, with an origin at url unless that is empty.
-func (r *railApp) prRepo(t *testing.T, name, branch, url string) string {
+func (r *railApp) prRepo(t *testing.T, name, branch, url string) *fakeRepo {
 	t.Helper()
 
-	dir := r.realRepo(t, name)
-	gitIn(t, r.real, dir, "checkout", "-q", "-b", branch)
+	rp := r.repo(t, name)
+	rp.branch(branch)
 
 	if url != "" {
-		gitIn(t, r.real, dir, "remote", "add", "origin", url)
+		rp.remote("origin", url)
 	}
 
-	_ = os.Remove(r.log)
-
-	return dir
+	return rp
 }
 
 // churn runs cmd and feeds every message back to the app, then the commands
@@ -198,10 +202,12 @@ func (p *prApp) prFor(branch string) (core.PRInfo, bool) {
 }
 
 func TestTwoAgentsInOneRepositoryShareOneWatch(t *testing.T) {
-	p := newPRApp(t)
-	dir := p.prRepo(t, "proj", "feat-a", "https://github.com/o/r.git")
-	wt := filepath.Join(t.TempDir(), "wt")
-	gitIn(t, p.real, dir, "worktree", "add", "-q", "-b", "feat-b", wt)
+	t.Parallel()
+
+	p := newFakePRApp(t)
+	rp := p.prRepo(t, "proj", "feat-a", "https://github.com/o/r.git")
+	dir := rp.Root()
+	wt := rp.worktree(t, filepath.Join(t.TempDir(), "wt"), "feat-b").Root()
 
 	p.addAgent(t, false, dir)
 	p.addAgent(t, false, wt)
@@ -225,9 +231,11 @@ func TestTwoAgentsInOneRepositoryShareOneWatch(t *testing.T) {
 }
 
 func TestClosingAnAgentDropsItsRepository(t *testing.T) {
-	p := newPRApp(t)
-	one := p.prRepo(t, "one", "feat", "https://github.com/o/r.git")
-	two := p.prRepo(t, "two", "feat", "git@github.com:o/s.git")
+	t.Parallel()
+
+	p := newFakePRApp(t)
+	one := p.prRepo(t, "one", "feat", "https://github.com/o/r.git").Root()
+	two := p.prRepo(t, "two", "feat", "git@github.com:o/s.git").Root()
 
 	first := p.addAgent(t, false, one)
 	second := p.addAgent(t, false, two)
@@ -265,8 +273,10 @@ func TestClosingAnAgentDropsItsRepository(t *testing.T) {
 }
 
 func TestFocusedShellRepositoryIsWatched(t *testing.T) {
-	p := newPRApp(t)
-	dir := p.prRepo(t, "proj", "feat", "https://github.com/o/r.git")
+	t.Parallel()
+
+	p := newFakePRApp(t)
+	dir := p.prRepo(t, "proj", "feat", "https://github.com/o/r.git").Root()
 
 	openIn(t, p.App, core.NewTab{Kind: core.KindShell, Cwd: dir})
 	p.churn(t, p.settle())
@@ -298,8 +308,8 @@ func repoAt(name string) github.Repo { return github.Repo{Host: "github.com", Ow
 func (p *prApp) followRepos(t *testing.T) (agent core.PaneID, dirB string) {
 	t.Helper()
 
-	dirA := p.prRepo(t, "a", "feat-a", "https://github.com/o/a.git")
-	dirB = p.prRepo(t, "b", "feat-b", "https://github.com/o/b.git")
+	dirA := p.prRepo(t, "a", "feat-a", "https://github.com/o/a.git").Root()
+	dirB = p.prRepo(t, "b", "feat-b", "https://github.com/o/b.git").Root()
 
 	agent = p.addAgent(t, false, dirA)
 	p.churn(t, p.settle())
@@ -317,7 +327,9 @@ func (p *prApp) editRepo(t *testing.T, agent core.PaneID, dir string) {
 }
 
 func TestPollerWatchesFollowedRepository(t *testing.T) {
-	p := newPRApp(t)
+	t.Parallel()
+
+	p := newFakePRApp(t)
 	agent, dirB := p.followRepos(t)
 
 	if got, want := p.src.last(), []github.Watch{{Repo: repoAt("a")}}; !reflect.DeepEqual(got, want) {
@@ -338,7 +350,9 @@ func TestPollerWatchesFollowedRepository(t *testing.T) {
 }
 
 func TestSnapshotDispatchesTheRepositoryPRs(t *testing.T) {
-	p := newPRApp(t)
+	t.Parallel()
+
+	p := newFakePRApp(t)
 	updated := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
 
 	pr := github.PR{
@@ -366,7 +380,9 @@ func TestSnapshotDispatchesTheRepositoryPRs(t *testing.T) {
 }
 
 func TestIdenticalPollsDispatchNothing(t *testing.T) {
-	p := newPRApp(t)
+	t.Parallel()
+
+	p := newFakePRApp(t)
 
 	p.step(snapshotOf(openPRIn(1, "a")))
 
@@ -384,7 +400,9 @@ func errSnapshot(err error) prSnapshotMsg {
 }
 
 func TestPollErrorIsShownOnce(t *testing.T) {
-	p := newPRApp(t)
+	t.Parallel()
+
+	p := newFakePRApp(t)
 	p.step(snapshotOf(openPRIn(1, "a")))
 
 	boom := errors.New("boom")
@@ -431,7 +449,9 @@ func TestPollErrorIsShownOnce(t *testing.T) {
 }
 
 func TestMissingTokenShowsTheBackendsReason(t *testing.T) {
-	p := newPRApp(t)
+	t.Parallel()
+
+	p := newFakePRApp(t)
 
 	noToken := fmt.Errorf("github: client for github.com: %w",
 		fmt.Errorf("%w for github.com: run gh auth login --hostname github.com", github.ErrNoToken))
@@ -444,7 +464,9 @@ func TestMissingTokenShowsTheBackendsReason(t *testing.T) {
 }
 
 func TestPollErrorReasonIsOneCleanLine(t *testing.T) {
-	p := newPRApp(t)
+	t.Parallel()
+
+	p := newFakePRApp(t)
 
 	p.step(errSnapshot(errors.New("bad\x1b[31m\nreply")))
 
@@ -454,6 +476,8 @@ func TestPollErrorReasonIsOneCleanLine(t *testing.T) {
 }
 
 func TestRepositoriesThatAreNotOnGitHubAreSilent(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		url  string // "" for no remote
@@ -466,13 +490,15 @@ func TestRepositoriesThatAreNotOnGitHubAreSilent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := newPRApp(t)
+			t.Parallel()
+
+			p := newFakePRApp(t)
 
 			var dir string
 			if tt.mk != nil {
 				dir = tt.mk(t, p)
 			} else {
-				dir = p.prRepo(t, "proj", "feat", tt.url)
+				dir = p.prRepo(t, "proj", "feat", tt.url).Root()
 			}
 
 			p.addAgent(t, false, dir)
@@ -494,8 +520,10 @@ func TestRepositoriesThatAreNotOnGitHubAreSilent(t *testing.T) {
 }
 
 func TestBranchLookupFollowsTheOpenPRLeavingTheList(t *testing.T) {
-	p := newPRApp(t)
-	dir := p.prRepo(t, "proj", "feat", "https://github.com/o/r.git")
+	t.Parallel()
+
+	p := newFakePRApp(t)
+	dir := p.prRepo(t, "proj", "feat", "https://github.com/o/r.git").Root()
 	p.addAgent(t, false, dir)
 	p.churn(t, p.settle())
 
@@ -544,8 +572,10 @@ func TestBranchLookupFollowsTheOpenPRLeavingTheList(t *testing.T) {
 }
 
 func TestBranchWithNoPRRecordsNothing(t *testing.T) {
-	p := newPRApp(t)
-	dir := p.prRepo(t, "proj", "feat", "https://github.com/o/r.git")
+	t.Parallel()
+
+	p := newFakePRApp(t)
+	dir := p.prRepo(t, "proj", "feat", "https://github.com/o/r.git").Root()
 	p.addAgent(t, false, dir)
 	p.churn(t, p.settle())
 
@@ -562,8 +592,10 @@ func TestBranchWithNoPRRecordsNothing(t *testing.T) {
 
 // A lookup that reads open is no poll: open PRs come only from the poll's list.
 func TestLookupFindingAnOpenPRRecordsNothing(t *testing.T) {
-	p := newPRApp(t)
-	dir := p.prRepo(t, "proj", "feat", "https://github.com/o/r.git")
+	t.Parallel()
+
+	p := newFakePRApp(t)
+	dir := p.prRepo(t, "proj", "feat", "https://github.com/o/r.git").Root()
 	p.addAgent(t, false, dir)
 	p.churn(t, p.settle())
 
@@ -618,10 +650,12 @@ func TestLookupFindingAnOpenPRRecordsNothing(t *testing.T) {
 }
 
 func TestNewBranchOfAPolledRepositoryIsLookedUpWhenSeen(t *testing.T) {
-	p := newPRApp(t)
-	dir := p.prRepo(t, "proj", "feat-a", "https://github.com/o/r.git")
-	wt := filepath.Join(t.TempDir(), "wt")
-	gitIn(t, p.real, dir, "worktree", "add", "-q", "-b", "feat-b", wt)
+	t.Parallel()
+
+	p := newFakePRApp(t)
+	rp := p.prRepo(t, "proj", "feat-a", "https://github.com/o/r.git")
+	dir := rp.Root()
+	wt := rp.worktree(t, filepath.Join(t.TempDir(), "wt"), "feat-b").Root()
 
 	p.addAgent(t, false, dir)
 	p.churn(t, p.settle())
@@ -641,8 +675,10 @@ func TestNewBranchOfAPolledRepositoryIsLookedUpWhenSeen(t *testing.T) {
 }
 
 func TestLookupFailureIsAskedAgainAtTheNextPoll(t *testing.T) {
-	p := newPRApp(t)
-	dir := p.prRepo(t, "proj", "feat", "https://github.com/o/r.git")
+	t.Parallel()
+
+	p := newFakePRApp(t)
+	dir := p.prRepo(t, "proj", "feat", "https://github.com/o/r.git").Root()
 	p.addAgent(t, false, dir)
 	p.churn(t, p.settle())
 
@@ -674,8 +710,10 @@ func TestLookupFailureIsAskedAgainAtTheNextPoll(t *testing.T) {
 }
 
 func TestResolutionRunsOncePerBranchAndRemote(t *testing.T) {
-	p := newPRApp(t)
-	dir := p.prRepo(t, "proj", "feat", "https://github.com/o/r.git")
+	t.Parallel()
+
+	p := newFakePRApp(t)
+	dir := p.prRepo(t, "proj", "feat", "https://github.com/o/r.git").Root()
 
 	// Two panes in one worktree resolve the same remote once between them.
 	p.addAgent(t, false, dir)
@@ -703,9 +741,11 @@ func TestResolutionRunsOncePerBranchAndRemote(t *testing.T) {
 }
 
 func TestResolutionFollowsABranchSwitch(t *testing.T) {
-	p := newPRApp(t)
-	dir := p.prRepo(t, "proj", "feat", "https://github.com/o/r.git")
-	id := p.addAgent(t, false, dir)
+	t.Parallel()
+
+	p := newFakePRApp(t)
+	rp := p.prRepo(t, "proj", "feat", "https://github.com/o/r.git")
+	id := p.addAgent(t, false, rp.Root())
 	p.churn(t, p.settle())
 	p.churn(t, p.step(snapshotOf(openPRIn(5, "feat"), openPRIn(6, "next"))))
 
@@ -713,7 +753,8 @@ func TestResolutionFollowsABranchSwitch(t *testing.T) {
 		t.Fatalf("watches = %+v, want PR 5 visible", got)
 	}
 
-	gitIn(t, p.real, dir, "checkout", "-q", "-b", "next")
+	rp.branch("next")
+
 	p.rail.panes[id].head.force = true
 	p.churn(t, p.railFire(p.store.State(), id, probeHead))
 
@@ -723,8 +764,10 @@ func TestResolutionFollowsABranchSwitch(t *testing.T) {
 }
 
 func TestFailedResolutionIsTriedAgainAtTheNextHeadProbe(t *testing.T) {
-	p := newPRApp(t)
-	dir := p.prRepo(t, "proj", "feat", "https://github.com/o/r.git")
+	t.Parallel()
+
+	p := newFakePRApp(t)
+	dir := p.prRepo(t, "proj", "feat", "https://github.com/o/r.git").Root()
 
 	var calls atomic.Int32
 
@@ -762,8 +805,10 @@ func TestFailedResolutionIsTriedAgainAtTheNextHeadProbe(t *testing.T) {
 
 // An answer that ended with the app's context is neither news nor a failure to retry.
 func TestCancelledAnswersAreNoFailure(t *testing.T) {
-	p := newPRApp(t)
-	dir := p.prRepo(t, "proj", "feat", "https://github.com/o/r.git")
+	t.Parallel()
+
+	p := newFakePRApp(t)
+	dir := p.prRepo(t, "proj", "feat", "https://github.com/o/r.git").Root()
 	id := p.addAgent(t, false, dir)
 	p.churn(t, p.settle())
 
@@ -803,8 +848,10 @@ func TestCancelledAnswersAreNoFailure(t *testing.T) {
 }
 
 func TestAnswerForAnotherBranchIsDropped(t *testing.T) {
-	p := newPRApp(t)
-	dir := p.prRepo(t, "proj", "feat", "https://github.com/o/r.git")
+	t.Parallel()
+
+	p := newFakePRApp(t)
+	dir := p.prRepo(t, "proj", "feat", "https://github.com/o/r.git").Root()
 	id := p.addAgent(t, false, dir)
 	p.churn(t, p.settle())
 
@@ -820,8 +867,12 @@ func TestAnswerForAnotherBranchIsDropped(t *testing.T) {
 }
 
 func TestPollerAndResolverEndWithTheApp(t *testing.T) {
+	t.Parallel()
+
 	t.Run("waiting for a snapshot", func(t *testing.T) {
-		p := newPRApp(t)
+		t.Parallel()
+
+		p := newFakePRApp(t)
 		p.src.ch = make(chan github.Snapshot)
 
 		done := make(chan tea.Msg, 1)
@@ -831,7 +882,7 @@ func TestPollerAndResolverEndWithTheApp(t *testing.T) {
 		select {
 		case m := <-done:
 			t.Fatalf("waitPRs returned %v before anything arrived", m)
-		case <-time.After(50 * time.Millisecond):
+		default:
 		}
 
 		closeApp(t, p.App)
@@ -847,7 +898,9 @@ func TestPollerAndResolverEndWithTheApp(t *testing.T) {
 	})
 
 	t.Run("a snapshot is delivered", func(t *testing.T) {
-		p := newPRApp(t)
+		t.Parallel()
+
+		p := newFakePRApp(t)
 		p.src.ch = make(chan github.Snapshot, 1)
 
 		p.src.ch <- github.Snapshot{Repo: prRepo}
@@ -858,7 +911,9 @@ func TestPollerAndResolverEndWithTheApp(t *testing.T) {
 	})
 
 	t.Run("a closed channel ends the wait", func(t *testing.T) {
-		p := newPRApp(t)
+		t.Parallel()
+
+		p := newFakePRApp(t)
 
 		if m := p.waitPRs()(); m != nil {
 			t.Errorf("waitPRs returned %v from a closed channel, want nothing", m)
@@ -866,7 +921,9 @@ func TestPollerAndResolverEndWithTheApp(t *testing.T) {
 	})
 
 	t.Run("resolving", func(t *testing.T) {
-		p := newPRApp(t)
+		t.Parallel()
+
+		p := newFakePRApp(t)
 		p.prs.resolve = func(ctx context.Context, _, _ string) (github.Repo, error) {
 			<-ctx.Done()
 
@@ -881,7 +938,7 @@ func TestPollerAndResolverEndWithTheApp(t *testing.T) {
 		select {
 		case m := <-done:
 			t.Fatalf("the resolution returned %v before the app closed", m)
-		case <-time.After(50 * time.Millisecond):
+		default:
 		}
 
 		closeApp(t, p.App)
@@ -897,7 +954,9 @@ func TestPollerAndResolverEndWithTheApp(t *testing.T) {
 	})
 
 	t.Run("looking up", func(t *testing.T) {
-		p := newPRApp(t)
+		t.Parallel()
+
+		p := newFakePRApp(t)
 		p.prs.lookup = func(ctx context.Context, _ github.Repo, _ string) (github.PR, error) {
 			<-ctx.Done()
 
@@ -923,8 +982,10 @@ func TestPollerAndResolverEndWithTheApp(t *testing.T) {
 }
 
 func TestNoSourceMeansNoPRWork(t *testing.T) {
-	r := newRealRailApp(t, false)
-	dir := r.prRepo(t, "proj", "feat", "https://github.com/o/r.git")
+	t.Parallel()
+
+	r := newRailApp(t, false)
+	dir := r.prRepo(t, "proj", "feat", "https://github.com/o/r.git").Root()
 	r.addAgent(t, false, dir)
 	r.churn(t, r.settle())
 
@@ -938,7 +999,9 @@ func TestNoSourceMeansNoPRWork(t *testing.T) {
 }
 
 func TestSnapshotKeepsTheRepositoryDetails(t *testing.T) {
-	p := newPRApp(t)
+	t.Parallel()
+
+	p := newFakePRApp(t)
 	done := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
 
 	snap := snapshotOf(github.PR{Number: 12, HeadBranch: "feat", State: "OPEN", ViewerAuthored: true})

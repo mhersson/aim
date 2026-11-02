@@ -56,27 +56,6 @@ func (r *railApp) trees(t *testing.T) agentTrees {
 	return newAgentTrees(t, r.fake)
 }
 
-// realRepo makes a repository named name on the real git with one commit and one edit.
-func (r *railApp) realRepo(t *testing.T, name string) string {
-	t.Helper()
-
-	dir := filepath.Join(t.TempDir(), name)
-	if err := os.Mkdir(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	gitIn(t, r.real, dir, "init", "-q", "-b", "main")
-	write(t, filepath.Join(dir, "a.txt"), "one\n")
-	gitIn(t, r.real, dir, "add", ".")
-	gitIn(t, r.real, dir, "commit", "-q", "-m", "init")
-	write(t, filepath.Join(dir, "a.txt"), "one\ntwo\n")
-
-	// The setup's own git calls are not the probes' business.
-	_ = os.Remove(r.log)
-
-	return dir
-}
-
 func write(t *testing.T, path, s string) {
 	t.Helper()
 

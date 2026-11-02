@@ -2,7 +2,6 @@ package ui
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -113,22 +112,6 @@ func marksRepo(t *testing.T) *fakeRepo {
 }
 
 // commonOf is the key the marks of dir's repository are kept under.
-func commonOf(t *testing.T, dir string) string {
-	t.Helper()
-
-	repo, err := git.Open(context.Background(), dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	c, err := filepath.EvalSymlinks(repo.CommonDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	return c
-}
-
 func (v *reviewView) countRows(kind reviewRowKind) int {
 	n := 0
 
@@ -532,13 +515,14 @@ func TestReviewMarksAcrossWorktrees(t *testing.T) {
 func TestReviewMarksInPRMode(t *testing.T) {
 	t.Parallel()
 
-	dir := prFeatureRepo(t)
+	f := newFakeGit(t)
+	rp := prFeatureRepo(t, f)
 	fm := &fakeMarks{}
-	r := newPRDrawerOn(t, dir, withMarks(fm))
+	r := newPRDrawerOn(t, f, rp, withMarks(fm))
 
 	// The mark is for the pull request's a.txt hunk, which the branch drawer does not show.
 	a := git.Hunk{Lines: []git.Line{{Kind: git.Del, Text: "a"}, {Kind: git.Add, Text: "a changed"}}}
-	fm.set(commonOf(t, dir), git.HunkID("a.txt", a), marksToday)
+	fm.set(rp.Repo().CommonDir, git.HunkID("a.txt", a), marksToday)
 
 	r.poll()
 	r.opened(t)

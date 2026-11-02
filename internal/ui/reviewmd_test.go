@@ -821,14 +821,16 @@ func TestReviewMarkdownLateRead(t *testing.T) {
 func TestReviewMarkdownLateAfterP(t *testing.T) {
 	t.Parallel()
 
-	dir := newRepoDir(t)
+	f := newFakeGit(t)
+	rp := f.repo(t, "")
+	dir := rp.Root()
 	write(t, filepath.Join(dir, "a.txt"), "a\n")
 	write(t, filepath.Join(dir, planPath), planWith(nil))
-	commitEverything(t, dir, "init")
+	rp.commit("init")
 	write(t, filepath.Join(dir, "a.txt"), "a changed\n")
-	commitEverything(t, dir, "feature work")
+	rp.commit("feature work")
 
-	r := newPRDrawerOn(t, dir)
+	r := newPRDrawerOn(t, f, prScaffold(t, rp))
 	r.poll()
 
 	// The plan is edited in the working tree, which branch mode shows.

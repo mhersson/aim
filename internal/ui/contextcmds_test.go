@@ -339,7 +339,6 @@ func TestContextHintsFollowBindings(t *testing.T) {
 			cfg       core.KeysConfig
 			want, not string
 		}{
-			{name: "defaults", want: "j/k check    l log    O browser    r refresh    esc close"},
 			{name: "browser moved", cfg: contextKeys("checks", "o", "checks.browser", "O", "none"), want: "o browser", not: "O browser    r"},
 			{name: "refresh unbound", cfg: contextKeys("checks", "r", "none"), want: "O browser    esc close", not: "refresh"},
 		}

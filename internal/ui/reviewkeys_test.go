@@ -376,13 +376,15 @@ func TestSearchMatchKeys(t *testing.T) {
 			return r, v
 		}},
 		{"pr", func(t *testing.T) (*drawerRig, *reviewView) {
-			dir := newRepoDir(t)
+			f := newFakeGit(t)
+			rp := f.repo(t, "")
+			dir := rp.Root()
 			matchFiles(t, dir, numberedLines("line", 40))
-			commitEverything(t, dir, "init")
+			rp.commit("init")
 			matchFiles(t, dir, editedLines(40, 3, 30))
-			commitEverything(t, dir, "feature work")
+			rp.commit("feature work")
 
-			p := newPRDrawerOn(t, dir)
+			p := newPRDrawerOn(t, f, prScaffold(t, rp))
 			p.poll()
 			p.opened(t)
 			p.typed("p")

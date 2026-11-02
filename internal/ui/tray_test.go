@@ -365,7 +365,9 @@ func TestTrayPRModuleFollowsTheFocus(t *testing.T) {
 }
 
 func TestTrayShowsFollowedPR(t *testing.T) {
-	p := newPRApp(t)
+	t.Parallel()
+
+	p := newFakePRApp(t)
 	agent, dirB := p.followRepos(t)
 
 	p.churn(t, p.step(snapshotOfRepo(repoAt("a"), openPRIn(3, "feat-a"))))

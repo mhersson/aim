@@ -41,14 +41,14 @@ type cleanupRig struct {
 func newCleanupRig(t *testing.T, before ...func(*testing.T, *cleanupRig)) *cleanupRig {
 	t.Helper()
 
-	main := prFeatureRepo(t)
+	main := realPRFeatureRepo(t)
 	wt := filepath.Join(main, ".worktrees", "feat-x")
 
 	// The branch is made inside the worktree, so the main checkout stays on main.
 	gitIn(t, "git", main, "worktree", "add", "-q", "--detach", wt)
 
 	wt = rootOf(t, wt)
-	r := &cleanupRig{prDrawer: newPRDrawerOn(t, wt), main: main, wt: wt, f: &fakeActions{}}
+	r := &cleanupRig{prDrawer: newRealPRDrawerOn(t, wt), main: main, wt: wt, f: &fakeActions{}}
 	r.actions = r.f
 
 	// The branch sits at the pull request's head, as it does once the work is pushed and merged.

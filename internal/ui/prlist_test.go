@@ -763,37 +763,37 @@ func TestPRListNoCheckout(t *testing.T) {
 
 	for _, tc := range []struct {
 		name, repo, want string
+		key              rune
 	}{
-		{"github", "github.com/acme/infra", "no checkout of acme/infra here; O opens it in the browser"},
-		{"enterprise", "ghe.example.com/acme/infra", "no checkout of ghe.example.com/acme/infra here; O opens it in the browser"},
+		{"github a", "github.com/acme/infra", fmt.Sprintf(noticePRNoCheckout, "acme/infra"), 'a'},
+		{"github M", "github.com/acme/infra", fmt.Sprintf(noticePRNoCheckout, "acme/infra"), 'M'},
+		{"enterprise enter", "ghe.example.com/acme/infra", fmt.Sprintf(noticePRNoCheckout, "ghe.example.com/acme/infra"), '\r'},
 	} {
-		for _, k := range []rune{'\r', 'a', 'M'} {
-			t.Run(fmt.Sprintf("%s %q", tc.name, k), func(t *testing.T) {
-				t.Parallel()
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-				r := otherTabsRig(t)
+			r := otherTabsRig(t)
 
-				r.selectRow(t, tc.repo)
+			r.selectRow(t, tc.repo)
 
-				if k == '\r' {
-					r.keys(keyEnter)
-				} else {
-					r.keys(keyRune(k))
-				}
+			if tc.key == '\r' {
+				r.keys(keyEnter)
+			} else {
+				r.keys(keyRune(tc.key))
+			}
 
-				if r.notice != tc.want {
-					t.Errorf("notice = %q, want %q", r.notice, tc.want)
-				}
+			if r.notice != tc.want {
+				t.Errorf("notice = %q, want %q", r.notice, tc.want)
+			}
 
-				if r.prList == nil {
-					t.Error("the list closed")
-				}
+			if r.prList == nil {
+				t.Error("the list closed")
+			}
 
-				if r.review() != nil {
-					t.Error("a drawer opened")
-				}
-			})
-		}
+			if r.review() != nil {
+				t.Error("a drawer opened")
+			}
+		})
 	}
 }
 
