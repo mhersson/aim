@@ -217,6 +217,23 @@ func TestJobLogStorageNotFound(t *testing.T) {
 	}
 }
 
+// The storage host never gets the token, so its 401 says nothing about it.
+func TestJobLogStorageRefusalKeepsTheToken(t *testing.T) {
+	t.Parallel()
+
+	c, _ := logClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "no", http.StatusUnauthorized)
+	})
+
+	if _, _, err := c.JobLog(context.Background(), logRepo, 51234987); err == nil {
+		t.Fatal("want an error")
+	}
+
+	if c.TokenRefused() {
+		t.Error("a 401 from the storage host marked the token refused")
+	}
+}
+
 func TestJobLogSkipsETags(t *testing.T) {
 	t.Parallel()
 

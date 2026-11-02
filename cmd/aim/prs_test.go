@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -128,6 +129,130 @@ func TestPRLookupDoesNotCacheAFailedClient(t *testing.T) {
 
 	if n := built.Load(); n != 2 {
 		t.Errorf("the factory ran %d times, want 2: a failure is not kept", n)
+	}
+}
+
+// answering is a transport that answers every request with status.
+type answering struct {
+	status   int
+	requests atomic.Int32
+}
+
+func (a *answering) RoundTrip(r *http.Request) (*http.Response, error) {
+	a.requests.Add(1)
+
+	return &http.Response{
+		StatusCode: a.status, Header: http.Header{"Content-Type": {"application/json"}},
+		Body: io.NopCloser(strings.NewReader(`{"message":"Bad credentials"}`)), Request: r,
+	}, nil
+}
+
+func TestClientCacheRebuildsAClientItsHostRefused(t *testing.T) {
+	t.Parallel()
+
+	other := github.Repo{Host: "ghe.example.com", Owner: "o", Name: "r"}
+
+	tests := []struct {
+		name   string
+		status int
+		builds int
+	}{
+		{"a 401 rebuilds it", http.StatusUnauthorized, 2},
+		{"a 403 keeps it", http.StatusForbidden, 1},
+		{"a 500 keeps it", http.StatusInternalServerError, 1},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var (
+				mu     sync.Mutex
+				builds = map[string]int{}
+				net    offline
+			)
+
+			first := &answering{status: tc.status}
+
+			p := startPRs(func(_ context.Context, host string) (*github.Client, error) {
+				mu.Lock()
+				builds[host]++
+				mu.Unlock()
+
+				rt := http.RoundTripper(&net)
+				if host == testRepo.Host {
+					rt = first
+				}
+
+				return github.NewClient(host, github.Options{Token: "test-token", Transport: rt})
+			})
+
+			t.Cleanup(func() { _ = p.Close() })
+
+			for range 2 {
+				for _, r := range []github.Repo{testRepo, other} {
+					if _, err := p.lookup(t.Context(), r, "feat"); err == nil {
+						t.Fatalf("lookup(%s) succeeded, want the transport's error", r)
+					}
+				}
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+
+			if n := builds[testRepo.Host]; n != tc.builds {
+				t.Errorf("%s's client was built %d times after a %d, want %d", testRepo.Host, n, tc.status, tc.builds)
+			}
+
+			if n := builds[other.Host]; n != 1 {
+				t.Errorf("%s's client was built %d times, want it kept", other.Host, n)
+			}
+		})
+	}
+}
+
+func TestPollerRebuildsARefusedClientThroughTheCache(t *testing.T) {
+	t.Parallel()
+
+	var built atomic.Int32
+
+	refusing := &answering{status: http.StatusUnauthorized}
+
+	p := startPRs(func(_ context.Context, host string) (*github.Client, error) {
+		built.Add(1)
+
+		return github.NewClient(host, github.Options{Token: "test-token", Transport: refusing})
+	})
+
+	t.Cleanup(func() { _ = p.Close() })
+
+	next := func() github.Snapshot {
+		t.Helper()
+
+		select {
+		case s := <-p.poller.Updates():
+			return s
+		case <-time.After(5 * time.Second):
+			t.Fatal("no poll")
+		}
+
+		return github.Snapshot{}
+	}
+
+	p.poller.Set([]github.Watch{{Repo: testRepo}})
+
+	if s := next(); s.Err == nil {
+		t.Fatal("a refused poll has no error")
+	}
+
+	p.poller.Refresh(testRepo)
+
+	if s := next(); s.Err == nil {
+		t.Fatal("a refused poll has no error")
+	}
+
+	if n := built.Load(); n != 2 {
+		t.Errorf("the factory built %d clients, want a new one for the poll after the 401", n)
 	}
 }
 

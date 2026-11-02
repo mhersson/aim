@@ -38,6 +38,7 @@ type PRChecks struct {
 	Number  int
 	HeadOID string
 	Checks  []CheckInfo
+	Err     string // why the checks could not be read; Checks is then empty
 }
 
 // RepoPRs is what is known of one repository's pull requests. State copies

@@ -490,7 +490,12 @@ func focusedChecksOf(f *github.FocusedChecks) *core.PRChecks {
 		}
 	}
 
-	return &core.PRChecks{Number: f.Number, HeadOID: f.HeadOID, Checks: checks}
+	out := &core.PRChecks{Number: f.Number, HeadOID: f.HeadOID, Checks: checks}
+	if f.Err != nil {
+		out.Err = prReason(f.Err)
+	}
+
+	return out
 }
 
 // prLookupCmd looks up the pull request of a branch that the poll in st lists no

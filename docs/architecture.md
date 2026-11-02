@@ -285,10 +285,12 @@ the followed place back, and one after a session change records nothing.
 ## GitHub
 
 - **Auth** (`internal/github/token.go`): go-gh's environment and config, else
-  `gh auth token --secure-storage`, one client per host. Without a token the
-  GitHub features are off and the rest works. Errors never hold a token, and
-  git's and the API's errors have their URLs removed, since a URL may carry
-  credentials.
+  `gh auth token --secure-storage`, one client per host. A client whose token
+  the host answers with a 401 is built again at the next call, which reads the
+  token anew (`Client.TokenRefused`), so a new login needs no restart. Without
+  a token the GitHub features are off and the rest works. Errors never hold a
+  token, and git's and the API's errors have their URLs removed, since a URL
+  may carry credentials.
 - **Repositories.** The remote URL names the repository, ssh aliases mapped
   through `ssh -G` (`internal/github/repo.go`). Only watched repositories are
   polled: each agent's followed place, the focused shell's, and whatever the
@@ -299,7 +301,9 @@ the followed place back, and one after a session change records nothing.
   GraphQL has no conditional requests and a `304` costs no rate limit. Polls
   come every 10 s while a shown pull request has pending checks, else every
   60 s; a rate limit waits for its reset, other errors back off to 5 min. A
-  failed poll keeps the last good data on show.
+  failed poll keeps the last good data on show. Focused checks that cannot be
+  read fail only themselves: the poll keeps its pull requests, and a rate limit
+  there still waits for its reset.
 - **Approve and merge are pinned to the reviewed head.** Both send `Result.Head`
   of the diff the drawer loaded, never the poll's head (`internal/ui/reviewpr.go`),
   and every route to them (drawer, `leader g m`, the list) loads that diff

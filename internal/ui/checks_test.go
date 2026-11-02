@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -280,6 +281,39 @@ func TestChecksNone(t *testing.T) {
 
 	if text := ansi.Strip(r.View().Content); !strings.Contains(text, "no checks on a1b2c3d") {
 		t.Errorf("the overlay lacks the empty line:\n%s", text)
+	}
+}
+
+func TestChecksUnreadable(t *testing.T) {
+	t.Parallel()
+
+	r, _ := inChecks(t)
+
+	refused := snapshotWithChecks("a1b2c3d4e5f6", "a1b2c3d4e5f6", 7)
+	refused.Focused.Err = errors.New("github: GET repos/o/r/commits/a1b2c3d4e5f6/check-runs: HTTP 403: Resource not accessible by personal access token")
+	r.run(r.step(refused))
+
+	text := ansi.Strip(r.View().Content)
+	for _, want := range []string{"could not read the checks", "token"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the overlay lacks %q:\n%s", want, text)
+		}
+	}
+
+	for _, not := range []string{noticeChecksLoading, "no checks on"} {
+		if strings.Contains(text, not) {
+			t.Errorf("the overlay shows %q for unreadable checks:\n%s", not, text)
+		}
+	}
+
+	if got := r.store.State().PRs[prRepoKey]; got.Err != "" || len(got.Open) != 1 {
+		t.Errorf("repository = %+v, want the poll kept without an error", got)
+	}
+
+	r.run(r.step(snapshotWithChecks("a1b2c3d4e5f6", "a1b2c3d4e5f6", 7, sampleChecks()...)))
+
+	if text := ansi.Strip(r.View().Content); !strings.Contains(text, "lint") || strings.Contains(text, "could not read the checks") {
+		t.Errorf("a poll that read the checks does not show them:\n%s", text)
 	}
 }
 
