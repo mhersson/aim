@@ -187,6 +187,8 @@ func TestFill(t *testing.T) {
 		{"one commit", "feat-x", one, "", Draft{"add rail", "why it exists"}},
 		{"several commits", "feat-agents_rail", three, "", Draft{"Feat agents rail", "- a\n- b\n- c\n"}},
 		{"no commits", "fix-bug", nil, "", Draft{"Fix bug", ""}},
+		{"unicode first letter", "étude-un", nil, "", Draft{"Étude un", ""}},
+		{"empty branch", "", nil, "", Draft{}},
 		{"template beside one commit", "feat-x", one, "## Summary\n", Draft{"add rail", "## Summary\n"}},
 		{"template beside several commits", "feat-x", three, "tpl", Draft{"Feat x", "tpl"}},
 		{"blank template is none", "feat-x", one, " \n\t\n", Draft{"add rail", "why it exists"}},

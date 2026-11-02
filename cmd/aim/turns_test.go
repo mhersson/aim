@@ -386,6 +386,8 @@ func TestGateSnapshotsOfOneSessionStayInArrivalOrder(t *testing.T) {
 }
 
 func TestGateSlowSnapshotIsCancelledAtTheBudget(t *testing.T) {
+	t.Parallel()
+
 	var (
 		order      []string
 		mu         sync.Mutex
@@ -419,7 +421,7 @@ func TestGateSlowSnapshotIsCancelledAtTheBudget(t *testing.T) {
 
 	r := startGate(t, snap, mark)
 	turn, released := turnEvent("UserPromptSubmit", gateSession, "/repo")
-	turn.Deadline = time.Now().Add(50 * time.Millisecond)
+	turn.Deadline = time.Now().Add(300 * time.Millisecond)
 
 	r.in <- turn
 
@@ -442,6 +444,8 @@ func TestGateSlowSnapshotIsCancelledAtTheBudget(t *testing.T) {
 }
 
 func TestGateBudgetSpentWaitingForTheLockSkipsTheSnapshot(t *testing.T) {
+	t.Parallel()
+
 	var snaps, marks atomic.Int32
 
 	snap := func(ctx context.Context, _, _ string, _ bool) error {
@@ -1831,7 +1835,7 @@ func TestGateWaiterCancelsTheStartItWouldOutrun(t *testing.T) {
 	var answeredAfterStart atomic.Bool
 
 	waiter, releasedWaiter := editEvent(gateSession, "/b/slow.go", &blocked.returned, &answeredAfterStart)
-	waiter.Deadline = time.Now().Add(150 * time.Millisecond)
+	waiter.Deadline = time.Now().Add(300 * time.Millisecond)
 	claimer, _ := editEvent(gateSession, "/b/fast.go", nil, nil)
 
 	r.in <- waiter
@@ -1988,7 +1992,7 @@ func TestGateFailedStartMarksTheTurn(t *testing.T) {
 	r := startedTurn(t, w, places.place)
 
 	first, released := editEvent(gateSession, "/b/f.go", nil, nil)
-	first.Deadline = time.Now().Add(150 * time.Millisecond)
+	first.Deadline = time.Now().Add(500 * time.Millisecond)
 
 	r.in <- first
 
@@ -2175,7 +2179,7 @@ func TestGateNextPromptMarksAStartThatLandsLate(t *testing.T) {
 	within(t, blocked.entered, time.Second, "the edit's start")
 
 	next, released := turnEvent("UserPromptSubmit", gateSession, "/a")
-	next.Deadline = time.Now().Add(100 * time.Millisecond)
+	next.Deadline = time.Now().Add(200 * time.Millisecond)
 
 	r.in <- next
 

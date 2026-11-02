@@ -70,8 +70,6 @@ func lockFDCopy(t *testing.T, path string) int {
 }
 
 func TestLockUnlockReleasesWhileDescriptorCopyIsOpen(t *testing.T) {
-	t.Parallel()
-
 	dir := t.TempDir()
 	unlock, err := Lock(dir)
 	noErr(t, err)

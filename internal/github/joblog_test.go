@@ -78,6 +78,7 @@ func TestParseJobLogMarkers(t *testing.T) {
 	}{
 		{"##[error]Process completed with exit code 2.", LogError, "Error: Process completed with exit code 2."},
 		{"##[warning]Node 16 is old", LogWarning, "Warning: Node 16 is old"},
+		{"##[notice]Cache saved", LogNotice, "Notice: Cache saved"},
 		{"##[command]/usr/bin/git fetch", LogCommand, "/usr/bin/git fetch"},
 		{"##[debug]Evaluating: x", LogDebug, "Evaluating: x"},
 		{"x ##[error]not at the start", LogText, "x ##[error]not at the start"},
@@ -174,6 +175,7 @@ func TestParseJobLogColours(t *testing.T) {
 		{"256 high", "\x1b[38;5;196mx", []LogSpan{{"x", -1, false}}},
 		{"truecolour", "\x1b[38;2;1;2;3mx", []LogSpan{{"x", -1, false}}},
 		{"background 256 keeps fg", "\x1b[31;48;5;2mx", []LogSpan{{"x", 1, false}}},
+		{"not bold", "\x1b[1ma\x1b[22mb", []LogSpan{{"a", -1, true}, {"b", -1, false}}},
 		{"default colour", "\x1b[31ma\x1b[39mb", []LogSpan{{"a", 1, false}, {"b", -1, false}}},
 		{"empty resets", "\x1b[1;31ma\x1b[mb", []LogSpan{{"a", 1, true}, {"b", -1, false}}},
 		{"unterminated", "a\x1b[31", []LogSpan{{"a", -1, false}}},

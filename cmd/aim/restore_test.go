@@ -273,6 +273,13 @@ func (b *lockedBuffer) Write(p []byte) (int, error) {
 	return b.buf.Write(p)
 }
 
+func (b *lockedBuffer) contains(s string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return strings.Contains(b.buf.String(), s)
+}
+
 func (b *lockedBuffer) len() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -385,7 +392,7 @@ func TestRunSecondInstanceStartsFresh(t *testing.T) {
 
 	ownLog := filepath.Join(dir, "aim-"+strconv.Itoa(os.Getpid())+".log")
 
-	waitFor(t, func() bool { return exists(ownLog) && s.out.len() > 0 })
+	waitFor(t, func() bool { return exists(ownLog) && s.out.contains(noticeSecondInstance) })
 	// A split repaints the screen, so new output shows the key was handled (and would have been saved).
 	shown := s.out.len()
 	s.keys(t, "\x00v")
