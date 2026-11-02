@@ -525,7 +525,7 @@ func TestNewSessionDropsAHeldTurnKey(t *testing.T) {
 func newTurnRig(t *testing.T, opts ...func(*Options)) *followRig {
 	t.Helper()
 
-	r := newFollowRig(t, testSession, opts...)
+	r := newRealFollowRig(t, testSession, opts...)
 	snapshotTurn(t, r.dirA, testSession)
 	write(t, filepath.Join(r.dirA, "x.txt"), "after the turn\n")
 	r.addLines(t, filepath.Join(r.dirB, "a.txt"))
@@ -622,7 +622,7 @@ func TestOwnDirectoryMovedListsOnlyItsWorktreesTurns(t *testing.T) {
 // A session that moved worktrees keeps each turn with the worktree it began in.
 func TestPastTurnOfAMovedSessionStaysInItsWorktree(t *testing.T) {
 	t.Parallel()
-	r := newFollowRig(t, testSession, turnFirst)
+	r := newRealFollowRig(t, testSession, turnFirst)
 
 	const lineOfA = "only in worktree A"
 
@@ -759,7 +759,7 @@ func endTurn(t *testing.T, dir string, n int) {
 func newTwoTurnRig(t *testing.T, opts ...func(*Options)) *followRig {
 	t.Helper()
 
-	r := newFollowRig(t, testSession, opts...)
+	r := newRealFollowRig(t, testSession, opts...)
 
 	takeTurn(t, r.dirA, 1)
 	write(t, filepath.Join(r.dirA, "x.txt"), "turn one\n")
@@ -847,7 +847,7 @@ func TestTurnKeysInAWorktreeWithoutTurns(t *testing.T) {
 			return r, "no turns in " + filepath.Base(r.dirC) + " · other yet"
 		}},
 		{"the agent's own worktree", func(t *testing.T) (*followRig, string) {
-			r := newFollowRig(t, testSession, turnFirst)
+			r := newRealFollowRig(t, testSession, turnFirst)
 			r.open(t, r.id)
 
 			return r, "no turns yet"
@@ -957,7 +957,7 @@ func TestOpenDrawerInTurnModeWhereTurnsExist(t *testing.T) {
 
 func TestStepThroughAWorktreesTurns(t *testing.T) {
 	t.Parallel()
-	r := newFollowRig(t, testSession, turnFirst)
+	r := newRealFollowRig(t, testSession, turnFirst)
 
 	takeTurn(t, r.dirB, 1)
 	write(t, filepath.Join(r.dirB, "b1.txt"), "one\n")
@@ -1052,7 +1052,7 @@ func TestTurnModeWithoutAnOwnRepository(t *testing.T) {
 // A live load after the own directory moved off the shown root keeps updating
 // the turn. It waits for the watcher to go quiet (quiet), so it stays serial.
 func TestLiveLoadAfterOwnDirectoryMovedKeepsTheTurn(t *testing.T) {
-	r := newFollowRig(t, testSession, turnFirst)
+	r := newRealFollowRig(t, testSession, turnFirst)
 
 	// The turn's start holds m.txt changed. Since then m.txt is back to its
 	// committed text and n.txt is changed, so the turn shows both files.

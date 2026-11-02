@@ -407,7 +407,7 @@ func (r *followRig) listShape() []string {
 func TestWorktreeListSelectsShown(t *testing.T) {
 	t.Parallel()
 	t.Run("following", func(t *testing.T) {
-		r := newFollowRig(t, "")
+		r := newRealFollowRig(t, "")
 		r.open(t, r.id)
 		r.followC(t)
 
@@ -417,7 +417,7 @@ func TestWorktreeListSelectsShown(t *testing.T) {
 	})
 
 	t.Run("pinned", func(t *testing.T) {
-		r := newFollowRig(t, "")
+		r := newRealFollowRig(t, "")
 		r.open(t, r.id)
 		r.followC(t)
 		r.pinTo(t, r.rootB)
@@ -434,7 +434,7 @@ func TestWorktreeListSelectsShown(t *testing.T) {
 func TestFollowRigEndsItsProbesBeforeItsDirsGo(t *testing.T) {
 	t.Parallel()
 	watch := probesEndFirst(t)
-	r := newFollowRig(t, "")
+	r := newRealFollowRig(t, "")
 	watch(r.App)
 
 	r.open(t, r.id)
@@ -446,7 +446,7 @@ func TestFollowRigEndsItsProbesBeforeItsDirsGo(t *testing.T) {
 // worktree's row.
 func TestWorktreeListSelectsPinnedThroughSymlink(t *testing.T) {
 	t.Parallel()
-	r := newFollowRig(t, "")
+	r := newRealFollowRig(t, "")
 	r.open(t, r.id)
 
 	link := filepath.Join(t.TempDir(), "b-link")
@@ -466,7 +466,7 @@ func TestWorktreeListSelectsPinnedThroughSymlink(t *testing.T) {
 // does not read "on" while the pin holds.
 func TestWorktreeListPinnedGone(t *testing.T) {
 	t.Parallel()
-	r := newFollowRig(t, "")
+	r := newRealFollowRig(t, "")
 	r.open(t, r.id)
 	r.pinTo(t, r.rootB)
 	r.until(t, "the drawer to show b", r.showing(r.rootB))
@@ -491,7 +491,7 @@ func TestWorktreeListPinnedGone(t *testing.T) {
 
 func TestWorktreeListPick(t *testing.T) {
 	t.Parallel()
-	r := newFollowRig(t, "")
+	r := newRealFollowRig(t, "")
 	r.open(t, r.id)
 	r.followC(t)
 
@@ -542,7 +542,7 @@ func TestWorktreeListPick(t *testing.T) {
 
 func TestWorktreeListKeys(t *testing.T) {
 	t.Parallel()
-	r := newFollowRig(t, "")
+	r := newRealFollowRig(t, "")
 	r.open(t, r.id)
 	r.followC(t)
 	r.openList(t)
@@ -577,7 +577,7 @@ func TestWorktreeListKeys(t *testing.T) {
 
 func TestWorktreeListEscChangesNothing(t *testing.T) {
 	t.Parallel()
-	r := newFollowRig(t, "")
+	r := newRealFollowRig(t, "")
 	r.open(t, r.id)
 	r.followC(t)
 	r.pinTo(t, r.rootB)
@@ -606,7 +606,7 @@ func TestWorktreeListEscChangesNothing(t *testing.T) {
 
 func TestWorktreeListRefreshKeepsSelection(t *testing.T) {
 	t.Parallel()
-	r := newFollowRig(t, "")
+	r := newRealFollowRig(t, "")
 	r.open(t, r.id)
 	r.followC(t)
 
@@ -626,7 +626,7 @@ func TestWorktreeListRefreshKeepsSelection(t *testing.T) {
 
 func TestWorktreeListDropsOtherKeys(t *testing.T) {
 	t.Parallel()
-	r := newFollowRig(t, "")
+	r := newRealFollowRig(t, "")
 	r.open(t, r.id)
 	r.followC(t)
 	l := r.openList(t)
@@ -658,7 +658,7 @@ func TestWorktreeListDropsOtherKeys(t *testing.T) {
 
 func TestWorktreeListLeaderStillWorks(t *testing.T) {
 	t.Parallel()
-	r := newFollowRig(t, "")
+	r := newRealFollowRig(t, "")
 	r.open(t, r.id)
 	r.followC(t)
 	l := r.openList(t)
@@ -685,7 +685,7 @@ func TestWorktreeListLeaderStillWorks(t *testing.T) {
 
 func TestWorktreeListFromThePalette(t *testing.T) {
 	t.Parallel()
-	r := newFollowRig(t, "")
+	r := newRealFollowRig(t, "")
 	r.open(t, r.id)
 
 	// The drawer's keyboard is somewhere else.
@@ -706,7 +706,7 @@ func TestWorktreeListFromThePalette(t *testing.T) {
 
 func TestWorktreeListNeedsADrawer(t *testing.T) {
 	t.Parallel()
-	r := newFollowRig(t, "")
+	r := newRealFollowRig(t, "")
 
 	r.keys(keyLeader, keyRune(':'))
 	r.typed("Review: worktrees")
@@ -743,7 +743,7 @@ func TestWorktreeListCloses(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := newFollowRig(t, "")
+			r := newRealFollowRig(t, "")
 			r.open(t, r.id)
 			r.followC(t)
 			l := r.openList(t)
@@ -803,7 +803,7 @@ func (r *followRig) collect(d time.Duration) []wtStatsMsg {
 }
 
 func TestWorktreeListStatsHoldProbeSlots(t *testing.T) {
-	r := newFollowRig(t, "")
+	r := newRealFollowRig(t, "")
 	r.open(t, r.id)
 	r.followC(t)
 	r.quiet()
@@ -839,7 +839,7 @@ func TestWorktreeListStatsHoldProbeSlots(t *testing.T) {
 }
 
 func TestWorktreeListCloseCancelsProbes(t *testing.T) {
-	r := newFollowRig(t, "")
+	r := newRealFollowRig(t, "")
 	r.open(t, r.id)
 	r.followC(t)
 	r.quiet()
@@ -868,7 +868,7 @@ func TestWorktreeListCloseCancelsProbes(t *testing.T) {
 }
 
 func TestWorktreeListRebuildInFlight(t *testing.T) {
-	r := newFollowRig(t, "")
+	r := newRealFollowRig(t, "")
 	r.open(t, r.id)
 	r.followC(t)
 	r.quiet()
@@ -917,7 +917,7 @@ func TestWorktreeListRebuildInFlight(t *testing.T) {
 
 func TestWorktreeListLastOpenWins(t *testing.T) {
 	t.Parallel()
-	r := newFollowRig(t, "")
+	r := newRealFollowRig(t, "")
 	r.open(t, r.id)
 	r.followC(t)
 

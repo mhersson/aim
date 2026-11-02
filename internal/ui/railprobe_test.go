@@ -53,24 +53,7 @@ func (r *railApp) repo(t *testing.T, name string) *fakeRepo {
 func (r *railApp) trees(t *testing.T) agentTrees {
 	t.Helper()
 
-	main := r.fake.repo(t, "")
-	write(t, filepath.Join(main.Root(), "a.txt"), "one\n")
-	write(t, filepath.Join(main.Root(), "b.txt"), "one\n")
-	main.commit("init")
-
-	parent, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	linked := main.worktree(t, filepath.Join(parent, "feat-wt"), "feat")
-
-	sub := filepath.Join(linked.Root(), "pkg")
-	if err := os.MkdirAll(sub, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	return agentTrees{main: main.Root(), linked: linked.Root(), sub: sub}
+	return newAgentTrees(t, r.fake)
 }
 
 // realRepo makes a repository named name on the real git with one commit and one edit.

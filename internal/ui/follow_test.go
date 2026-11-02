@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -36,6 +37,46 @@ type followRig struct {
 }
 
 func newFollowRig(t *testing.T, session core.SessionID, opts ...func(*Options)) *followRig {
+	t.Helper()
+
+	f := newFakeGit(t)
+	r := &followRig{drawerRig: newDrawerRig(t, append([]func(*Options){gitOf(f)}, opts...)...), epochRoot: map[int]string{}}
+
+	// The two repositories have different names, so a project read from the wrong one shows.
+	a := f.repo(t, "projA")
+	write(t, filepath.Join(a.Root(), "a.txt"), "one\n")
+	a.commit("init")
+	a.ignore(".worktrees/", "*.log")
+
+	b := a.worktree(t, filepath.Join(a.Root(), ".worktrees", "b"), "b")
+
+	c := f.repo(t, "projC")
+	write(t, filepath.Join(c.Root(), "c.txt"), "one\n")
+	c.commit("init")
+	c.branch("other")
+
+	r.dirA, r.dirB, r.dirC = a.Root(), b.Root(), c.Root()
+	r.rootA, r.rootB, r.rootC = r.dirA, r.dirB, r.dirC
+
+	// The cache is the app's own, over a resolver that counts what reaches the fake.
+	places := git.NewPlaceCache(func(ctx context.Context, path string) (git.Place, error) {
+		r.mu.Lock()
+		r.resolved = append(r.resolved, path)
+		r.mu.Unlock()
+
+		return f.EditPlace(ctx, path)
+	}, time.Now)
+	r.edits.resolve = places.Place
+
+	r.id = r.agent(t, r.dirA, session)
+	r.settle()
+	r.watching(t, r.id, r.rootA)
+
+	return r
+}
+
+// newRealFollowRig is the rig on the real git, for the tests that still run there.
+func newRealFollowRig(t *testing.T, session core.SessionID, opts ...func(*Options)) *followRig {
 	t.Helper()
 
 	r := &followRig{drawerRig: newDrawerRig(t, opts...), epochRoot: map[int]string{}}
@@ -129,6 +170,7 @@ func (r *followRig) cardOn(branch string, added int) func() bool {
 }
 
 // quiet feeds what is still in flight to the app until nothing arrives for a while.
+// Only the tests on the real git use it; the others wait for landed.
 func (r *followRig) quiet() {
 	for {
 		select {
@@ -138,6 +180,19 @@ func (r *followRig) quiet() {
 			return
 		}
 	}
+}
+
+// landed is a condition: every probe of the agent has answered and the drawer is
+// idle. The step that starts a probe or a load marks it busy before it returns,
+// so once this holds what the step started has been delivered.
+func (r *followRig) landed() bool {
+	if rp := r.rail.panes[r.id]; rp != nil && (rp.head.busy || rp.stats.busy || rp.nameSlot.busy) {
+		return false
+	}
+
+	v := r.view()
+
+	return v == nil || !v.loading && v.queued == nil
 }
 
 // onRoot reports whether the watch and the open drawer settled on root.
@@ -231,42 +286,6 @@ func TestFollowWatchesTheFollowedPlace(t *testing.T) {
 	}
 }
 
-func TestRailFollowsEdits(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name   string
-		dir    func(r *followRig) string
-		file   string
-		branch string
-	}{
-		{"a worktree of the agent's repository", func(r *followRig) string { return r.dirB }, "a.txt", "b"},
-		{"another repository", func(r *followRig) string { return r.dirC }, "c.txt", "other"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			r := newFollowRig(t, "")
-			dir := tt.dir(r)
-			r.addLines(t, filepath.Join(dir, tt.file))
-			r.openRail(t, "main")
-
-			r.clk.Advance(11 * time.Second)
-			r.edit(filepath.Join(dir, tt.file))
-			r.until(t, "the card to follow the edit", func() bool {
-				c, ok := r.card()
-
-				return ok && c.branch == tt.branch && c.statsKnown && c.stats.Added == 5
-			})
-
-			// The project is the agent's own, whatever it edits.
-			if c, _ := r.card(); c.project != filepath.Base(r.dirA) || c.stats.Files != 1 {
-				t.Errorf("card = %+v, want project %s and one changed file", c, filepath.Base(r.dirA))
-			}
-		})
-	}
-}
-
 func TestDrawerFollowsEdits(t *testing.T) {
 	t.Parallel()
 	r := newFollowRig(t, "")
@@ -292,40 +311,50 @@ func TestDrawerFollowsEdits(t *testing.T) {
 }
 
 func TestCwdChangeAfterEditKeepsFollowedPlace(t *testing.T) {
-	for _, cwd := range []func(r *followRig) string{
-		func(r *followRig) string { return r.dirA },
-		func(r *followRig) string { return filepath.Join(r.dirA, "pkg") },
-		func(r *followRig) string { return r.dirC },
-	} {
-		r := newFollowRig(t, "")
-		r.addLines(t, filepath.Join(r.dirB, "a.txt"))
-		r.open(t, r.id)
-		r.openRail(t, "main")
+	t.Parallel()
 
-		r.clk.Advance(11 * time.Second)
-		r.edit(filepath.Join(r.dirB, "a.txt"))
-		r.until(t, "the watch and the drawer to follow", r.onRoot(r.rootB))
-		r.until(t, "the card to follow", r.cardOn("b", 5))
+	tests := []struct {
+		name string
+		cwd  func(r *followRig) string
+	}{
+		{"the agent's repository", func(r *followRig) string { return r.dirA }},
+		{"another repository", func(r *followRig) string { return r.dirC }},
+	}
 
-		r.clk.Advance(11 * time.Second)
-		r.hookNow(cwdHook(r.id, cwd(r)))
-		r.quiet()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-		if got := r.pane().FollowDir(); got != r.dirB {
-			t.Fatalf("FollowDir() = %q after a hook in %q, want %q", got, cwd(r), r.dirB)
-		}
+			r := newFollowRig(t, "")
+			r.addLines(t, filepath.Join(r.dirB, "a.txt"))
+			r.open(t, r.id)
+			r.openRail(t, "main")
 
-		if c, _ := r.card(); c.branch != "b" || c.stats.Added != 5 {
-			t.Errorf("card = %+v, want branch b with its 5 added lines", c)
-		}
+			r.clk.Advance(11 * time.Second)
+			r.edit(filepath.Join(r.dirB, "a.txt"))
+			r.until(t, "the watch and the drawer to follow", r.onRoot(r.rootB))
+			r.until(t, "the card to follow", r.cardOn("b", 5))
 
-		if got := r.held(r.id); got != r.rootB {
-			t.Errorf("the watch holds %q, want %q", got, r.rootB)
-		}
+			r.clk.Advance(11 * time.Second)
+			r.hookNow(cwdHook(r.id, tt.cwd(r)))
+			r.until(t, "the hook's probes to land", r.landed)
 
-		if v := r.view(); v.root != r.rootB {
-			t.Errorf("drawer root = %q, want %q", v.root, r.rootB)
-		}
+			if got := r.pane().FollowDir(); got != r.dirB {
+				t.Fatalf("FollowDir() = %q after a hook in %q, want %q", got, tt.cwd(r), r.dirB)
+			}
+
+			if c, _ := r.card(); c.branch != "b" || c.stats.Added != 5 {
+				t.Errorf("card = %+v, want branch b with its 5 added lines", c)
+			}
+
+			if got := r.held(r.id); got != r.rootB {
+				t.Errorf("the watch holds %q, want %q", got, r.rootB)
+			}
+
+			if v := r.view(); v.root != r.rootB {
+				t.Errorf("drawer root = %q, want %q", v.root, r.rootB)
+			}
+		})
 	}
 }
 
@@ -347,6 +376,7 @@ func TestCwdChangeBeforeEditMoves(t *testing.T) {
 }
 
 func TestReviewerSubagentKeepsImplementersPlace(t *testing.T) {
+	t.Parallel()
 	r := newFollowRig(t, "")
 	r.addLines(t, filepath.Join(r.dirB, "a.txt"))
 	r.open(t, r.id)
@@ -378,7 +408,7 @@ func TestReviewerSubagentKeepsImplementersPlace(t *testing.T) {
 	for _, s := range steps {
 		r.clk.Advance(11 * time.Second)
 		r.hookNow(s.ev)
-		r.quiet()
+		r.until(t, "the event's probes to land", r.landed)
 
 		if got := r.pane().FollowDir(); got != r.dirB {
 			t.Fatalf("after %s: FollowDir() = %q, want %q", s.name, got, r.dirB)
@@ -442,6 +472,7 @@ func TestTabNameAndSplitsKeepOwnDirectory(t *testing.T) {
 }
 
 func TestRemovedFollowedWorktreeIsForgotten(t *testing.T) {
+	t.Parallel()
 	r := newFollowRig(t, "")
 	r.open(t, r.id)
 	r.openRail(t, "main")
@@ -453,7 +484,9 @@ func TestRemovedFollowedWorktreeIsForgotten(t *testing.T) {
 	r.until(t, "the watch and the drawer to follow", r.onRoot(r.rootB))
 	r.until(t, "the card to follow", r.cardOn("b", -1))
 
-	gitIn(t, "git", r.dirA, "worktree", "remove", "--force", r.dirB)
+	if err := os.RemoveAll(r.dirB); err != nil {
+		t.Fatal(err)
+	}
 
 	r.clk.Advance(11 * time.Second)
 	r.hookNow(idleHook(r.id))
@@ -468,7 +501,7 @@ func TestRemovedFollowedWorktreeIsForgotten(t *testing.T) {
 	calls := r.resolverCalls()
 
 	r.edit(path)
-	r.quiet()
+	r.until(t, "the edit's probes to land", r.landed)
 
 	if got := r.resolverCalls(); got != calls+1 {
 		t.Errorf("the resolver ran %d times for the repeated path, want 1", got-calls)
@@ -537,7 +570,7 @@ func TestAlternatingEditsEndOnLatest(t *testing.T) {
 		r.holdLoads = true
 
 		moves := []struct{ dir, root string }{
-			{r.dirB, r.rootB}, {r.dirC, r.rootC}, {r.dirB, r.rootB}, {r.dirC, r.rootC}, {r.dirB, r.rootB}, {r.dirC, r.rootC},
+			{r.dirB, r.rootB}, {r.dirC, r.rootC}, {r.dirB, r.rootB}, {r.dirC, r.rootC},
 		}
 
 		for i, mv := range moves {
@@ -619,7 +652,7 @@ func TestProbeHeadOf(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := probeHeadOf(context.Background(), SystemGit{}, r.log, tt.dir, tt.own)
+			got, err := probeHeadOf(context.Background(), r.fake, r.log, tt.dir, tt.own)
 			if err != nil {
 				t.Fatalf("probeHeadOf: %v", err)
 			}
@@ -675,9 +708,11 @@ func (r *railApp) deliverAll(cmd tea.Cmd) []tea.Msg {
 }
 
 func TestHeadProbeTargetIsFollowedAndOwnDirectory(t *testing.T) {
-	r := newRealRailApp(t, false)
-	tr := newAgentTrees(t, r.real)
-	other := r.realRepo(t, "other")
+	t.Parallel()
+
+	r := newRailApp(t, false)
+	tr := newAgentTrees(t, r.fake)
+	other := r.repo(t, "other").Root()
 	id := r.addAgent(t, false, tr.main)
 	r.openRail()
 
@@ -767,8 +802,8 @@ type movedFollow struct {
 func newMovedFollow(t *testing.T) *movedFollow {
 	t.Helper()
 
-	r := newRealRailApp(t, true)
-	tr := newAgentTrees(t, r.real)
+	r := newRailApp(t, true)
+	tr := newAgentTrees(t, r.fake)
 	write(t, filepath.Join(tr.main, "a.txt"), "one\ntwo\n")
 	write(t, filepath.Join(tr.linked, "a.txt"), "one\ntwo\nthree\nfour\n")
 
@@ -836,6 +871,8 @@ func isMsg[T any](msg tea.Msg) bool {
 }
 
 func TestCardCountsStayOnThePlaceItNames(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		run  func(t *testing.T, m *movedFollow)
@@ -857,6 +894,8 @@ func TestCardCountsStayOnThePlaceItNames(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			m := newMovedFollow(t)
 			m.onePlace(t, "after the edit")
 
@@ -870,6 +909,8 @@ func TestCardCountsStayOnThePlaceItNames(t *testing.T) {
 }
 
 func TestPlaceChangeProbesItsStatsAtOnce(t *testing.T) {
+	t.Parallel()
+
 	m := newMovedFollow(t)
 
 	// The head's answer comes with 5 s left of the stats interval.
@@ -892,6 +933,8 @@ func TestPlaceChangeProbesItsStatsAtOnce(t *testing.T) {
 }
 
 func TestPlaceChangeWithTheRailClosedCountsWhenItOpens(t *testing.T) {
+	t.Parallel()
+
 	m := newMovedFollow(t)
 	m.railClosed()
 

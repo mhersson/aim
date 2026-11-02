@@ -73,7 +73,7 @@ func TestReviewBackPage(t *testing.T) {
 func TestReviewBackKeepsPin(t *testing.T) {
 	t.Parallel()
 
-	r := newFollowRig(t, "")
+	r := newRealFollowRig(t, "")
 	r.open(t, r.id)
 	r.pinTo(t, r.rootB)
 	r.until(t, "the drawer to show b", r.showing(r.rootB))
@@ -194,7 +194,7 @@ func TestReviewBackLeavesListAndChooser(t *testing.T) {
 	t.Run("worktree list", func(t *testing.T) {
 		t.Parallel()
 
-		r := newFollowRig(t, "")
+		r := newRealFollowRig(t, "")
 		r.open(t, r.id)
 		r.openList(t)
 
