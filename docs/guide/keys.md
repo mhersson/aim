@@ -147,6 +147,8 @@ The table is `[keys.drawer]`. These keys apply while the review drawer has the k
 | `,` | `review.turn.prev` | Review: previous turn |
 | `.` | `review.turn.next` | Review: next turn |
 | `/` | `review.search` | Review: search |
+| `n` | `review.match.next` | Review: next match |
+| `N` | `review.match.prev` | Review: previous match |
 | `y` | `review.copy` | Review: copy the selection |
 | `z` | `review.zoom` | Review: zoom |
 | `w` | `review.worktrees` | Review: worktrees |

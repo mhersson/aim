@@ -311,6 +311,125 @@ func TestSearchFindsAndMisses(t *testing.T) {
 	}
 }
 
+// matchFiles writes text to each of three files in dir.
+func matchFiles(t *testing.T, dir, text string) {
+	t.Helper()
+
+	for _, f := range []string{"a.txt", "b.txt", "c.txt"} {
+		write(t, filepath.Join(dir, f), text)
+	}
+}
+
+func TestSearchMatchKeys(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		mode string
+		open func(t *testing.T) (*drawerRig, *reviewView)
+	}{
+		{"branch", func(t *testing.T) (*drawerRig, *reviewView) {
+			r := newKeysRig(t, keysRepo(t))
+
+			return r, r.opened(t)
+		}},
+		{"turn", func(t *testing.T) (*drawerRig, *reviewView) {
+			dir := newRepoDir(t)
+			matchFiles(t, dir, numberedLines("line", 40))
+			commitEverything(t, dir, "init")
+			snapshotTurn(t, dir, testSession)
+			matchFiles(t, dir, editedLines(40, 3, 30))
+
+			r := newKeysRig(t, dir, turnFirst)
+			openIn(t, r.App, core.FocusPane{ID: r.agent(t, dir, testSession)})
+
+			v := r.opened(t)
+			if _, ok := v.src.(git.TurnSource); !ok {
+				t.Fatalf("source = %+v, want a turn", v.src)
+			}
+
+			return r, v
+		}},
+		{"pr", func(t *testing.T) (*drawerRig, *reviewView) {
+			dir := newRepoDir(t)
+			matchFiles(t, dir, numberedLines("line", 40))
+			commitEverything(t, dir, "init")
+			matchFiles(t, dir, editedLines(40, 3, 30))
+			commitEverything(t, dir, "feature work")
+
+			p := newPRDrawerOn(t, dir)
+			p.poll()
+			p.opened(t)
+			p.typed("p")
+			p.until(t, "PR mode", p.inPRMode(7))
+
+			return p.drawerRig, p.view()
+		}},
+	} {
+		t.Run(tt.mode, func(t *testing.T) {
+			t.Parallel()
+
+			r, v := tt.open(t)
+
+			var hits []int
+
+			for i, row := range v.rows {
+				if slices.ContainsFunc(rowTexts(v.res, row), func(s string) bool { return strings.Contains(s, "edited") }) {
+					hits = append(hits, i)
+				}
+			}
+
+			if len(hits) < 3 {
+				t.Fatalf("%d rows hold edited, want at least 3", len(hits))
+			}
+
+			// Before any search n and N do nothing, as in the reading overlays.
+			r.keys(keyRune('g'))
+			r.keys(keyRune('n'), keyRune('N'))
+
+			if v.cursor != 0 || r.notice != "" {
+				t.Fatalf("n and N before a search: cursor %d, notice %q, want 0 and none", v.cursor, r.notice)
+			}
+
+			r.keys(keyRune('/'))
+			r.typed("EDITED")
+			r.keys(keyEnter)
+
+			if v.cursor != hits[0] {
+				t.Fatalf("/EDITED from the top: cursor %d, want the first match %d", v.cursor, hits[0])
+			}
+
+			// n walks the matches forward and wraps; N walks them back and wraps.
+			hit := func(k int) int { return hits[(k%len(hits)+len(hits))%len(hits)] }
+
+			for _, dir := range []struct {
+				key  rune
+				sign int
+			}{{'n', 1}, {'N', -1}} {
+				for k := 1; k <= len(hits); k++ {
+					r.keys(keyRune(dir.key))
+
+					if want := hit(dir.sign * k); v.cursor != want {
+						t.Fatalf("%c number %d: cursor %d, want match %d of %v", dir.key, k, v.cursor, want, hits)
+					}
+				}
+			}
+
+			r.keys(keyRune('/'))
+			r.typed("zzz")
+			r.keys(keyEnter)
+
+			for _, k := range []rune{'n', 'N'} {
+				r.notice = ""
+				r.keys(keyRune(k))
+
+				if r.notice != "not found: zzz" || v.cursor != hits[0] {
+					t.Errorf("%c after a miss: notice %q, cursor %d, want not found: zzz and %d", k, r.notice, v.cursor, hits[0])
+				}
+			}
+		})
+	}
+}
+
 func TestTreeKeys(t *testing.T) {
 	t.Parallel()
 

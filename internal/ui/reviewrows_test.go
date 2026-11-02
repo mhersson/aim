@@ -494,22 +494,28 @@ func TestSearchRowsWraps(t *testing.T) {
 	tests := []struct {
 		name string
 		from int
+		dir  int
 		q    string
 		want int
 		ok   bool
 	}{
-		{"next row after the cursor", 0, "KEEP", 2, true},
-		{"skips the cursor row", 2, "keep", 2, true},
-		{"wraps past the end", 8, "fresh", 4, true},
-		{"matches a path on its header", 3, "b.go", 7, true},
-		{"matches a hunk section", 0, "needle", 8, true},
-		{"a miss", 0, "nothing here", 0, false},
-		{"an empty query", 0, "", 0, false},
+		{"next row after the cursor", 0, 1, "KEEP", 2, true},
+		{"skips the cursor row", 2, 1, "keep", 2, true},
+		{"wraps past the end", 8, 1, "fresh", 4, true},
+		{"matches a path on its header", 3, 1, "b.go", 7, true},
+		{"matches a hunk section", 0, 1, "needle", 8, true},
+		{"a miss", 0, 1, "nothing here", 0, false},
+		{"an empty query", 0, 1, "", 0, false},
+		{"back: the row before the cursor", 6, -1, "FRESH", 4, true},
+		{"back: skips the cursor row", 4, -1, "fresh", 4, true},
+		{"back: wraps past the start", 3, -1, "b.go", 7, true},
+		{"back: a miss", 9, -1, "nothing here", 0, false},
+		{"back: an empty query", 9, -1, "", 0, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, ok := searchRows(res, rows, tt.from, tt.q)
+			got, ok := searchRows(res, rows, tt.from, tt.dir, tt.q)
 			if ok != tt.ok || (ok && got != tt.want) {
 				t.Errorf("searchRows = %d, %v; want %d, %v", got, ok, tt.want, tt.ok)
 			}
@@ -526,11 +532,11 @@ func TestSearchRowsInfoAndPairs(t *testing.T) {
 	}}
 	rows := buildRows(res, rowOpts{split: true})
 
-	if got, ok := searchRows(res, rows, 0, "not shown"); !ok || rows[got].kind != rowInfo {
+	if got, ok := searchRows(res, rows, 0, 1, "not shown"); !ok || rows[got].kind != rowInfo {
 		t.Errorf("info search = %d, %v", got, ok)
 	}
 
-	if got, ok := searchRows(res, rows, 0, "right"); !ok || rows[got].kind != rowPair {
+	if got, ok := searchRows(res, rows, 0, 1, "right"); !ok || rows[got].kind != rowPair {
 		t.Errorf("pair search = %d, %v", got, ok)
 	}
 }
@@ -641,11 +647,11 @@ func TestSearchRowsFullFile(t *testing.T) {
 	res, full := fullFixture()
 	rows := buildRows(res, rowOpts{full: full, whole: allWhole(full)})
 
-	if got, ok := searchRows(res, rows, 0, "ADDED"); !ok || got != 4 {
+	if got, ok := searchRows(res, rows, 0, 1, "ADDED"); !ok || got != 4 {
 		t.Errorf("full row search = %d, %v; want 4", got, ok)
 	}
 
-	if got, ok := searchRows(res, rows, 3, "b"); !ok || got != 2 {
+	if got, ok := searchRows(res, rows, 3, 1, "b"); !ok || got != 2 {
 		t.Errorf("ghost row search = %d, %v; want 2", got, ok)
 	}
 }
