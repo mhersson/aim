@@ -262,6 +262,12 @@ what to do about it. Skim it before your first commit each session.
   in the copy.
 - All worktrees of a repository share one stash. Never run `git stash` in a
   worktree you share; commit work in progress instead.
+- git removes its lock files (a ref's `.lock`, `packed-refs.lock`) when SIGTERM
+  stops it, but SIGKILL leaves them, and the next git in that repository fails
+  with `Unable to create '<path>.lock': File exists`. So a cancelled call that
+  may write gets SIGTERM before the kill (`stopProcessGroup`); a test of that
+  checks the git dir for `*.lock` files, as `TestCancelledRefWriteLeavesNoLock`
+  does.
 
 ## CI
 

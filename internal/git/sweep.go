@@ -17,8 +17,8 @@ import (
 // staleAge is how long a session's newest turn must be past for its refs to go.
 const staleAge = 14 * 24 * time.Hour
 
-// deleteChunk caps the refs of one update-ref: a killed call leaves lock files
-// (packed-refs.lock among them), so each call stays well inside refWriteBudget.
+// deleteChunk caps the refs of one update-ref, so each call stays well inside
+// refWriteBudget: one killed after SIGTERM's grace leaves lock files behind.
 const deleteChunk = 500
 
 // ErrNotAimRef is returned by DeleteRefs for a name outside refs/aim/, a ref
