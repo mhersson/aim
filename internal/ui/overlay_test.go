@@ -19,15 +19,6 @@ var (
 	keyEnter = tea.KeyPressMsg{Code: tea.KeyEnter}
 )
 
-// fastApp is a test app whose which-key tick fires at once, so run does not wait on it.
-func fastApp(t *testing.T) *App {
-	t.Helper()
-	a := newTestApp(t)
-	a.keymap.delay = 0
-
-	return a
-}
-
 // run executes cmd and feeds every message it produces back into a, so a
 // palette's follow-up messages (highlight, chosen, closed) take effect.
 func run(a *App, cmd tea.Cmd) {
@@ -64,7 +55,7 @@ func typeText(a *App, s string) {
 
 func TestPaletteListsEveryCommand(t *testing.T) {
 	t.Parallel()
-	a := fastApp(t)
+	a := newTestApp(t)
 	sized(t, a, 100, 30)
 	pressRun(a, keyLeader, keyRune(':'))
 
@@ -112,7 +103,7 @@ func TestPaletteIcons(t *testing.T) {
 
 	for _, icons := range []bool{true, false} {
 		t.Run(fmt.Sprintf("icons=%v", icons), func(t *testing.T) {
-			a := fastApp(t)
+			a := newTestApp(t)
 			a.icons = icons
 			sized(t, a, 100, 30)
 			pressRun(a, keyLeader, keyRune(':'))
@@ -144,7 +135,7 @@ func TestThemePickerIcons(t *testing.T) {
 	t.Parallel()
 
 	for _, icons := range []bool{true, false} {
-		a := fastApp(t)
+		a := newTestApp(t)
 		a.icons = icons
 		sized(t, a, 100, 30)
 		pressRun(a, keyLeader, keyRune('t'))
@@ -162,7 +153,7 @@ func TestThemePickerIcons(t *testing.T) {
 
 func TestPaletteRunsCommand(t *testing.T) {
 	t.Parallel()
-	a := fastApp(t)
+	a := newTestApp(t)
 	sized(t, a, 100, 30)
 	pressRun(a, keyLeader, keyRune(':'))
 	typeText(a, "macchiato")
@@ -179,7 +170,7 @@ func TestPaletteRunsCommand(t *testing.T) {
 
 func TestPaletteOpensThemePicker(t *testing.T) {
 	t.Parallel()
-	a := fastApp(t)
+	a := newTestApp(t)
 	sized(t, a, 100, 30)
 	pressRun(a, keyLeader, keyRune(':'))
 	typeText(a, "pick")
@@ -192,7 +183,7 @@ func TestPaletteOpensThemePicker(t *testing.T) {
 
 func TestThemePickerCommits(t *testing.T) {
 	t.Parallel()
-	a := fastApp(t)
+	a := newTestApp(t)
 	sized(t, a, 100, 30)
 	pressRun(a, keyLeader, keyRune('t'), keyDown, keyEnter)
 
@@ -212,7 +203,7 @@ func TestThemePickerCommits(t *testing.T) {
 
 // It compares highlighted colours, so it runs serially (docs/gotchas.md).
 func TestThemePickerEscRestores(t *testing.T) {
-	a := fastApp(t)
+	a := newTestApp(t)
 	sized(t, a, 100, 30)
 	mocha := mustTheme(t, "catppuccin-mocha")
 
@@ -242,7 +233,7 @@ func TestThemePickerEscRestores(t *testing.T) {
 		t.Errorf("background after esc = %v, want %v", v.BackgroundColor, mocha.UI.Bg)
 	}
 
-	fresh := fastApp(t)
+	fresh := newTestApp(t)
 	sized(t, fresh, 100, 30)
 
 	if v.Content != fresh.View().Content {
@@ -252,7 +243,7 @@ func TestThemePickerEscRestores(t *testing.T) {
 
 func TestOverlayOwnsKeys(t *testing.T) {
 	t.Parallel()
-	a := fastApp(t)
+	a := newTestApp(t)
 	sized(t, a, 100, 30)
 	pressRun(a, keyLeader, keyRune(':'))
 
@@ -274,7 +265,7 @@ func TestOverlayOwnsKeys(t *testing.T) {
 
 func TestOverlayEndsLeaderPopup(t *testing.T) {
 	t.Parallel()
-	a := fastApp(t)
+	a := newTestApp(t)
 	sized(t, a, 100, 30)
 	press(a, keyLeader)
 	seq := a.seq
@@ -293,7 +284,7 @@ func TestOverlaySizes(t *testing.T) {
 		for _, sz := range [][2]int{{100, 30}, {30, 8}, {5, 3}, {1, 1}, {2, 2}} {
 			w, h := sz[0], sz[1]
 			t.Run(fmt.Sprintf("%c/%dx%d", key, w, h), func(t *testing.T) {
-				a := fastApp(t)
+				a := newTestApp(t)
 				sized(t, a, w, h)
 				pressRun(a, keyLeader, keyRune(key))
 
@@ -314,7 +305,7 @@ func TestOverlaySizes(t *testing.T) {
 
 // It compares highlighted colours, so it runs serially (docs/gotchas.md).
 func TestPaletteOverlayNoIconsGolden(t *testing.T) {
-	a := fastApp(t)
+	a := newTestApp(t)
 	a.icons = false
 	sized(t, a, 100, 30)
 	pressRun(a, keyLeader, keyRune(':'))
@@ -323,7 +314,7 @@ func TestPaletteOverlayNoIconsGolden(t *testing.T) {
 
 // It compares highlighted colours, so it runs serially (docs/gotchas.md).
 func TestPaletteOverlayGolden(t *testing.T) {
-	a := fastApp(t)
+	a := newTestApp(t)
 	sized(t, a, 100, 30)
 	pressRun(a, keyLeader, keyRune(':'))
 	golden.RequireEqual(t, []byte(a.View().Content))
@@ -331,7 +322,7 @@ func TestPaletteOverlayGolden(t *testing.T) {
 
 // It compares highlighted colours, so it runs serially (docs/gotchas.md).
 func TestThemePickerGolden(t *testing.T) {
-	a := fastApp(t)
+	a := newTestApp(t)
 	sized(t, a, 100, 30)
 	pressRun(a, keyLeader, keyRune('t'), keyDown)
 	golden.RequireEqual(t, []byte(a.View().Content))
@@ -345,7 +336,7 @@ func TestLateHighlightIgnored(t *testing.T) {
 	frappe := mustTheme(t, "catppuccin-frappe")
 
 	t.Run("after esc", func(t *testing.T) {
-		a := fastApp(t)
+		a := newTestApp(t)
 		sized(t, a, 100, 30)
 		pressRun(a, keyLeader, keyRune('t'), keyEsc)
 		a.Update(latte)
@@ -355,7 +346,7 @@ func TestLateHighlightIgnored(t *testing.T) {
 		}
 	})
 	t.Run("after enter", func(t *testing.T) {
-		a := fastApp(t)
+		a := newTestApp(t)
 		sized(t, a, 100, 30)
 		pressRun(a, keyLeader, keyRune('t'), keyDown, keyDown, keyEnter)
 		a.Update(latte)
@@ -365,7 +356,7 @@ func TestLateHighlightIgnored(t *testing.T) {
 		}
 	})
 	t.Run("stale id while open", func(t *testing.T) {
-		a := fastApp(t)
+		a := newTestApp(t)
 		sized(t, a, 100, 30)
 		pressRun(a, keyLeader, keyRune('t'), keyDown, keyDown)
 		a.Update(latte)
@@ -378,7 +369,7 @@ func TestLateHighlightIgnored(t *testing.T) {
 
 func TestPasteReachesPalette(t *testing.T) {
 	t.Parallel()
-	a := fastApp(t)
+	a := newTestApp(t)
 	sized(t, a, 100, 30)
 	pressRun(a, keyLeader, keyRune(':'))
 	_, cmd := a.Update(tea.PasteMsg{Content: "quit"})
@@ -392,7 +383,7 @@ func TestPasteReachesPalette(t *testing.T) {
 
 func TestLateChosenIgnored(t *testing.T) {
 	t.Parallel()
-	a := fastApp(t)
+	a := newTestApp(t)
 	sized(t, a, 100, 30)
 	pressRun(a, keyLeader, keyRune(':'))
 
@@ -418,7 +409,7 @@ func TestLateChosenIgnored(t *testing.T) {
 
 func TestOverlayBeforeFirstSize(t *testing.T) {
 	t.Parallel()
-	a := fastApp(t)
+	a := newTestApp(t)
 	press(a, keyLeader)
 	a.Update(whichKeyMsg{seq: a.seq})
 	pressRun(a, keyRune(':'))
@@ -471,7 +462,7 @@ func TestFooterEnterLabelPerOverlay(t *testing.T) {
 		want string
 		not  string
 	}{{':', "enter run", "enter apply"}, {'t', "enter apply", "enter run"}} {
-		a := fastApp(t)
+		a := newTestApp(t)
 		sized(t, a, 100, 30)
 		pressRun(a, keyLeader, keyRune(tc.key))
 

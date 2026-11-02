@@ -120,6 +120,7 @@ func lifeAppWith(t *testing.T, opts ...func(*Options)) (*App, *starts) {
 	// A copy must never reach the operator's real clipboard tools.
 	a.clip.run = (&fakeRun{}).run
 	a.openLink = (&fakeOpen{}).open
+	a.tick = (&ticked{}).tick
 
 	st := &starts{}
 	a.start = st.start
@@ -762,6 +763,8 @@ func TestCwdTracking(t *testing.T) {
 	a, st := lifeAppSized(t, 100, 30)
 	clk := &fakeClock{t: t0}
 	a.clock = clk
+	rec := &ticked{}
+	a.tick = rec.tick
 	st.proc(0).cwd = "/moved"
 
 	p := a.panes["p1"]
@@ -793,6 +796,14 @@ func TestCwdTracking(t *testing.T) {
 	cmd = a.probeCwd(p)
 	if cmd == nil {
 		t.Fatal("throttled probe scheduled no trailing check")
+	}
+
+	if want := []time.Duration{400 * time.Millisecond}; !slices.Equal(rec.delays, want) {
+		t.Errorf("trailing check delays = %v, want %v", rec.delays, want)
+	}
+
+	if m, ok := rec.msgs[0].(paneCwdDueMsg); !ok || m.id != "p1" {
+		t.Errorf("trailing check message = %#v, want paneCwdDueMsg for p1", rec.msgs[0])
 	}
 
 	if a.probeCwd(p) != nil {
@@ -1496,6 +1507,8 @@ func TestCloseBoundsLoaderWait(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
+
+	a.tick = (&ticked{}).tick
 
 	t.Cleanup(func() { close(f.release) })
 

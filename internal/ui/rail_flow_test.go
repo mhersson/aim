@@ -834,9 +834,10 @@ func TestRailIdleCost(t *testing.T) {
 	t.Run("idle shells", func(t *testing.T) {
 		f := newFlowApp(t)
 		chord(f.App, 'v')
+		press(f.App, keyLeader)
 		f.ticks.delays = nil
 
-		cmd := chord(f.App, 'a')
+		cmd := press(f.App, keyRune('a'))
 		if !f.store.State().Rail || !f.railIsOpen() {
 			t.Fatal("the rail did not open")
 		}
@@ -889,7 +890,7 @@ func TestRailIdleCost(t *testing.T) {
 
 func TestRailPaletteAndWhichKey(t *testing.T) {
 	t.Parallel()
-	a := fastApp(t)
+	a := newTestApp(t)
 	sized(t, a, 120, 40)
 
 	c, ok := a.reg.get("rail.toggle")

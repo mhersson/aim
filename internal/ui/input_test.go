@@ -241,8 +241,8 @@ func TestViewRequestsFocusReports(t *testing.T) {
 func TestPasteEndsPendingLeader(t *testing.T) {
 	t.Parallel()
 	a, _, fp2 := twoPanes(t)
-	a.keymap.delay = 0
-	pressRun(a, keyLeader)
+	press(a, keyLeader)
+	a.Update(whichKeyMsg{seq: a.seq})
 
 	if !a.pending || !a.popup {
 		t.Fatalf("pending = %v, popup = %v, want both set", a.pending, a.popup)

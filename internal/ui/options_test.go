@@ -545,6 +545,8 @@ func TestOptionsSetEachFlagOnItsOwnField(t *testing.T) {
 				t.Fatal(err)
 			}
 
+			a.tick = (&ticked{}).tick
+
 			got := [4]bool{a.focusFollows, a.copyOnSelect, a.clip.cfg.OSC52, a.clip.cfg.Native}
 			if got != tt.want {
 				t.Errorf("focusFollows, copyOnSelect, OSC52, Native = %v, want %v", got, tt.want)

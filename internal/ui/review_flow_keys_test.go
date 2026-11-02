@@ -77,6 +77,9 @@ func TestLeaderDOpensFocusesClosesAndRetargets(t *testing.T) {
 	dir := editedRepo(t, f).Root()
 	a, _, clk := kindApp(t, gitOf(f), func(o *Options) { o.Cwd, o.GitTempDir = dir, t.TempDir() })
 
+	// The runtime runs the slide's ticks in goroutines, so this flow keeps the real tick.
+	a.tick = tea.Tick
+
 	probe := &keysProbe{}
 
 	// The slide frames come from the runtime's ticks; each poll moves the clock past the slide, so a frame ends it.

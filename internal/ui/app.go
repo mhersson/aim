@@ -825,7 +825,7 @@ func (a *App) runLeader(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		a.seq++
 		seq := a.seq
 
-		return tea.Tick(a.keymap.delay, func(time.Time) tea.Msg { return whichKeyMsg{seq: seq} }), true
+		return a.tick(a.keymap.delay, func(time.Time) tea.Msg { return whichKeyMsg{seq: seq} }), true
 	}
 
 	prefix := a.prefix

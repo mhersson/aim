@@ -162,6 +162,11 @@ what to do about it. Skim it before your first commit each session.
   `PATH` with `t.Setenv`, which rules out `t.Parallel()`. Read the log with
   `wrappedCalls`, which fails when it is empty, so an assertion that a call
   never ran cannot pass because nothing was wrapped.
+- internal/ui's test apps record their ticks and never fire them (`ticked`), so
+  a helper that runs returned commands never sleeps. A test that needs a tick's
+  message sends it itself, as with `whichKeyMsg{seq: a.seq}`; a new real
+  `tea.Tick` in internal/ui goes through `a.tick`. A `teatest` flow, whose
+  runtime runs commands in goroutines, sets `a.tick = tea.Tick`.
 - `t.Setenv` and `t.Chdir` panic in a parallel test. That is why tests that
   use them, and tests that count or scan the process's goroutines or open
   descriptors, skip `t.Parallel()`.

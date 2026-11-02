@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -46,8 +47,27 @@ func newKeyedApp(t *testing.T, name string, keys core.KeysConfig) *App {
 	// A copy must never reach the operator's real clipboard tools.
 	app.clip.run = (&fakeRun{}).run
 	app.openLink = (&fakeOpen{}).open
+	app.tick = (&ticked{}).tick
 
 	return app
+}
+
+func TestLeaderWaitsOnTheAppTick(t *testing.T) {
+	t.Parallel()
+
+	a := newTestApp(t)
+	rec := &ticked{}
+	a.tick = rec.tick
+
+	press(a, keyLeader)
+
+	if want := []time.Duration{a.keymap.delay}; !slices.Equal(rec.delays, want) {
+		t.Fatalf("tick delays = %v, want %v", rec.delays, want)
+	}
+
+	if got := rec.msgs[0]; got != (whichKeyMsg{seq: a.seq}) {
+		t.Errorf("tick message = %#v, want whichKeyMsg for seq %d", got, a.seq)
+	}
 }
 
 func newTestApp(t *testing.T) *App {
