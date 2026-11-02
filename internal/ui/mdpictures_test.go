@@ -362,7 +362,7 @@ const picturePageDoc = "# P\n\n![a](a.png)\n\ntail\n"
 func newPicturePage(t *testing.T, w, h int, doc string) *picturePage {
 	t.Helper()
 
-	m := newRealPageRig(t, map[string]string{"docs/p.md": doc})
+	m := newPageRig(t, map[string]string{"docs/p.md": doc})
 	jobs := picturesOn(t, m.App)
 
 	sized(t, m.App, w, h)

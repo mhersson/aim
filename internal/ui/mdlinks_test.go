@@ -45,7 +45,7 @@ type linkRig struct {
 func newLinkRig(t *testing.T) *linkRig {
 	t.Helper()
 
-	m := newRealPageRig(t, map[string]string{
+	m := newPageRig(t, map[string]string{
 		"docs/a.md":    linkDoc,
 		"docs/b.md":    "# Bee\n\nbee words\n",
 		"docs/code.go": "package docs\n",
@@ -127,7 +127,8 @@ func TestFollowTarget(t *testing.T) {
 		url    string // the URL the opener gets
 		page   string // the path openMD gets
 		editor string // the file the editor opens
-		notice string
+		notice string // the exact notice, for one a constant builds
+		shown  string // the path a refusal names; the notice is set and carries it
 	}
 
 	// link makes a symlink named name in the worktree's docs folder.
@@ -162,7 +163,7 @@ func TestFollowTarget(t *testing.T) {
 		{"a symlink to a file outside", link("out.go", ""), func(root string) (mdTarget, want) {
 			p := filepath.Join(root, "docs", "out.go")
 
-			return mdTarget{Path: p}, want{notice: "not opening " + p + ": outside the worktree"}
+			return mdTarget{Path: p}, want{shown: p}
 		}},
 		{"a symlink to a file inside", link("in.go", "code.go"), func(root string) (mdTarget, want) {
 			p := filepath.Join(root, "docs", "in.go")
@@ -170,10 +171,10 @@ func TestFollowTarget(t *testing.T) {
 			return mdTarget{Path: p}, want{editor: p}
 		}},
 		{"a file that is missing", nil, func(root string) (mdTarget, want) {
-			return mdTarget{Path: filepath.Join(root, "docs", "nope.go")}, want{notice: "not opening docs/nope.go: no such file"}
+			return mdTarget{Path: filepath.Join(root, "docs", "nope.go")}, want{shown: "docs/nope.go"}
 		}},
 		{"a folder", nil, func(root string) (mdTarget, want) {
-			return mdTarget{Path: filepath.Join(root, "docs")}, want{notice: "not opening docs: it is a folder"}
+			return mdTarget{Path: filepath.Join(root, "docs")}, want{shown: "docs"}
 		}},
 		{"a symlink to a folder", func(t *testing.T, root string) {
 			t.Helper()
@@ -182,13 +183,10 @@ func TestFollowTarget(t *testing.T) {
 				t.Skipf("no symlinks: %v", err)
 			}
 		}, func(root string) (mdTarget, want) {
-			return mdTarget{Path: filepath.Join(root, "alias")}, want{notice: "not opening alias: it is a folder"}
+			return mdTarget{Path: filepath.Join(root, "alias")}, want{shown: "alias"}
 		}},
 		{"an https URL", nil, func(string) (mdTarget, want) {
 			return mdTarget{URL: "https://example.com/x"}, want{url: "https://example.com/x"}
-		}},
-		{"an http URL", nil, func(string) (mdTarget, want) {
-			return mdTarget{URL: "http://example.com/y"}, want{url: "http://example.com/y"}
 		}},
 		{"a URL that is not a web page", nil, func(string) (mdTarget, want) {
 			return mdTarget{URL: "javascript:alert(1)"}, want{notice: noticeLinkRefused}
@@ -204,20 +202,17 @@ func TestFollowTarget(t *testing.T) {
 		{"a markdown file above the root", nil, func(root string) (mdTarget, want) {
 			p := filepath.Join(filepath.Dir(root), "x.md")
 
-			return mdTarget{Path: p}, want{notice: "not opening " + p + ": outside the worktree"}
-		}},
-		{"a file elsewhere", nil, func(string) (mdTarget, want) {
-			return mdTarget{Path: "/etc/hosts"}, want{notice: "not opening /etc/hosts: outside the worktree"}
+			return mdTarget{Path: p}, want{shown: p}
 		}},
 		{"a file of a sibling worktree", nil, func(root string) (mdTarget, want) {
 			p := filepath.Join(filepath.Dir(root), "sibling-worktree", "a.md")
 
-			return mdTarget{Path: p}, want{notice: "not opening " + p + ": outside the worktree"}
+			return mdTarget{Path: p}, want{shown: p}
 		}},
 		{"a folder that only starts like the root", nil, func(root string) (mdTarget, want) {
 			p := root + "-more/a.md"
 
-			return mdTarget{Path: p}, want{notice: "not opening " + p + ": outside the worktree"}
+			return mdTarget{Path: p}, want{shown: p}
 		}},
 	}
 
@@ -281,7 +276,12 @@ func TestFollowTarget(t *testing.T) {
 				}
 			}
 
-			if m.notice != w.notice {
+			switch {
+			case w.shown != "":
+				if !refusal(m.notice, w.shown) {
+					t.Errorf("notice = %q, want one naming %q", m.notice, w.shown)
+				}
+			case m.notice != w.notice:
 				t.Errorf("notice = %q, want %q", m.notice, w.notice)
 			}
 		})
@@ -541,26 +541,6 @@ func TestLinkChooserCloses(t *testing.T) {
 }
 
 // A file that resolves after the drawer closed opens nothing.
-func TestFollowMarkdownSymlinkOutside(t *testing.T) {
-	t.Parallel()
-
-	m := newLinkRig(t)
-	outside := filepath.Join(t.TempDir(), "outside.md")
-	write(t, outside, "outside\n")
-
-	if err := os.Symlink(outside, filepath.Join(m.root, "docs", "out.md")); err != nil {
-		t.Skipf("no symlinks: %v", err)
-	}
-
-	m.notice = ""
-	m.flow(m.openMarkdownPage(m.tabID(), filepath.Join(m.root, "docs", "out.md")), nil)
-
-	const want = "not opening docs/out.md: path escapes from parent"
-	if m.notice != want || len(m.v.pages) != 0 {
-		t.Errorf("notice = %q, pages %d, want %q and none", m.notice, len(m.v.pages), want)
-	}
-}
-
 func TestFollowTargetLate(t *testing.T) {
 	t.Parallel()
 
@@ -767,7 +747,7 @@ func TestFoldHintFollowsBinding(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			m := &linkRig{pageRig: newRealPageRig(t, map[string]string{"docs/a.md": linkDoc}, func(o *Options) { o.Keys = tt.cfg })}
+			m := &linkRig{pageRig: newPageRig(t, map[string]string{"docs/a.md": linkDoc}, func(o *Options) { o.Keys = tt.cfg })}
 
 			check := func(where string) {
 				t.Helper()

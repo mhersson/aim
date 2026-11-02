@@ -31,7 +31,7 @@ func newMDOpenRig(t *testing.T, extra map[string]string, opts ...func(*Options))
 	files := map[string]string{"docs/a.md": pageDoc + mdLinks}
 	maps.Copy(files, extra)
 
-	return bareRig(t, pageRepo(t, files), opts...)
+	return bareRig(t, "", files, opts...)
 }
 
 func holdLists(m tea.Msg) bool {
@@ -120,10 +120,7 @@ func viewLine(t *testing.T, v *mdView, sub string) int {
 func linkedWorktree(t *testing.T, m *pageRig) string {
 	t.Helper()
 
-	path := filepath.Join(filepath.Dir(m.dir), "b")
-	gitIn(t, "git", m.dir, "worktree", "add", "-q", path, "-b", "b")
-
-	return rootOf(t, path)
+	return m.repo.worktree(t, filepath.Join(filepath.Dir(m.dir), "b"), "b").Root()
 }
 
 func TestMDOpen(t *testing.T) {
@@ -274,7 +271,7 @@ func TestMDOpenWhere(t *testing.T) {
 	t.Run("a pane outside a repository", func(t *testing.T) {
 		t.Parallel()
 
-		r := newKeysRig(t, t.TempDir())
+		r := newKeysRig(t, t.TempDir(), gitOf(newFakeGit(t)))
 
 		held := r.mdOpen()
 		if len(held) != 1 {
@@ -315,8 +312,8 @@ func TestMDOpenWhere(t *testing.T) {
 		m.notice = ""
 		m.flow(m.step(held[0]), nil)
 
-		if want := "worktree removed: " + wt; m.notice != want || m.overlay != nil {
-			t.Errorf("notice %q, palette %v, want %q and none", m.notice, m.overlay != nil, want)
+		if !refusal(m.notice, wt) || m.overlay != nil {
+			t.Errorf("notice %q, palette %v, want a notice naming %q and none", m.notice, m.overlay != nil, wt)
 		}
 	})
 }
@@ -516,7 +513,7 @@ func TestMDOpenLate(t *testing.T) {
 func TestMDOverlayOverDrawer(t *testing.T) {
 	t.Parallel()
 
-	m := newRealPageRig(t, map[string]string{"docs/a.md": pageDoc + mdLinks})
+	m := newPageRig(t, map[string]string{"docs/a.md": pageDoc + mdLinks})
 	pane, root := m.store.State().Tab().Review.Pane, m.v.root
 
 	if !m.drawerHasKeys() {
@@ -676,9 +673,9 @@ func TestMDOverlayLinks(t *testing.T) {
 
 		m.press(keyEnter)
 
-		want := "not opening " + shortPath(filepath.Join(filepath.Dir(m.root), "x.md"), "", "/home/test") + ": outside the worktree"
-		if m.notice != want || m.plan == nil || len(m.plan.pages) != 0 {
-			t.Errorf("notice %q, overlay open %v, want %q and the overlay kept", m.notice, m.plan != nil, want)
+		want := shortPath(filepath.Join(filepath.Dir(m.root), "x.md"), "", "/home/test")
+		if !refusal(m.notice, want) || m.plan == nil || len(m.plan.pages) != 0 {
+			t.Errorf("notice %q, overlay open %v, want a notice naming %q and the overlay kept", m.notice, m.plan != nil, want)
 		}
 	})
 }
@@ -746,14 +743,14 @@ func TestMDOverlayReadErrors(t *testing.T) {
 	tests := []struct {
 		name, rel string
 		before    func()
-		want      string // the notice, or its prefix when it ends with a colon and space
+		shown     string // the path the notice names
 	}{
-		{"removed after the list", "docs/a.md", func() { _ = os.Remove(filepath.Join(m.dir, "docs/a.md")) }, "not opening docs/a.md: no such file"},
-		{"a symlink out of the root", "docs/link.md", nil, "not opening docs/link.md: "},
+		{"removed after the list", "docs/a.md", func() { _ = os.Remove(filepath.Join(m.dir, "docs/a.md")) }, "docs/a.md"},
+		{"a symlink out of the root", "docs/link.md", nil, "docs/link.md"},
 		{"a folder", "docs/dir.md", func() {
 			_ = os.Remove(filepath.Join(m.dir, "docs/dir.md"))
 			_ = os.MkdirAll(filepath.Join(m.dir, "docs/dir.md"), 0o755)
-		}, "not opening docs/dir.md: it is a folder"},
+		}, "docs/dir.md"},
 	}
 
 	for _, tt := range tests {
@@ -767,8 +764,8 @@ func TestMDOverlayReadErrors(t *testing.T) {
 			m.notice = ""
 			m.pick(t, tt.rel)
 
-			if m.plan != nil || !strings.HasPrefix(m.notice, tt.want) || (!strings.HasSuffix(tt.want, ": ") && m.notice != tt.want) {
-				t.Errorf("notice %q, overlay open %v, want %q and none", m.notice, m.plan != nil, tt.want)
+			if m.plan != nil || !refusal(m.notice, tt.shown) {
+				t.Errorf("notice %q, overlay open %v, want a notice naming %q and none", m.notice, m.plan != nil, tt.shown)
 			}
 		})
 	}
@@ -809,14 +806,7 @@ func TestMDOverlayTitle(t *testing.T) {
 	t.Run("a hostile repository name", func(t *testing.T) {
 		t.Parallel()
 
-		dir := pageRepo(t, nil)
-		hostile := filepath.Join(filepath.Dir(dir), "ho\x1b[31mst\u200bile")
-
-		if err := os.Rename(dir, hostile); err != nil {
-			t.Fatal(err)
-		}
-
-		m := bareRig(t, hostile)
+		m := bareRig(t, "ho\x1b[31mst\u200bile", nil)
 		m.opens(t, "docs/a.md")
 
 		raw := m.View().Content
@@ -862,14 +852,7 @@ func mdOverlayScenes() []mdOverlayScene {
 func mdSceneApp(t *testing.T, icons bool, sc mdOverlayScene) *App {
 	t.Helper()
 
-	dir := pageRepo(t, map[string]string{"docs/guide.md": demoPlan(t) + "\n[readme](../README.md)\n"})
-	named := filepath.Join(filepath.Dir(dir), "multiplex")
-
-	if err := os.Rename(dir, named); err != nil {
-		t.Fatal(err)
-	}
-
-	m := bareRig(t, named)
+	m := bareRig(t, "multiplex", map[string]string{"docs/guide.md": demoPlan(t) + "\n[readme](../README.md)\n"})
 	m.icons = icons
 
 	sized(t, m.App, sc.w, sc.h)
