@@ -128,6 +128,7 @@ type Engine struct {
 	indexCache string
 	cache      *hunkCache
 	repos      repoCache // the repos Update opened, by worktree path
+	maxText    int       // bytes FileText reads per side
 }
 
 // EngineOptions configure NewEngine.
@@ -154,7 +155,7 @@ func NewEngine(o EngineOptions) *Engine {
 		l.Lines = d.Lines
 	}
 
-	return &Engine{limits: l, tempDir: o.TempDir, indexCache: o.IndexCache, cache: newHunkCache(cacheBytes)}
+	return &Engine{limits: l, tempDir: o.TempDir, indexCache: o.IndexCache, cache: newHunkCache(cacheBytes), maxText: maxFileText}
 }
 
 func (e *Engine) workingTree(ctx context.Context, r Repo) (WorkTree, error) {
@@ -361,18 +362,18 @@ func markUntracked(files []FileDiff, untracked []string) {
 // FileText returns the lines of both sides of f, read from the object database.
 // An empty id gives an empty side. A side over 8 MiB gives ErrTooLarge.
 func (e *Engine) FileText(ctx context.Context, worktree string, f FileDiff) (old, nw []string, err error) {
-	if old, err = blobLines(ctx, worktree, f.OldOID); err != nil {
+	if old, err = blobLines(ctx, worktree, f.OldOID, e.maxText); err != nil {
 		return nil, nil, fmt.Errorf("read old side of %s: %w", f.Path, err)
 	}
 
-	if nw, err = blobLines(ctx, worktree, f.NewOID); err != nil {
+	if nw, err = blobLines(ctx, worktree, f.NewOID, e.maxText); err != nil {
 		return nil, nil, fmt.Errorf("read new side of %s: %w", f.Path, err)
 	}
 
 	return old, nw, nil
 }
 
-func blobLines(ctx context.Context, worktree, oid string) ([]string, error) {
+func blobLines(ctx context.Context, worktree, oid string, limit int) ([]string, error) {
 	if oid == "" {
 		return nil, nil
 	}
@@ -381,7 +382,7 @@ func blobLines(ctx context.Context, worktree, oid string) ([]string, error) {
 		dir:   worktree,
 		args:  []string{"cat-file", "blob", oid},
 		read:  true,
-		limit: maxFileText,
+		limit: int64(limit),
 	})
 	if errors.Is(err, errLimit) {
 		return nil, ErrTooLarge

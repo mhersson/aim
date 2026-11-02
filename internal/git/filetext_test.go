@@ -57,8 +57,10 @@ func TestFileTextTooLarge(t *testing.T) {
 	t.Parallel()
 	dir := newRepo(t)
 	e := NewEngine(EngineOptions{})
-	big := hashBlob(t, dir, string(make([]byte, maxFileText+1)))
-	edge := hashBlob(t, dir, string(make([]byte, maxFileText)))
+	e.maxText = 64
+	big := hashBlob(t, dir, string(make([]byte, 65)))
+	edge := hashBlob(t, dir, string(make([]byte, 64)))
+	under := hashBlob(t, dir, string(make([]byte, 63)))
 	small := hashBlob(t, dir, "x\n")
 
 	tests := []struct {
@@ -69,6 +71,7 @@ func TestFileTextTooLarge(t *testing.T) {
 		{"old side over", FileDiff{OldOID: big, NewOID: small}, ErrTooLarge},
 		{"new side over", FileDiff{OldOID: small, NewOID: big}, ErrTooLarge},
 		{"exactly the limit", FileDiff{NewOID: edge}, nil},
+		{"one under the limit", FileDiff{NewOID: under}, nil},
 	}
 
 	for _, tt := range tests {

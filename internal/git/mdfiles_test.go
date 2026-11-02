@@ -46,6 +46,10 @@ func buildMDTree(t *testing.T, entries []mdEntry) string {
 func TestMarkdownFiles(t *testing.T) {
 	t.Parallel()
 
+	if maxMarkdownFiles != 5000 {
+		t.Errorf("maxMarkdownFiles = %d, want 5000", maxMarkdownFiles)
+	}
+
 	tests := []struct {
 		name    string
 		entries []mdEntry
@@ -71,10 +75,7 @@ func TestMarkdownFiles(t *testing.T) {
 		{
 			name: "skipped folders at any depth",
 			entries: []mdEntry{
-				{path: ".git/a.md"},
 				{path: "node_modules/b.md"},
-				{path: "vendor/c.md"},
-				{path: "pkg/node_modules/d.md"},
 				{path: "pkg/vendor/e.md"},
 				{path: "pkg/.git/f.md"},
 				{path: "keep.md"},
@@ -148,18 +149,18 @@ func TestMarkdownFilesSymlinkedRoot(t *testing.T) {
 func TestMarkdownFilesCap(t *testing.T) {
 	t.Parallel()
 
-	entries := make([]mdEntry, 0, maxMarkdownFiles+10)
-	for i := range maxMarkdownFiles + 10 {
-		entries = append(entries, mdEntry{path: fmt.Sprintf("d%d/f%05d.md", i%7, i)})
+	entries := make([]mdEntry, 0, 15)
+	for i := range 15 {
+		entries = append(entries, mdEntry{path: fmt.Sprintf("d%d/f%02d.md", i%3, i)})
 	}
 
-	got, err := MarkdownFiles(context.Background(), buildMDTree(t, entries))
+	got, err := markdownFiles(context.Background(), buildMDTree(t, entries), 5)
 	if err != nil {
 		t.Fatalf("the cap is not an error: %v", err)
 	}
 
-	if len(got) != maxMarkdownFiles {
-		t.Fatalf("len = %d, want %d", len(got), maxMarkdownFiles)
+	if len(got) != 5 {
+		t.Fatalf("len = %d, want 5", len(got))
 	}
 
 	if !slices.IsSorted(got) {

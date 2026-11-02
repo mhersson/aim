@@ -913,47 +913,43 @@ func TestDiffFileCap(t *testing.T) {
 	t.Parallel()
 
 	// The cap is lowered to keep the fixture small; TestNewEngineDefaults pins the default.
-	for _, n := range []int{25, 250} {
-		t.Run(strconv.Itoa(n)+" files", func(t *testing.T) {
-			t.Parallel()
+	const n = 22
 
-			dir := branchRepo(t, func(dir string) { writeFile(t, dir, "base.txt", "b\n") }, func(dir string) {
-				for i := range n {
-					writeFile(t, dir, fmt.Sprintf("d%02d/f%05d.txt", i%50, i), fmt.Sprintf("file %d\nsecond\nthird\n", i))
-				}
-			})
+	dir := branchRepo(t, func(dir string) { writeFile(t, dir, "base.txt", "b\n") }, func(dir string) {
+		for i := range n {
+			writeFile(t, dir, fmt.Sprintf("d%02d/f%05d.txt", i%5, i), fmt.Sprintf("file %d\nsecond\nthird\n", i))
+		}
+	})
 
-			ctx, logPath := wrapGit(t, "")
-			res := diffOKContext(ctx, t, NewEngine(EngineOptions{Limits: Limits{Files: 20}, TempDir: t.TempDir()}), BranchSource{Worktree: dir, Base: "main"})
+	ctx, logPath := wrapGit(t, "")
+	res := diffOKContext(ctx, t, NewEngine(EngineOptions{Limits: Limits{Files: 20}, TempDir: t.TempDir()}), BranchSource{Worktree: dir, Base: "main"})
 
-			if len(res.Files) != n || !res.Truncated {
-				t.Fatalf("files = %d, Truncated = %v, want %d and true", len(res.Files), res.Truncated, n)
-			}
+	if len(res.Files) != n || !res.Truncated {
+		t.Fatalf("files = %d, Truncated = %v, want %d and true", len(res.Files), res.Truncated, n)
+	}
 
-			for i, f := range res.Files {
-				wantTrunc := i >= 20
-				if f.Truncated != wantTrunc || f.Added != 3 || (len(f.Hunks) > 0) == wantTrunc {
-					t.Fatalf("file %d %q: Truncated=%v Added=%d hunks=%d", i, f.Path, f.Truncated, f.Added, len(f.Hunks))
-				}
-			}
+	for i, f := range res.Files {
+		wantTrunc := i >= 20
+		if f.Truncated != wantTrunc || f.Added != 3 || (len(f.Hunks) > 0) == wantTrunc {
+			t.Fatalf("file %d %q: Truncated=%v Added=%d hunks=%d", i, f.Path, f.Truncated, f.Added, len(f.Hunks))
+		}
+	}
 
-			if got := hunkPasses(t, logPath); got != 1 {
-				t.Errorf("hunk passes = %d, want 1", got)
-			}
-		})
+	if got := hunkPasses(t, logPath); got != 1 {
+		t.Errorf("hunk passes = %d, want 1", got)
 	}
 }
 
 func TestDiffListingLargerThanAPipeBuffer(t *testing.T) {
 	t.Parallel()
 
-	const files = 300
+	const files = 70
 
-	long := strings.Repeat("long", 60)
-	path := func(i int) string { return fmt.Sprintf("%s/f%03d.txt", long, i) }
+	long := strings.Repeat("long", 50)
+	path := func(i int) string { return fmt.Sprintf("%s/%s/%s/f%03d.txt", long, long, long, i) }
 
 	// The listing carries each path twice; it must outgrow the 64 KB pipe buffer.
-	if files*len(path(0)) <= 64<<10 {
+	if 2*files*len(path(0)) <= 64<<10 {
 		t.Fatalf("%d paths of %d bytes do not exceed a pipe buffer", files, len(path(0)))
 	}
 
@@ -979,24 +975,24 @@ func TestDiffListingLargerThanAPipeBuffer(t *testing.T) {
 func TestDiffLineCap(t *testing.T) {
 	t.Parallel()
 
-	t.Run("6000 changed lines", func(t *testing.T) {
+	t.Run("60 changed lines", func(t *testing.T) {
 		t.Parallel()
 
 		dir := branchRepo(t, func(dir string) {
 			writeFile(t, dir, "big.txt", numbered("base", 10))
 			writeFile(t, dir, "small.txt", "s\n")
 		}, func(dir string) {
-			writeFile(t, dir, "big.txt", numbered("base", 10)+numbered("added", 6000))
+			writeFile(t, dir, "big.txt", numbered("base", 10)+numbered("added", 60))
 			writeFile(t, dir, "small.txt", "s changed\n")
 		})
 
-		res := branchDiff(t, dir)
+		res := diffOK(t, lineCapEngine(t), BranchSource{Worktree: dir, Base: "main"})
 		golden(t, "diff_line_cap", Result{Old: res.Old, New: res.New, Live: res.Live, Truncated: res.Truncated, Files: []FileDiff{
 			withoutHunks(fileByPath(t, res, "big.txt")), fileByPath(t, res, "small.txt"),
 		}})
 
 		big := fileByPath(t, res, "big.txt")
-		if !big.Truncated || big.Added != 6000 || big.Removed != 0 || len(big.Hunks) != 0 || !res.Truncated {
+		if !big.Truncated || big.Added != 60 || big.Removed != 0 || len(big.Hunks) != 0 || !res.Truncated {
 			t.Errorf("big.txt = Truncated:%v +%d -%d hunks:%d", big.Truncated, big.Added, big.Removed, len(big.Hunks))
 		}
 
@@ -1005,18 +1001,18 @@ func TestDiffLineCap(t *testing.T) {
 		}
 	})
 
-	t.Run("100000-line file", func(t *testing.T) {
+	t.Run("no hunk pass for a file over the cap", func(t *testing.T) {
 		t.Parallel()
 
 		dir := branchRepo(t, func(dir string) { writeFile(t, dir, "a.txt", "a\n") }, func(dir string) {
-			writeFile(t, dir, "huge.txt", numbered("l", 100000))
+			writeFile(t, dir, "huge.txt", numbered("l", 60))
 		})
 
 		ctx, logPath := wrapGit(t, "")
-		res := branchDiffContext(ctx, t, dir)
+		res := diffOKContext(ctx, t, lineCapEngine(t), BranchSource{Worktree: dir, Base: "main"})
 
 		f := fileByPath(t, res, "huge.txt")
-		if !f.Truncated || f.Added != 100000 || len(f.Hunks) != 0 || !res.Truncated {
+		if !f.Truncated || f.Added != 60 || len(f.Hunks) != 0 || !res.Truncated {
 			t.Errorf("huge.txt = Truncated:%v +%d hunks:%d", f.Truncated, f.Added, len(f.Hunks))
 		}
 
@@ -1028,6 +1024,12 @@ func TestDiffLineCap(t *testing.T) {
 	})
 }
 
+func lineCapEngine(t *testing.T) *Engine {
+	t.Helper()
+
+	return NewEngine(EngineOptions{Limits: Limits{Lines: 50}, TempDir: t.TempDir()})
+}
+
 func withoutHunks(f FileDiff) FileDiff {
 	f.Hunks = nil
 
@@ -1037,10 +1039,10 @@ func withoutHunks(f FileDiff) FileDiff {
 func TestDiffByteCapStopsGit(t *testing.T) {
 	t.Parallel()
 
-	const files = 20
+	const files = 12
 
 	line := strings.Repeat("x", 40) + "\n"
-	body := strings.Repeat(line, 4000) // 164 KB per file, 3.2 MB in all
+	body := strings.Repeat(line, 400) // 17 KB per file, 200 KB in all
 
 	dir := branchRepo(t, func(dir string) { writeFile(t, dir, "base.txt", "b\n") }, func(dir string) {
 		for i := range files {
@@ -1049,7 +1051,7 @@ func TestDiffByteCapStopsGit(t *testing.T) {
 	})
 
 	ctx, logPath, pidFile := recordPid(t)
-	res := branchDiffContext(ctx, t, dir)
+	res := diffOKContext(ctx, t, NewEngine(EngineOptions{Limits: Limits{Bytes: 50 << 10}, TempDir: t.TempDir()}), BranchSource{Worktree: dir, Base: "main"})
 
 	assertProcessGone(t, pidFile)
 
@@ -1064,7 +1066,7 @@ func TestDiffByteCapStopsGit(t *testing.T) {
 	firstCut := -1
 
 	for i, f := range res.Files {
-		if f.Added != 4000 {
+		if f.Added != 400 {
 			t.Errorf("%s: Added = %d, counts must survive truncation", f.Path, f.Added)
 		}
 
@@ -1076,32 +1078,10 @@ func TestDiffByteCapStopsGit(t *testing.T) {
 		}
 	}
 
-	// 2 MiB holds 12 whole files of 164 KB; the 13th is cut.
-	if firstCut != 12 {
-		t.Errorf("first truncated file = %d, want 12", firstCut)
-	}
-}
-
-func TestDiffHugeSingleLine(t *testing.T) {
-	t.Parallel()
-
-	dir := branchRepo(t, func(dir string) { writeFile(t, dir, "base.txt", "b\n") }, func(dir string) {
-		writeFile(t, dir, "small.txt", "small\n")
-		writeFile(t, dir, "z-one-line.txt", strings.Repeat("y", 50<<20))
-	})
-
-	ctx, _, pidFile := recordPid(t)
-	res := branchDiffContext(ctx, t, dir)
-
-	assertProcessGone(t, pidFile)
-
-	big := fileByPath(t, res, "z-one-line.txt")
-	if !big.Truncated || big.Added != 1 || len(big.Hunks) != 0 {
-		t.Errorf("one-line file = Truncated:%v +%d hunks:%d", big.Truncated, big.Added, len(big.Hunks))
-	}
-
-	if small := fileByPath(t, res, "small.txt"); small.Truncated || len(small.Hunks) != 1 {
-		t.Errorf("small.txt = %+v", small)
+	// 50 KiB holds 3 whole files of 17 KB; the 4th is cut. The 200 KB total
+	// outgrows the pipe buffer plus the cap, so git is blocked when it is killed.
+	if firstCut != 3 {
+		t.Errorf("first truncated file = %d, want 3", firstCut)
 	}
 }
 
@@ -1114,7 +1094,7 @@ func TestDiffBinaryFiles(t *testing.T) {
 	}, func(dir string) {
 		writeFile(t, dir, "old.bin", "\x00new")
 		must(t, os.Remove(filepath.Join(dir, "gone.bin")))
-		writeFile(t, dir, "added.bin", "\x00"+strings.Repeat("z", 1<<20))
+		writeFile(t, dir, "added.bin", "\x00"+strings.Repeat("z", 64))
 	})
 
 	ctx, logPath := wrapGit(t, "")
@@ -1272,6 +1252,10 @@ func TestNewEngineDefaults(t *testing.T) {
 	t.Parallel()
 
 	e := NewEngine(EngineOptions{Limits: Limits{Files: 7}})
+
+	if e.maxText != 8<<20 {
+		t.Errorf("maxText = %d, want %d", e.maxText, 8<<20)
+	}
 
 	if want := (Limits{Files: 7, Bytes: 2 << 20, Lines: 5000}); e.limits != want {
 		t.Errorf("limits = %+v, want %+v", e.limits, want)

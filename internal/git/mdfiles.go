@@ -24,6 +24,10 @@ const maxMarkdownFiles = 5000
 // deadline passes mid-walk. An unreadable folder below root is skipped; an
 // unreadable root, a cancelled ctx and a deadline before any file are errors.
 func MarkdownFiles(ctx context.Context, root string) ([]string, error) {
+	return markdownFiles(ctx, root, maxMarkdownFiles)
+}
+
+func markdownFiles(ctx context.Context, root string, limit int) ([]string, error) {
 	var files []string
 
 	// WalkDir does not follow a root that is itself a symlink.
@@ -75,7 +79,7 @@ func MarkdownFiles(ctx context.Context, root string) ([]string, error) {
 		}
 
 		files = append(files, filepath.ToSlash(rel))
-		if len(files) >= maxMarkdownFiles {
+		if len(files) >= limit {
 			return fs.SkipAll
 		}
 
