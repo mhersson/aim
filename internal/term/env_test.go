@@ -34,6 +34,11 @@ func TestPaneEnv(t *testing.T) {
 			[]string{"AIM_OTHER=1", "TERM=xterm-256color", "COLORTERM=truecolor"},
 		},
 		{
+			"integration variables dropped",
+			[]string{"AIM_SHELL_DIR=/d", "AIM_ZDOTDIR=/z", "AIM_ENV=/e", "AIM_KEEP=1"},
+			[]string{"AIM_KEEP=1", "TERM=xterm-256color", "COLORTERM=truecolor"},
+		},
+		{
 			"similar names kept",
 			[]string{"TERMINFO=/x", "TMUX_FOO=1"},
 			[]string{"TERMINFO=/x", "TMUX_FOO=1", "TERM=xterm-256color", "COLORTERM=truecolor"},
@@ -80,12 +85,12 @@ func TestCommands(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sh := ShellCommand(lookup(tt.shell), "/work", nil)
+			sh := ShellCommand(lookup(tt.shell), Integration{}, "/work", nil)
 			if !slices.Equal(sh.Argv, tt.shArg) || sh.Dir != "/work" {
 				t.Errorf("ShellCommand = %+v", sh)
 			}
 
-			ag := AgentCommand(lookup(tt.shell), "/work", []string{"claude"}, nil)
+			ag := AgentCommand(lookup(tt.shell), Integration{}, "/work", []string{"claude"}, nil)
 			if !slices.Equal(ag.Argv, tt.agent) || ag.Dir != "/work" {
 				t.Errorf("AgentCommand = %+v", ag)
 			}
@@ -120,8 +125,8 @@ func TestCommandsExtraEnv(t *testing.T) {
 	extra := []string{"AIM_PANE=p2", "AIM_SOCK=/run/1.sock"}
 
 	for name, c := range map[string]Command{
-		"shell": ShellCommand(env, "/work", extra),
-		"agent": AgentCommand(env, "/work", []string{"claude"}, extra),
+		"shell": ShellCommand(env, Integration{}, "/work", extra),
+		"agent": AgentCommand(env, Integration{}, "/work", []string{"claude"}, extra),
 	} {
 		var panes []string
 
@@ -144,7 +149,7 @@ func TestCommandsExtraEnv(t *testing.T) {
 func TestAgentCommandArgumentsAreNotInTheScript(t *testing.T) {
 	env := func(string) string { return "/bin/sh" }
 	argv := []string{"claude", "--settings", "/tmp/a b/it's.json", "$(x)"}
-	c := AgentCommand(env, "/work", argv, nil)
+	c := AgentCommand(env, Integration{}, "/work", argv, nil)
 
 	want := append([]string{"/bin/sh", "-l", "-i", "-c", `"$@"; exec "$SHELL" -l`, "sh"}, argv...)
 	if !slices.Equal(c.Argv, want) {
@@ -174,7 +179,7 @@ func TestEditorCommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := EditorCommand(tt.env, "/work", tt.editor, tt.args, []string{"AIM_PANE=p2"})
+			c := EditorCommand(tt.env, Integration{}, "/work", tt.editor, tt.args, []string{"AIM_PANE=p2"})
 
 			wantSh := tt.env("SHELL")
 			if want := append([]string{wantSh, "-l", "-i", "-c"}, tt.want...); !slices.Equal(c.Argv, want) {
@@ -206,7 +211,7 @@ func TestEditorOnlyCommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := EditorOnlyCommand(func(string) string { return tt.sh }, "/work", "vi", []string{"/run/body.md"}, nil)
+			c := EditorOnlyCommand(func(string) string { return tt.sh }, Integration{}, "/work", "vi", []string{"/run/body.md"}, nil)
 
 			if want := append([]string{tt.sh, "-l", "-i", "-c"}, tt.want...); !slices.Equal(c.Argv, want) {
 				t.Errorf("Argv = %q, want %q", c.Argv, want)
@@ -262,7 +267,7 @@ func TestAgentCommandPinned(t *testing.T) {
 				return ""
 			}
 
-			c := AgentCommand(env, "/work", tt.argv, extra)
+			c := AgentCommand(env, Integration{}, "/work", tt.argv, extra)
 
 			if want := append([]string{tt.sh, "-l", "-i", "-c"}, tt.want...); !slices.Equal(c.Argv, want) {
 				t.Errorf("Argv = %q, want %q", c.Argv, want)
@@ -370,10 +375,10 @@ func TestCommandsPassArgumentsUntouched(t *testing.T) {
 						switch kind {
 						case "editor":
 							want = []string{"+3", value}
-							c = EditorCommand(env, dir, program, want, nil)
+							c = EditorCommand(env, Integration{}, dir, program, want, nil)
 						default:
 							want = []string{"--settings", value, "--resume", value}
-							c = AgentCommand(env, dir, append([]string{program}, want...), nil)
+							c = AgentCommand(env, Integration{}, dir, append([]string{program}, want...), nil)
 						}
 
 						shellOut := runToExit(t, c)

@@ -185,17 +185,17 @@ func (a *App) startPaneRunning(id core.PaneID, kind core.PaneKind, cwd string, c
 		env = append(env, "AIM_SOCK="+a.hookSock)
 	}
 
-	c := term.ShellCommand(a.getenv, cwd, env)
+	c := term.ShellCommand(a.getenv, a.shell, cwd, env)
 
 	switch {
 	case kind == core.KindAgent:
 		// Restored and restarted agents use the app's harness; a second harness
 		// must pass the pane's own (harness.ByID(Pane.Harness)).
-		c = term.AgentCommand(a.getenv, cwd, a.harness.Launch(a.hookSettings, resume), env)
+		c = term.AgentCommand(a.getenv, a.shell, cwd, a.harness.Launch(a.hookSettings, resume), env)
 	case run != nil && run.once:
-		c = term.EditorOnlyCommand(a.getenv, cwd, run.program, run.args, env)
+		c = term.EditorOnlyCommand(a.getenv, a.shell, cwd, run.program, run.args, env)
 	case run != nil:
-		c = term.EditorCommand(a.getenv, cwd, run.program, run.args, env)
+		c = term.EditorCommand(a.getenv, a.shell, cwd, run.program, run.args, env)
 	}
 
 	// On the update loop: user-initiated, fork/exec takes a millisecond or two, and State and the registry stay in step.

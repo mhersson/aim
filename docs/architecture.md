@@ -81,7 +81,8 @@ nothing, and anywhere else it closes the popover and goes no further.
   quoting is safe in every shell. The script ends in `exec "$SHELL" -l`, so
   leaving Claude leaves a shell.
 - Every pane gets `TERM=xterm-256color` and `COLORTERM=truecolor` and loses an
-  inherited `TMUX`, `TMUX_PANE`, `AIM_PANE` and `AIM_SOCK` (`term.PaneEnv`).
+  inherited `TMUX`, `TMUX_PANE`, `AIM_PANE`, `AIM_SOCK`, `AIM_SHELL_DIR`,
+  `AIM_ZDOTDIR` and `AIM_ENV` (`term.PaneEnv`).
 
 **Pane kind.** A pane is an agent while its terminal's foreground process
 group leader is `claude` (`internal/term/fg_linux.go`, `fg_darwin.go`), probed

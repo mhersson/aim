@@ -82,6 +82,9 @@ jobs:
         with:
           version: v2.15.0
 
+      - name: Install zsh and fish for the shell tests
+        run: sudo apt-get update -q && sudo apt-get install -y -q zsh fish
+
       # Every make check prerequisite except lint, which the step above ran.
       - name: make gates
         run: make build build-darwin fmt-check vet test-race tidy-check scan

@@ -151,7 +151,7 @@ func TestAgentCommandRunsArgvVerbatim(t *testing.T) {
 			// Absolute path: a login profile may reset PATH.
 			fake := filepath.Join(filepath.Dir(out), "bin", "claude")
 
-			c := AgentCommand(os.Getenv, dir, append([]string{fake}, args...), []string{"AIM_PANE=p7"})
+			c := AgentCommand(os.Getenv, Integration{}, dir, append([]string{fake}, args...), []string{"AIM_PANE=p7"})
 			startCommand(t, c)
 
 			raw := waitFile(t, filepath.Join(out, "args"))
@@ -192,7 +192,7 @@ func TestAgentCommandLeadsForeground(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			p := startCommand(t, AgentCommand(os.Getenv, t.TempDir(), []string{fake}, nil))
+			p := startCommand(t, AgentCommand(os.Getenv, Integration{}, t.TempDir(), []string{fake}, nil))
 
 			waitForeground(t, p, "claude")
 		})

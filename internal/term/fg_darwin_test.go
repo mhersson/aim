@@ -25,7 +25,7 @@ func TestForegroundSymlinkedAgent(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			p := startCommand(t, AgentCommand(os.Getenv, t.TempDir(), []string{link, "30"}, nil))
+			p := startCommand(t, AgentCommand(os.Getenv, Integration{}, t.TempDir(), []string{link, "30"}, nil))
 
 			waitForeground(t, p, "claude")
 

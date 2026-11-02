@@ -203,6 +203,29 @@ what to do about it. Skim it before your first commit each session.
   you intend, and read the golden diff before committing it: an unexpected
   change there is a bug.
 
+## Shell integration
+
+- The shell tests (`internal/term/shellinit_*_test.go`) run real shells on a
+  pty under a temporary `HOME` with every `XDG_*` dir under it and `ZDOTDIR`
+  and `ENV` unset, so no real startup file is ever read or written. The rig
+  drops any `PATH` dir that holds a `claude`, and the integration dir sits
+  under a path with a space. They use `t.Setenv`, so they are serial, and a
+  missing shell skips them.
+- The native installer's `.zshrc` line puts `~/.local/bin` first on PATH, and
+  a mise-style `precmd` hook puts its shims first on every prompt. Both land
+  ahead of AIM's `bin`, which is why zsh also gets a `claude` function and the
+  PATH entry is not enough alone.
+- An `/etc/zshenv` that sets `ZDOTDIR` defeats the zsh route: zsh reads the
+  user's files from there instead of AIM's `.zshenv`.
+- zsh runs its first-run setup when none of `.zshenv`, `.zprofile`, `.zshrc`
+  and `.zlogin` exists, and AIM's `ZDOTDIR` would hide that from it. So
+  `Integration.Zsh` is false then and zsh gets the wrapper on PATH only.
+- macOS `path_helper` (run from `/etc/zprofile`) moves inherited PATH entries
+  after the system ones, so the entry AIM put first does not stay first.
+- The `claude` function is written `function claude {`, not `claude() {`: with
+  an alias named `claude`, the alias expands inside the second form's
+  definition.
+
 ## Git and worktrees
 
 - Tests run with their package dir as the working directory, so in a checkout
