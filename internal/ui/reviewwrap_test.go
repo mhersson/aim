@@ -570,6 +570,15 @@ func TestWrappedSearchOncePerLine(t *testing.T) {
 	if r := v.rows[v.cursor]; r.line != 0 || r.part != 0 {
 		t.Fatalf("wrapped match: row %+v, want line 0 part 0", r)
 	}
+
+	// N goes back by lines too, landing on a line's first row.
+	for _, want := range []int{2, 0} {
+		press(a, keyRune('N'))
+
+		if r := v.rows[v.cursor]; r.line != want || r.part != 0 {
+			t.Fatalf("N: row %+v, want line %d part 0", r, want)
+		}
+	}
 }
 
 func TestWrappedFreshRows(t *testing.T) {

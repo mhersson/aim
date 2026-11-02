@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"cmp"
 	"path/filepath"
 	"slices"
 
@@ -53,6 +54,8 @@ var reviewKeys = []reviewKey{
 	{",", "review.turn.prev"},
 	{".", "review.turn.next"},
 	{"/", "review.search"},
+	{"n", "review.match.next"},
+	{"N", "review.match.prev"},
 	{"y", "review.copy"},
 	{"z", "review.zoom"},
 	{"w", "review.worktrees"},
@@ -92,6 +95,15 @@ func reviewCommands() []command {
 	page := func(d int) func(*App) tea.Cmd { return func(a *App) tea.Cmd { return a.reviewPage(d) } }
 	mode := func(m core.ReviewMode) func(*App) tea.Cmd { return func(a *App) tea.Cmd { return a.setReviewMode(m) } }
 	turn := func(d int) func(*App) tea.Cmd { return func(a *App) tea.Cmd { return a.stepReviewTurn(d) } }
+	match := func(d int) func(*App) tea.Cmd {
+		return func(a *App) tea.Cmd {
+			if _, v, ok := a.reviewActive(); ok {
+				a.reviewMatch(v, v.last, d)
+			}
+
+			return nil
+		}
+	}
 
 	cmds := []command{
 		cmd("review.toggle", "Review drawer", (*App).reviewToggle),
@@ -123,6 +135,8 @@ func reviewCommands() []command {
 		cmd("review.turn.prev", "Review: previous turn", turn(-1)),
 		cmd("review.turn.next", "Review: next turn", turn(1)),
 		cmd("review.search", "Review: search", (*App).reviewSearch),
+		cmd("review.match.next", "Review: next match", match(1)),
+		cmd("review.match.prev", "Review: previous match", match(-1)),
 		cmd("review.copy", "Review: copy the selection", (*App).reviewCopy),
 		cmd("review.zoom", "Review: zoom", (*App).reviewZoom),
 		cmd("review.worktrees", "Review: worktrees", (*App).openWorktrees),
@@ -264,13 +278,15 @@ func (a *App) drawerPaste(text string) {
 // reviewFind jumps to the next row holding the typed query and closes the
 // prompt; an empty query repeats the last one.
 func (a *App) reviewFind(v *reviewView) {
-	q := *v.search
+	q := cmp.Or(*v.search, v.last)
 	v.search = nil
 
-	if q == "" {
-		q = v.last
-	}
+	a.reviewMatch(v, q, 1)
+}
 
+// reviewMatch keeps q as the last search and moves to its next match, or its
+// previous one when dir is -1; a miss says so.
+func (a *App) reviewMatch(v *reviewView, q string, dir int) {
 	if q == "" {
 		return
 	}
@@ -278,7 +294,12 @@ func (a *App) reviewFind(v *reviewView) {
 	v.last = q
 
 	if _, p := a.activePage(); p != nil {
-		if !p.view.find(q) {
+		find := p.view.find
+		if dir < 0 {
+			find = p.view.findPrev
+		}
+
+		if !find(q) {
 			a.notice = noticeNotFound + q
 		}
 
@@ -287,7 +308,7 @@ func (a *App) reviewFind(v *reviewView) {
 		return
 	}
 
-	i, ok := searchRows(v.res, v.rows, v.cursor, q)
+	i, ok := searchRows(v.res, v.rows, v.cursor, dir, q)
 	if !ok {
 		a.notice = noticeNotFound + q
 

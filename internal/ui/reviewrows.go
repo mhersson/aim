@@ -690,21 +690,19 @@ func sameLine(h git.Hunk, r reviewRow, a rowAnchor) bool {
 	return false
 }
 
-// searchRows returns the first row after from whose text holds q, ignoring
-// case, wrapping around and ending on from itself. A file row's text is its
-// path, a hunk row's its header and section.
-func searchRows(res git.Result, rows []reviewRow, from int, q string) (int, bool) {
+// searchRows returns the first row after from, or before it when dir is -1,
+// whose text holds q, ignoring case, wrapping around and ending on from itself.
+// A file row's text is its path, a hunk row's its header and section.
+func searchRows(res git.Result, rows []reviewRow, from, dir int, q string) (int, bool) {
 	if q == "" || len(rows) == 0 {
 		return 0, false
 	}
 
 	q = strings.ToLower(q)
+	n := len(rows)
 
-	for k := 1; k <= len(rows); k++ {
-		i := (from + k) % len(rows)
-		if i < 0 {
-			i += len(rows)
-		}
+	for k := 1; k <= n; k++ {
+		i := ((from+dir*k)%n + n) % n
 
 		if rows[i].part > 0 {
 			continue

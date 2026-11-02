@@ -579,6 +579,45 @@ func TestMarkdownPageKeys(t *testing.T) {
 		}
 	})
 
+	t.Run("n and N", func(t *testing.T) {
+		m.dropPages(m.v)
+
+		p := m.openPage(t, "docs/a.md")
+		p.view.layout()
+
+		var hits []int
+
+		for i, l := range p.view.doc.text() {
+			if strings.Contains(strings.ToLower(l), "a") {
+				hits = append(hits, i)
+			}
+		}
+
+		if len(hits) < 3 {
+			t.Fatalf("lines %v hold a, want at least 3", hits)
+		}
+
+		m.press(keyRune('/'))
+		m.typeKeys("a")
+		m.press(keyEnter)
+
+		j := slices.Index(hits, p.view.cursor)
+		if j < 0 {
+			t.Fatalf("/a: cursor = %d, want one of the matches %v", p.view.cursor, hits)
+		}
+
+		for _, step := range []struct {
+			key rune
+			to  int
+		}{{'n', j + 1}, {'N', j}, {'N', j - 1}} {
+			m.press(keyRune(step.key))
+
+			if want := hits[(step.to+len(hits))%len(hits)]; p.view.cursor != want {
+				t.Errorf("%c: cursor = %d, want %d of the matches %v", step.key, p.view.cursor, want, hits)
+			}
+		}
+	})
+
 	t.Run("r reads the file again", func(t *testing.T) {
 		m.dropPages(m.v)
 

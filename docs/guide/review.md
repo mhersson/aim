@@ -70,7 +70,7 @@ To search the diff, press `/`, type, and press `enter`. The cursor jumps to the 
 | Delete the last character | `backspace` |
 | Close without searching | `esc` |
 
-A paste goes into the prompt. These keys are fixed. To find the next match, press `/` and `enter` with nothing typed: an empty search repeats the last one. When nothing matches, the notice is `not found: <query>`.
+A paste goes into the prompt. These keys are fixed. Pressing `enter` with nothing typed repeats the last search. After a search, `n` jumps to the next match and `N` to the previous one, wrapping round both ways; before the first search both do nothing. When nothing matches, the notice is `not found: <query>`.
 
 ## Reviewed hunks
 
