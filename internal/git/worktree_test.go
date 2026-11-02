@@ -551,3 +551,72 @@ func TestCreateWorktreeTracksNothing(t *testing.T) {
 		}
 	}
 }
+
+func TestListWorktreesThroughSymlinkedPaths(t *testing.T) {
+	t.Parallel()
+	dir, _ := seededRepo(t)
+
+	tmp := resolvedTemp(t)
+	realParent := filepath.Join(tmp, "real")
+	linkParent := filepath.Join(tmp, "link")
+
+	if err := os.Mkdir(realParent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Symlink(realParent, linkParent); err != nil {
+		t.Fatal(err)
+	}
+
+	gitOut(t, dir, "worktree", "add", "-q", "-b", "viaLink", filepath.Join(linkParent, "wt"))
+
+	linkedRepo := filepath.Join(tmp, "repolink")
+	if err := os.Symlink(dir, linkedRepo); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := Open(t.Context(), linkedRepo)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ListWorktrees(t.Context(), r)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	found := false
+
+	for _, w := range got {
+		if w.Branch == "viaLink" {
+			found = true
+
+			if w.Path != filepath.Join(realParent, "wt") {
+				t.Errorf("path = %s, want the resolved %s", w.Path, filepath.Join(realParent, "wt"))
+			}
+		}
+	}
+
+	if !found || len(got) != 2 {
+		t.Errorf("worktrees = %+v, want main and viaLink", got)
+	}
+}
+
+func TestCreateWorktreeBaseWithBidiOverride(t *testing.T) {
+	t.Parallel()
+	dir, r := seededRepo(t)
+
+	base := "re" + string(rune(0x202e)) + "lease"
+	gitOut(t, dir, "branch", base)
+	writeFile(t, dir, "b.txt", "b\n")
+	commitAll(t, dir, "second")
+
+	got, err := CreateWorktree(t.Context(), r, NewWorktree{Branch: "fix", Base: base, Root: RootInside})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if gitOut(t, got.Worktree.Path, "rev-parse", "HEAD") != gitOut(t, dir, "rev-parse", "refs/heads/"+base) {
+		t.Error("branch did not start at the base")
+	}
+}
