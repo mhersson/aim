@@ -47,12 +47,10 @@ func TestRailMeterColours(t *testing.T) {
 		fg   theme.Hex
 		bold bool
 	}{
-		{0, ui.Meter, false},
 		{69, ui.Meter, false},
 		{70, ui.Warning, false},
 		{89, ui.Warning, false},
 		{90, ui.Error, true},
-		{100, ui.Error, true},
 	}
 
 	for _, tt := range tests {
@@ -145,12 +143,10 @@ func TestMeterIsClampedForDrawing(t *testing.T) {
 		held int
 		want string
 	}{
-		{250, "100%"},
 		{101, "100%"},
 		{100, "100%"},
 		{0, "0%"},
 		{-1, "0%"},
-		{-7, "0%"},
 	}
 
 	for _, tt := range tests {

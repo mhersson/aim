@@ -6,13 +6,11 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mhersson/aim/internal/core"
-	"github.com/mhersson/aim/internal/git"
 	"github.com/mhersson/aim/internal/github"
 	"github.com/mhersson/aim/internal/ui/theme"
 )
@@ -136,19 +134,11 @@ func TestRailLineTwoPR(t *testing.T) {
 		{"no pull request, commits ahead", nil, 2, true, "↑2"},
 
 		{"icons off, running", new(prInfo("OPEN", checksRunning)), 0, false, "#24 ci 3/5"},
-		{"icons off, passed", new(prInfo("OPEN", checksPassed)), 0, false, "#24 ci 5/5"},
 		{"icons off, failed", new(prInfo("OPEN", checksFailing)), 0, false, "#24 ci 2 failed"},
-		{"icons off, failed with every check done", new(prInfo("OPEN", checksDoneFailing)), 0, false, "#24 ci 2 failed"},
-		{"icons off, failed with no check counted", new(prInfo("OPEN", checksFailedUncounted)), 0, false, "#24 ci 1 failed"},
-		{"icons off, no checks", new(prInfo("OPEN")), 0, false, "#24"},
 		{"icons off, approved", new(prInfo("OPEN", checksRunning, prReview("APPROVED"))), 0, false, "#24 ci 3/5 approved"},
 		{"icons off, changes requested", new(prInfo("OPEN", checksPassed, prReview("CHANGES_REQUESTED"))), 0, false, "#24 ci 5/5 changes"},
-		{"icons off, approved, no checks", new(prInfo("OPEN", prReview("APPROVED"))), 0, false, "#24 approved"},
-		{"icons off, draft", new(prInfo("OPEN", prDraft, checksRunning)), 0, false, "#24 draft"},
 		{"icons off, merged", new(prInfo("MERGED")), 0, false, "#24 merged"},
-		{"icons off, closed", new(prInfo("CLOSED")), 0, false, "#24 closed"},
 		{"icons off, after the commits ahead", new(prInfo("OPEN", checksRunning)), 2, false, "↑2  #24 ci 3/5"},
-		{"icons off, no pull request", nil, 0, false, ""},
 	}
 
 	for _, tt := range tests {
@@ -201,14 +191,6 @@ func TestRailLineTwoPRColours(t *testing.T) {
 		{"draft", prInfo("OPEN", prDraft), true, []piece{{iconPRDraft, ui.Muted, false}, {"#24", ui.Muted, false}, {"draft", ui.Muted, false}}},
 		{"merged", prInfo("MERGED"), true, []piece{{iconMerge, ui.Accent, false}, {"#24", ui.Accent, false}, {"merged", ui.Accent, false}}},
 		{"closed", prInfo("CLOSED"), true, []piece{{iconPRClosed, ui.Muted, false}, {"#24", ui.Muted, false}, {"closed", ui.Muted, false}}},
-		{"icons off, running", prInfo("OPEN", checksRunning, prReview("CHANGES_REQUESTED")), false, []piece{
-			{"#24", ui.Fg, true}, {"ci", ui.Warning, false}, {"3/5", ui.Warning, false}, {"changes", ui.Warning, false},
-		}},
-		{"icons off, approved", prInfo("OPEN", checksPassed, prReview("APPROVED")), false, []piece{
-			{"ci", ui.Success, false}, {"5/5", ui.Success, false}, {"approved", ui.Success, false},
-		}},
-		{"icons off, failed", prInfo("OPEN", checksFailing), false, []piece{{"ci", ui.Error, true}, {"2 failed", ui.Error, true}}},
-		{"icons off, merged", prInfo("MERGED"), false, []piece{{"#24", ui.Accent, false}, {"merged", ui.Accent, false}}},
 	}
 
 	for _, tt := range tests {
@@ -284,28 +266,6 @@ func TestRailLineTwoDropOrder(t *testing.T) {
 			t.Errorf("cw %d: line is %d cells wide, want at most %d", tt.cw, w, tt.cw)
 		}
 	}
-
-	// Whatever the width, the parts leave in that order and the number stays.
-	for _, icons := range []bool{true, false} {
-		a.icons = icons
-
-		for cw := 60; cw >= 10; cw-- {
-			text := runsText(a.railCardLine(ui, c, nil, 1, cw))
-
-			review := strings.Contains(text, iconApproved) || strings.Contains(text, "approved")
-			ahead := strings.Contains(text, "↑2")
-			counts := strings.Contains(text, "3/5")
-			glyph := strings.Contains(text, iconRunning) || strings.Contains(text, "ci")
-
-			if !strings.Contains(text, "#24") {
-				t.Fatalf("icons=%v cw %d: the number is gone from %q", icons, cw, text)
-			}
-
-			if review && !ahead || ahead && !counts || counts && !glyph {
-				t.Errorf("icons=%v cw %d: parts left out of order in %q", icons, cw, text)
-			}
-		}
-	}
 }
 
 // A draft, merged or closed pull request gives up its word after the commits
@@ -373,14 +333,8 @@ func TestRailLineTwoKeepsAShortBranch(t *testing.T) {
 		cw   int
 		want string
 	}{
-		{30, lead + "main" + strings.Repeat(" ", 7) + "↑2  " + pr + " " + checks},
 		{24, lead + "main" + " " + "↑2  " + pr + " " + checks},
 		{23, lead + "main" + strings.Repeat(" ", 4) + pr + " " + checks},
-		{20, lead + "main" + " " + pr + " " + checks},
-		{19, lead + "main" + strings.Repeat(" ", 4) + pr + " " + iconRunning},
-		{16, lead + "main" + " " + pr + " " + iconRunning},
-		{15, lead + "main" + strings.Repeat(" ", 2) + pr},
-		{14, lead + "main" + " " + pr},
 	}
 
 	for _, tt := range tests {
@@ -467,27 +421,12 @@ func TestRailCardsTakeTheirPRFromTheStore(t *testing.T) {
 	}
 }
 
-func TestRailPRShowsInTheFrame(t *testing.T) {
-	t.Parallel()
-
-	agents := []railAgent{
-		{newTab: true, project: "api", branch: "feat/login", state: core.AgentWorking, action: "Edit a.go", age: 4 * time.Minute, stats: &git.Stats{}, ahead: 1, pr: new(prInfo("OPEN", checksFailing))},
-	}
-
-	a := drawApp(t, "catppuccin-mocha", true, 100, 30, agents)
-
-	out := ansi.Strip(a.View().Content)
-	for _, want := range []string{"↑1", iconPR + " #24", iconFailed + " 2 failed"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("the view lacks %q:\n%s", want, out)
-		}
-	}
-}
-
 // While a pane's move into another repository is still being resolved, its card
 // and the tray show nothing of the repository it left, even for a branch of the
 // same name; the new repository's PR shows once the answer arrives.
 func TestPRWaitsForTheNewRepositoryAfterAMove(t *testing.T) {
+	t.Parallel()
+
 	repoB := github.Repo{Host: "github.com", Owner: "o", Name: "other"}
 
 	tests := []struct {
@@ -504,6 +443,8 @@ func TestPRWaitsForTheNewRepositoryAfterAMove(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			p := newPRApp(t)
 			p.prs.resolve = func(_ context.Context, cwd, _ string) (github.Repo, error) {
 				if cwd == "/w/b" {

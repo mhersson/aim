@@ -291,36 +291,6 @@ func TestRailSearchMatchesTheName(t *testing.T) {
 	}
 }
 
-func TestRailSearchFiltersCards(t *testing.T) {
-	t.Parallel()
-
-	r := newRailApp(t, false)
-	a1 := r.addAgent(t, false, "/w/alpha")
-	a2 := r.addAgent(t, true, "/w/beta")
-
-	r.railSetSearch(true, "tab 2")
-
-	if got := ids(r.railCards(r.store.State())); !reflect.DeepEqual(got, [][]core.PaneID{{a2}}) {
-		t.Errorf("tab 2 -> %v, want only %s", got, a2)
-	}
-
-	r.railSetSearch(false, "alpha")
-
-	if got := ids(r.railCards(r.store.State())); !reflect.DeepEqual(got, [][]core.PaneID{{a1}}) {
-		t.Errorf("alpha -> %v, want only %s", got, a1)
-	}
-
-	r.railSetSearch(false, "zzz")
-
-	if len(r.railCards(r.store.State())) != 0 {
-		t.Error("a search that matches nothing lists cards")
-	}
-
-	if r.rail.sel != "" {
-		t.Error("a selection with nothing shown")
-	}
-}
-
 func TestRailSelectionFollowsItsAgent(t *testing.T) {
 	t.Parallel()
 

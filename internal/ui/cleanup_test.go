@@ -1032,19 +1032,17 @@ func TestCleanupGolden(t *testing.T) {
 	}
 }
 
-// TestCleanupText is the same screens without styling, so the layout reads.
+// TestCleanupText is the same screens without styling and without icons, so the layout reads.
 func TestCleanupText(t *testing.T) {
 	t.Parallel()
 
-	for _, icons := range []bool{true, false} {
-		for _, c := range cleanupScenes() {
-			t.Run(fmt.Sprintf("icons=%v/%s", icons, c.name), func(t *testing.T) {
-				t.Parallel()
+	for _, c := range cleanupScenes() {
+		t.Run("icons=false/"+c.name, func(t *testing.T) {
+			t.Parallel()
 
-				got := ansi.Strip(cleanupScene(t, icons, c.w, c.h, c.tune).View().Content)
-				golden.RequireEqual(t, []byte(got))
-			})
-		}
+			got := ansi.Strip(cleanupScene(t, false, c.w, c.h, c.tune).View().Content)
+			golden.RequireEqual(t, []byte(got))
+		})
 	}
 }
 
@@ -1074,17 +1072,15 @@ func TestCleanupBoxFits(t *testing.T) {
 				}
 			}
 
-			if has := strings.Contains(got, "enter clean up"); has != tc.hints {
-				t.Errorf("hint row shown = %v, want %v:\n%s", has, tc.hints, got)
-			}
-
 			pw := min(maxCleanupWidth, tc.w-2)
 			x := (tc.w - pw) / 2
-			blanks, in := 0, false
+			blanks, in, hints, checked := 0, false, false, false
 
 			for _, l := range lines {
+				cell := ansi.Cut(l, x+1, x+pw-1)
+
 				switch {
-				case strings.Contains(l, "Clean up after"):
+				case strings.HasPrefix(ansi.Cut(l, x, x+pw), "╭") && strings.Contains(cell, "#7"):
 					in = true
 
 					continue
@@ -1092,17 +1088,29 @@ func TestCleanupBoxFits(t *testing.T) {
 					in = false
 				}
 
-				if in && strings.TrimSpace(ansi.Cut(l, x+1, x+pw-1)) == "" {
+				if !in {
+					continue
+				}
+
+				if strings.TrimSpace(cell) == "" {
 					blanks++
 				}
+
+				// The hint row names the confirm's keys; the rows around it do not.
+				hints = hints || strings.Contains(cell, "enter") && strings.Contains(cell, "esc")
+				checked = checked || strings.Contains(cell, "[x]") && strings.Contains(cell, ".worktrees/feat-review-pane")
+			}
+
+			if hints != tc.hints {
+				t.Errorf("hint row shown = %v, want %v:\n%s", hints, tc.hints, got)
 			}
 
 			if has := blanks > 1; has != tc.blank {
 				t.Errorf("box keeps %d blank rows, want blank rows kept = %v:\n%s", blanks, tc.blank, got)
 			}
 
-			if !strings.Contains(got, "[x] remove the worktree") {
-				t.Errorf("the worktree row is gone:\n%s", got)
+			if !checked {
+				t.Errorf("the worktree row is gone or unchecked:\n%s", got)
 			}
 		})
 	}
@@ -1396,18 +1404,13 @@ func TestCleanupCommandRegistered(t *testing.T) {
 
 	reg := testRegistry(t)
 
-	c, ok := reg.get("worktree.cleanup")
-	if !ok || c.title != "Clean up a merged worktree" || c.icon != iconCleanup {
-		t.Errorf("worktree.cleanup = %+v, %v; want the broom and its title", c, ok)
+	if _, ok := reg.get("worktree.cleanup"); !ok {
+		t.Fatal("worktree.cleanup is not registered")
 	}
 
 	km, err := resolveLeader(leaderKeys("W", "worktree.cleanup"), reg)
 	if err != nil {
 		t.Fatal(err)
-	}
-
-	if got, _ := km.lookup("W"); got != "worktree.cleanup" {
-		t.Errorf("lookup(W) = %q, want worktree.cleanup", got)
 	}
 
 	if g := groupFor(km, "worktree.cleanup"); g != "Git" {

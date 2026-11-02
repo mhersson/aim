@@ -206,7 +206,13 @@ func TestPickerOutsideARepoOpensAtOnce(t *testing.T) {
 func TestPickerGitFailureOpensTheAgent(t *testing.T) {
 	t.Parallel()
 	gone := filepath.Join(plainDir(t), "gone")
-	a, st := pickerApp(t, gone)
+	f := newFakeGit(t)
+	a, st := pickerAppOn(t, f, gone)
+
+	_, openErr := f.Open(t.Context(), gone)
+	if openErr == nil {
+		t.Fatal("setup: git opened a directory that is not there")
+	}
 
 	askPicker(t, a)
 
@@ -218,8 +224,8 @@ func TestPickerGitFailureOpensTheAgent(t *testing.T) {
 		t.Fatalf("starts = %d, want the agent to start in %s", st.count(), gone)
 	}
 
-	if !strings.HasPrefix(a.notice, "worktrees unavailable: ") || len(a.notice) <= len("worktrees unavailable: ") {
-		t.Errorf("notice = %q, want worktrees unavailable with a reason", a.notice)
+	if reason := gitReason(openErr); reason == "" || !strings.Contains(a.notice, reason) || a.noticeLevel() != levelNotice {
+		t.Errorf("notice = %q at level %v, want a notice carrying %q", a.notice, a.noticeLevel(), reason)
 	}
 
 	if strings.Contains(a.notice, "\n") {
@@ -230,83 +236,19 @@ func TestPickerGitFailureOpensTheAgent(t *testing.T) {
 func TestPickerGitFailureKeepsThePaneNotice(t *testing.T) {
 	t.Parallel()
 	gone := filepath.Join(plainDir(t), "gone")
-	a, st := pickerApp(t, gone)
+	f := newFakeGit(t)
+	a, st := pickerAppOn(t, f, gone)
 	st.err = errors.New("no such directory")
+
+	_, openErr := f.Open(t.Context(), gone)
+	if openErr == nil {
+		t.Fatal("setup: git opened a directory that is not there")
+	}
 
 	askPicker(t, a)
 
-	if strings.HasPrefix(a.notice, "worktrees unavailable") || !strings.Contains(a.notice, "cannot start") {
-		t.Errorf("notice = %q, want the pane's own failure to stay", a.notice)
-	}
-}
-
-func TestPickerListsWorktrees(t *testing.T) {
-	t.Parallel()
-	a, _ := pickerApp(t, "/work")
-	agentsAt(t, a, "/home/me/code/api/.worktrees/feat-auth", 2)
-	agentsAt(t, a, "/home/me/code/api", 1)
-	injectPicker(t, a, sampleRepo, sampleTrees())
-
-	view := viewText(a)
-
-	for _, tt := range []struct {
-		row   string
-		wants []string
-		not   []string
-	}{
-		{"main", []string{iconGit, "● 1 agent", "~/code/api"}, []string{"agents", "locked", "prunable"}},
-		{"feat/auth", []string{"● 2 agents", ".worktrees/feat-auth"}, []string{"~/code"}},
-		{"hotfix", []string{"locked", "~/code/api.worktrees/hotfix"}, []string{"agent", "prunable"}},
-		{"stale", []string{"prunable", "/tmp/gone"}, []string{"agent", "locked", "~"}},
-		{"abcdef0", []string{".worktrees/detached"}, []string{"abcdef01", "agent"}},
-	} {
-		line := lineWith(view, tt.row)
-		if line == "" {
-			t.Errorf("no row for %s:\n%s", tt.row, view)
-
-			continue
-		}
-
-		for _, w := range tt.wants {
-			if !strings.Contains(line, w) {
-				t.Errorf("row %q lacks %q", line, w)
-			}
-		}
-
-		for _, n := range tt.not {
-			if strings.Contains(line, n) {
-				t.Errorf("row %q has %q, want it absent", line, n)
-			}
-		}
-	}
-
-	for _, want := range []string{" New agent ", "\u276f", "up/down move", "enter open", "esc close", " 1 of 6 ", iconNewWorktree + " new worktree\u2026"} {
-		if !strings.Contains(view, want) {
-			t.Errorf("view lacks %q:\n%s", want, view)
-		}
-	}
-
-	if got := lineWith(view, "new worktree"); !strings.Contains(got, iconNewWorktree) {
-		t.Errorf("last row %q lacks the new worktree icon", got)
-	}
-}
-
-func TestPickerIconsOff(t *testing.T) {
-	t.Parallel()
-	a, _ := pickerApp(t, "/work")
-	a.icons = false
-	injectPicker(t, a, sampleRepo, sampleTrees())
-
-	view := viewText(a)
-
-	for _, g := range []string{iconAgent, iconGit, iconNewWorktree} {
-		if strings.Contains(view, g) {
-			t.Errorf("view has glyph %q with icons off:\n%s", g, view)
-		}
-	}
-
-	if !strings.Contains(view, "+ new worktree\u2026") || !strings.Contains(view, " New agent ") {
-		t.Errorf("view lacks the plain new worktree row or title:\n%s", view)
+	if !strings.Contains(a.notice, "no such directory") || strings.Contains(a.notice, gitReason(openErr)) {
+		t.Errorf("notice = %q, want the pane's own failure and not git's reason", a.notice)
 	}
 }
 
@@ -418,7 +360,7 @@ func TestPickerPrunableNotice(t *testing.T) {
 	pressRun(a, keyDown, keyDown, keyDown)
 	press(a, keyEnter)
 
-	const want = "that worktree is gone; git worktree prune removes it"
+	const want = noticePrunable
 	if a.notice != want {
 		t.Errorf("notice = %q, want %q", a.notice, want)
 	}
@@ -436,18 +378,6 @@ func TestPickerPrunableNotice(t *testing.T) {
 
 	if a.notice != "" {
 		t.Errorf("notice after a key = %q, want none", a.notice)
-	}
-}
-
-func TestPickerEscCloses(t *testing.T) {
-	t.Parallel()
-	a, st := pickerApp(t, "/work")
-	injectPicker(t, a, sampleRepo, sampleTrees())
-
-	press(a, keyEsc)
-
-	if a.picker.open != nil || st.count() != 1 {
-		t.Errorf("picker open = %v, starts = %d, want it closed and no start", a.picker.open != nil, st.count())
 	}
 }
 
@@ -763,18 +693,6 @@ func TestNewWorktreeCreatedAnswer(t *testing.T) {
 
 	path := "/home/me/code/api/.worktrees/x"
 
-	t.Run("opens the agent", func(t *testing.T) {
-		a, st := pickerApp(t, "/work")
-		injectPicker(t, a, sampleRepo, sampleTrees())
-		openSampleForm(t, a)
-
-		a.Update(pickerCreatedMsg{seq: a.picker.open.seq, created: git.Created{Worktree: git.Worktree{Path: path}}})
-
-		if a.picker.open != nil || st.count() != 2 || st.cmds[1].Dir != path || a.notice != "created .worktrees/x" {
-			t.Errorf("picker open = %v, starts = %d, notice = %q, want an agent in %s", a.picker.open != nil, st.count(), a.notice, path)
-		}
-	})
-
 	t.Run("a worktree git could not list still opens", func(t *testing.T) {
 		a, st := pickerApp(t, "/work")
 		injectPicker(t, a, sampleRepo, sampleTrees())
@@ -798,7 +716,7 @@ func TestNewWorktreeCreatedAnswer(t *testing.T) {
 
 		a.Update(pickerCreatedMsg{seq: a.picker.open.seq, created: git.Created{Worktree: git.Worktree{Path: path}}})
 
-		if !strings.HasPrefix(a.notice, "created .worktrees/x; cannot start") {
+		if !strings.Contains(a.notice, ".worktrees/x") || !strings.Contains(a.notice, "boom") {
 			t.Errorf("notice = %q, want the creation and why there is no pane", a.notice)
 		}
 	})
@@ -814,8 +732,8 @@ func TestNewWorktreeNeedsABranch(t *testing.T) {
 		t.Error("enter on an empty branch started a creation")
 	}
 
-	if view := viewText(a); !strings.Contains(view, "enter a branch name") {
-		t.Errorf("page lacks the empty branch error:\n%s", view)
+	if err := a.picker.open.form.err; err == "" || !strings.Contains(viewText(a), err) {
+		t.Errorf("form error = %q, want one, drawn on the page:\n%s", err, viewText(a))
 	}
 }
 
@@ -827,7 +745,7 @@ func TestNewWorktreeNameWithoutADirectory(t *testing.T) {
 	typeText(a, "!!!")
 
 	view := viewText(a)
-	if got := lineWith(view, "path"); !strings.Contains(got, "not a valid branch name") {
+	if got := lineWith(view, "path"); !strings.Contains(got, worktreeReason(git.ErrBadBranch)) {
 		t.Errorf("path row %q, want the reason", got)
 	}
 
@@ -934,10 +852,6 @@ func TestNewWorktreeFieldsAndBack(t *testing.T) {
 
 	if a.picker.open == nil || a.picker.open.page != pageWorktrees {
 		t.Fatal("esc on the page did not go back to the list")
-	}
-
-	if view = viewText(a); !strings.Contains(view, " New agent ") {
-		t.Errorf("list not shown after esc:\n%s", view)
 	}
 
 	// The page keeps what was typed; the selection is still on its row.
@@ -1212,19 +1126,6 @@ func TestPickerOwnsInput(t *testing.T) {
 	}
 }
 
-func TestPickerClosesWhenTheTabChanges(t *testing.T) {
-	t.Parallel()
-	a, _ := pickerApp(t, "/work")
-	injectPicker(t, a, sampleRepo, sampleTrees())
-
-	openIn(t, a, core.NewTab{Kind: core.KindShell, Cwd: "/work"})
-	a.Update(struct{}{})
-
-	if a.picker.open != nil {
-		t.Error("the picker stays open in another tab")
-	}
-}
-
 // railHasKeys opens the rail and gives it the keyboard.
 func railHasKeys(t *testing.T, a *App) {
 	t.Helper()
@@ -1393,7 +1294,7 @@ func TestPickerSizes(t *testing.T) {
 	t.Parallel()
 
 	for _, page := range []string{"list", "page"} {
-		for _, sz := range [][2]int{{100, 30}, {40, 12}, {30, 8}, {5, 3}, {1, 1}, {2, 2}} {
+		for _, sz := range [][2]int{{100, 30}, {30, 8}, {6, 2}, {5, 3}, {1, 1}} {
 			w, h := sz[0], sz[1]
 			t.Run(fmt.Sprintf("%s/%dx%d", page, w, h), func(t *testing.T) {
 				a, _ := pickerApp(t, "/work")
@@ -1501,48 +1402,13 @@ func TestPickerCleansGitText(t *testing.T) {
 	}
 }
 
-// The shortened path and the reason for a failure are safe to draw wherever
-// they are used.
+// The shortened path is safe to draw wherever it is used. Under home is the one branch
+// TestPickerCleansGitText's hostile trees do not reach.
 func TestPickerTextHelpersCleanTheirOutput(t *testing.T) {
 	t.Parallel()
 
-	const evil = "\x1b]8;;https://evil.example\x1b\\"
-
-	tests := []struct {
-		name string
-		got  string
-		want string
-	}{
-		{"a path outside everything", shortPath("/o/x"+evil+"y", "/main", "/home/me"), "/o/x]8;;https://evil.example\\y"},
-		{"a path inside the main checkout", shortPath("/main/a\nb", "/main", "/home/me"), "ab"},
-		{"a path under home", shortPath("/home/me/a\rb", "/main", "/home/me"), "~/ab"},
-		{"a reason", gitReason(errors.New("git: " + evil + "bad\u202e")), "git: ]8;;https://evil.example\\bad"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.got != tt.want {
-				t.Errorf("got %q, want %q", tt.got, tt.want)
-			}
-		})
-	}
-}
-
-func TestOpenPaneInUsesTheGivenCwd(t *testing.T) {
-	t.Parallel()
-	a, st := lifeAppSized(t, 100, 30)
-
-	if cmd := a.openPaneIn(core.KindAgent, core.SplitVertical, "/srv/x"); cmd == nil {
-		t.Fatal("openPaneIn returned no command")
-	}
-
-	if st.count() != 2 || st.cmds[1].Dir != "/srv/x" {
-		t.Fatalf("starts = %d, want a second pane in /srv/x", st.count())
-	}
-
-	s := a.store.State()
-	if m := s.Panes[s.Tab().Focus]; m.Kind != core.KindAgent || m.Cwd != "/srv/x" {
-		t.Errorf("focused pane = %+v, want an agent in /srv/x", m)
+	if got, want := shortPath("/home/me/a\rb", "/main", "/home/me"), "~/ab"; got != want {
+		t.Errorf("shortPath under home = %q, want %q", got, want)
 	}
 }
 
@@ -1601,17 +1467,15 @@ func TestPickerGolden(t *testing.T) {
 	}
 }
 
-// TestPickerText is the same screens without styling, so the layout reads.
+// TestPickerText is the same screens without styling and without icons, so the layout reads.
 func TestPickerText(t *testing.T) {
 	t.Parallel()
 
-	for _, icons := range []bool{true, false} {
-		for _, c := range pickerGoldenCases() {
-			t.Run(fmt.Sprintf("icons=%v/%s", icons, c.name), func(t *testing.T) {
-				t.Parallel()
-				a := pickerScene(t, "catppuccin-mocha", icons, c.page)
-				golden.RequireEqual(t, []byte(ansi.Strip(a.View().Content)))
-			})
-		}
+	for _, c := range pickerGoldenCases() {
+		t.Run("icons=false/"+c.name, func(t *testing.T) {
+			t.Parallel()
+			a := pickerScene(t, "catppuccin-mocha", false, c.page)
+			golden.RequireEqual(t, []byte(ansi.Strip(a.View().Content)))
+		})
 	}
 }

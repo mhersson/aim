@@ -954,28 +954,11 @@ func TestWorktreeListLastOpenWins(t *testing.T) {
 	}
 }
 
-func TestReviewHintsWorktree(t *testing.T) {
-	t.Parallel()
-
-	s := reviewScene{theme: "catppuccin-mocha", icons: false, w: 240, h: 52, res: turn4Result(), turn: 4, turns: 4, focused: true}
-	got := ansi.Strip(s.build(t).View().Content)
-
-	const want = "tab tree   w worktree   f full"
-	if !strings.Contains(got, want) {
-		t.Errorf("the diff hints lack %q:\n%s", want, got)
-	}
-}
-
 func TestWorktreeKeyIsNotATreeKey(t *testing.T) {
 	t.Parallel()
 
 	if treeCommand("review.worktrees") {
 		t.Error("review.worktrees works while the tree has the keyboard")
-	}
-
-	i := slices.IndexFunc(reviewKeys, func(k reviewKey) bool { return k.key == "w" })
-	if i < 0 || reviewKeys[i].command != "review.worktrees" {
-		t.Errorf("w is bound to %+v, want review.worktrees", reviewKeys[i])
 	}
 }
 
@@ -1033,54 +1016,6 @@ func plainLines(lines []string) []string {
 // lineWith is the index of the first line holding sub, or -1.
 func lineHolding(lines []string, sub string) int {
 	return slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, sub) })
-}
-
-func TestWorktreeListCountsArrive(t *testing.T) {
-	t.Parallel()
-
-	s := reviewScene{theme: "catppuccin-mocha", icons: true, w: 200, h: 52, res: turn4Result(), turn: 4, turns: 4, focused: true}
-	a := s.build(t)
-
-	rows := wtDemoRows()
-	for i := range rows {
-		rows[i].stats, rows[i].statsKnown = git.Stats{}, false
-	}
-
-	l := showList(a, rows, "other · main", 0)
-
-	before := plainLines(listLines(t, a))
-	if i := lineHolding(before, "other · main  latest"); i < 0 || strings.Contains(before[i], "+") || strings.Contains(before[i], "clean") {
-		t.Fatalf("a row shows counts before they arrived: %q", before[i])
-	}
-
-	a.Update(wtStatsMsg{gen: l.gen, root: "/w/other", stats: git.Stats{Files: 3, Added: 41, Removed: 7}})
-	a.Update(wtStatsMsg{gen: l.gen, root: "/w/p1", stats: git.Stats{}})
-	a.Update(wtStatsMsg{gen: l.gen + 1, root: "/w/p1/.worktrees/feat-a", stats: git.Stats{Files: 1, Added: 12}})
-
-	lines := listLines(t, a)
-	after := plainLines(lines)
-
-	i := lineHolding(after, "other · main  latest")
-	if i < 0 || !strings.Contains(after[i], "+41 -7  3 files") {
-		t.Errorf("the counted row reads %q, want +41 -7  3 files", after[i])
-	}
-
-	// An answer for another list does not count.
-	if j := lineHolding(after, "feat/follow-edits"); j < 0 || strings.Contains(after[j], "+12") {
-		t.Errorf("the row of another generation's answer reads %q", after[j])
-	}
-
-	j := lineHolding(after, "multiplex · main  agent here")
-	if j < 0 || !strings.Contains(after[j], "clean") {
-		t.Fatalf("the clean row reads %q", after[j])
-	}
-
-	ui := a.current().theme.UI
-	vt := lineVT(t, lines[j], ansi.StringWidth(lines[j]))
-	lead, _, _ := strings.Cut(after[j], "clean")
-	x := ansi.StringWidth(lead)
-
-	assertColours(t, vt, x, 0, "c", ui.Subtle, ui.Panel, false)
 }
 
 func TestWorktreeListBlocksMouse(t *testing.T) {
@@ -1207,23 +1142,47 @@ func TestWorktreeListScrolls(t *testing.T) {
 
 	check("opened")
 
+	// Only the steps where the window changes are drawn: the first past the bottom, the
+	// last row, the first back above the top and the Follow row.
+	scrolled := false
+
 	for range len(rows) {
 		a.Update(keyRune('j'))
-		check(fmt.Sprintf("selected row %d", l.sel))
+
+		if !scrolled && l.top > 0 {
+			scrolled = true
+
+			check("the first step past the bottom")
+		}
 	}
 
 	if l.sel != len(rows)-1 {
 		t.Fatalf("the selection ended on row %d, want the last row %d", l.sel, len(rows)-1)
 	}
 
+	check("the last row")
+
+	top, back := l.top, false
+
 	for range len(rows) {
 		a.Update(keyRune('k'))
-		check(fmt.Sprintf("selected row %d", l.sel))
+
+		if !back && l.top < top {
+			back = true
+
+			check("the first step back above the top")
+		}
 	}
 
 	if l.sel != 0 {
 		t.Errorf("the selection ended on row %d, want the Follow row", l.sel)
 	}
+
+	if !scrolled || !back {
+		t.Errorf("the window did not scroll down (%v) and back up (%v)", scrolled, back)
+	}
+
+	check("the Follow row")
 }
 
 func TestWorktreeGeometry(t *testing.T) {

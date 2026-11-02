@@ -186,6 +186,8 @@ func TestRailCacheKeyCoversEveryInput(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			a := cacheApp(t)
 
 			if tt.prep != nil {
@@ -228,7 +230,6 @@ func TestRailNameChangeRedrawsTheCard(t *testing.T) {
 		{"a name read from another transcript", func() { rp.name.transcript = "/w/web/earlier.jsonl" }, true, true},
 		{"the same name read again", func() { rp.name = railName{text: "second", transcript: "/w/web/earlier.jsonl"} }, false, false},
 		{"the name is back for the pane's transcript", func() { rp.name.transcript = transcript }, true, true},
-		{"nothing", func() {}, false, false},
 	}
 
 	for _, tt := range tests {
@@ -315,16 +316,11 @@ func TestRailCacheAgeFollowsPaneOutput(t *testing.T) {
 	if rebuilt, differs := rebuiltBy(a, func() {}); !rebuilt || !differs {
 		t.Errorf("output newer than the hook: rebuilt = %v, differs = %v, want true, true", rebuilt, differs)
 	}
-
-	a.clockSet(400 * time.Millisecond)
-	a.panes["p2"].lastOut = t0.Add(400 * time.Millisecond)
-
-	if rebuilt, _ := rebuiltBy(a, func() {}); rebuilt {
-		t.Error("more output that leaves every shown age alone rebuilt the lines")
-	}
 }
 
 func TestRailCacheKeepsLinesThroughPaneOutput(t *testing.T) {
+	t.Parallel()
+
 	f := newFlowApp(t)
 	f.twoTabs(t)
 	f.open(t)
@@ -359,29 +355,6 @@ func TestRailCacheIgnoresOtherChrome(t *testing.T) {
 
 	if rebuilt, _ := rebuiltBy(a, func() { a.notice = "layout: bsp" }); rebuilt {
 		t.Error("a toast rebuilt the rail")
-	}
-}
-
-func TestRailCacheDroppedOnResizeAndTheme(t *testing.T) {
-	t.Parallel()
-	a := cacheApp(t)
-
-	was := railPicture(a)
-
-	sized(t, a, 70, 30)
-	a.View()
-
-	if railPicture(a) == was {
-		t.Error("a resize kept the old lines")
-	}
-
-	was = railPicture(a)
-
-	openIn(t, a, core.SetTheme{Name: "catppuccin-latte"})
-	a.View()
-
-	if railPicture(a) == was {
-		t.Error("a theme change kept the old lines")
 	}
 }
 

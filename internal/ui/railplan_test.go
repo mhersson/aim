@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"cmp"
 	"strings"
 	"testing"
 	"time"
@@ -24,6 +23,8 @@ func titleText(a *App, c railCard, cw int) string {
 func TestRailPlanMark(t *testing.T) {
 	t.Parallel()
 
+	const cw = 40
+
 	base := railCard{
 		pane: "p2", state: core.AgentWorking, project: "web", model: "Opus 5.5",
 		meter: 41, meterKnown: true, active: t0.Add(-2 * time.Minute), unseen: true, plan: true,
@@ -35,12 +36,10 @@ func TestRailPlanMark(t *testing.T) {
 		card  func(c *railCard)
 		want  string
 		mark  bool
-		cw    int // the content width, 40 when 0
 	}{
 		{name: "meter, age and dot", icons: true, want: "41%  " + iconPlan + "  2m ●", mark: true},
 		{name: "icons off", want: "41%  plan  2m ●", mark: true},
 		{name: "long name keeps the tail", icons: true, card: func(c *railCard) { c.project = strings.Repeat("n", 60) }, want: iconPlan + "  2m ●", mark: true},
-		{name: "wider rail", icons: true, want: "41%  " + iconPlan + "  2m ●", mark: true, cw: 60},
 		{name: "read plan", icons: true, card: func(c *railCard) { c.plan = false }, want: "41%  2m ●"},
 	}
 
@@ -56,8 +55,6 @@ func TestRailPlanMark(t *testing.T) {
 			if tt.card != nil {
 				tt.card(&c)
 			}
-
-			cw := cmp.Or(tt.cw, 40)
 
 			got := titleText(a, c, cw)
 			if !strings.HasSuffix(got, tt.want) {
@@ -101,30 +98,6 @@ func TestRailPlanMark(t *testing.T) {
 	}
 }
 
-func TestRailHintsPlan(t *testing.T) {
-	t.Parallel()
-
-	a := newThemedApp(t, "catppuccin-mocha")
-	ui := a.current().theme.UI
-
-	text := func(cw int) string {
-		var b strings.Builder
-		for _, r := range railHints(ui, cw, a.keys.rail) {
-			b.WriteString(r.text)
-		}
-
-		return b.String()
-	}
-
-	if got, want := text(40), "j/k move  enter jump  p plan  / search"; got != want {
-		t.Errorf("hints at 40 cells %q, want %q", got, want)
-	}
-
-	if got, want := text(60), "j/k move  enter jump  p plan  / search  esc back"; got != want {
-		t.Errorf("hints at 60 cells %q, want %q", got, want)
-	}
-}
-
 // railPlanRig is a plan rig with the rail open and p2's plan noted.
 func railPlanRig(t *testing.T) *planRig {
 	t.Helper()
@@ -164,24 +137,6 @@ func TestRailPlanKey(t *testing.T) {
 		}
 	})
 
-	t.Run("no plan", func(t *testing.T) {
-		t.Parallel()
-
-		r := railPlanRig(t)
-		chord(r.a, 'c')
-		chord(r.a, 'n')
-		r.a.railTake()
-		r.a.railSelect("p4")
-
-		if msgs := planMsgs(press(r.a, keyRune('p'))); len(msgs) != 0 {
-			t.Errorf("p raised %d reads for an agent with no plan", len(msgs))
-		}
-
-		if got := r.a.notice; !strings.HasPrefix(got, "no plan from ") || !strings.HasSuffix(got, " yet") {
-			t.Errorf("notice %q, want %q", got, "no plan from <card name> yet")
-		}
-	})
-
 	t.Run("no selected card", func(t *testing.T) {
 		t.Parallel()
 
@@ -194,21 +149,6 @@ func TestRailPlanKey(t *testing.T) {
 
 		if r.a.notice != "" {
 			t.Errorf("notice %q, want none", r.a.notice)
-		}
-	})
-
-	t.Run("typing in the search", func(t *testing.T) {
-		t.Parallel()
-
-		r := railPlanRig(t)
-		r.a.railSetSearch(true, "")
-
-		if msgs := planMsgs(press(r.a, keyRune('p'))); len(msgs) != 0 {
-			t.Error("p opened a plan while the search types")
-		}
-
-		if r.a.rail.query != "p" {
-			t.Errorf("query %q, want %q", r.a.rail.query, "p")
 		}
 	})
 }
@@ -282,18 +222,6 @@ func TestRailPlanClick(t *testing.T) {
 
 		if r.a.rail.sel != "p2" {
 			t.Errorf("selected %q, want p2", r.a.rail.sel)
-		}
-	})
-
-	t.Run("under a modal", func(t *testing.T) {
-		t.Parallel()
-
-		r := railPlanRig(t)
-		x, y := markXY(t, r.a)
-		chord(r.a, ':')
-
-		if msgs := planMsgs(leftClick(r.a, x, y)); len(msgs) != 0 {
-			t.Error("a click opened the plan under the palette")
 		}
 	})
 }

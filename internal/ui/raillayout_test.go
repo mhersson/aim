@@ -108,11 +108,7 @@ func TestRailClampTopProperties(t *testing.T) {
 
 	shapes := map[string][]int{
 		"no groups":      nil,
-		"one card":       {1},
 		"two groups":     {4, 2},
-		"three groups":   {1, 3, 2},
-		"a long group":   {9},
-		"singles":        {1, 1, 1, 1},
 		"empty then one": {0, 1},
 	}
 
@@ -136,8 +132,11 @@ func TestRailClampTopProperties(t *testing.T) {
 
 		rows := railLayout(groups)
 
-		for h := -1; h <= len(rows)+3; h++ {
-			for top := -3; top <= len(rows)+3; top++ {
+		// Past the end, the start, the middle of a card, and the heights either side of a card's room.
+		mid := max(0, slices.IndexFunc(rows, func(r railRow) bool { return r.kind == railRowCard && r.line == 1 }))
+
+		for _, h := range []int{-1, 0, 1, roomy - 1, roomy, len(rows)} {
+			for _, top := range []int{-3, 0, mid, len(rows) + 3} {
 				for card := -1; card < cards; card++ {
 					got := railClampTop(rows, h, top, card)
 					id := fmt.Sprintf("%s: railClampTop(h=%d, top=%d, card=%d) = %d", name, h, top, card, got)

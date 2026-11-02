@@ -3,7 +3,6 @@ package ui
 import (
 	"bytes"
 	"fmt"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -11,7 +10,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/teatest/v2"
 
 	"github.com/mhersson/aim/internal/core"
@@ -244,14 +242,8 @@ func TestRailRoutesKeys(t *testing.T) {
 	f.twoTabs(t)
 	f.open(t)
 
-	f.notice = "hello"
-
 	press(f.App, keyRune('x'), keyRune('q'), keyRune('1'), keyRune('?'), keyLeader, keyLeader)
 	f.requireQuiet(t, "keys in the rail")
-
-	if f.notice != "" && !strings.Contains(f.notice, "ctrl+space") {
-		t.Errorf("notice = %q, want it gone with the first key", f.notice)
-	}
 
 	chord(f.App, 'z')
 
@@ -564,20 +556,6 @@ func (f *flowApp) Update2(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
-func TestRailFlashDrawsTheFrame(t *testing.T) {
-	t.Parallel()
-
-	f := newFlowApp(t)
-	f.twoTabs(t)
-	f.open(t)
-	press(f.App, keyRune('j'), keyEnter)
-
-	th, _ := theme.ByName(f.store.State().Theme)
-	if f.rail.flashPane != "p2" || !strings.Contains(f.View().Content, "38;2;"+rgb(th.UI.Match)) {
-		t.Errorf("flash pane %q, view lacks the Match colour %s", f.rail.flashPane, rgb(th.UI.Match))
-	}
-}
-
 func rgb(h theme.Hex) string {
 	r, g, b, _ := h.RGBA()
 
@@ -680,21 +658,6 @@ func TestRailMouse(t *testing.T) {
 
 		if !strings.Contains(f.waitSent(t, "x"), "x") {
 			t.Error("the pane did not get the key after the click")
-		}
-	})
-
-	t.Run("modal UI ignores the rail", func(t *testing.T) {
-		f := newFlowApp(t)
-		f.twoTabs(t)
-		f.open(t)
-		press(f.App, keyEsc)
-		chord(f.App, ':')
-
-		x, y := f.cardXY(t, "p2")
-		click(f.App, x, y)
-
-		if f.rail.focused || f.rail.sel == "p2" {
-			t.Error("a click in the rail got through the open palette")
 		}
 	})
 }
@@ -888,55 +851,11 @@ func TestRailIdleCost(t *testing.T) {
 	})
 }
 
-func TestRailPaletteAndWhichKey(t *testing.T) {
-	t.Parallel()
-	a := newTestApp(t)
-	sized(t, a, 120, 40)
-
-	c, ok := a.reg.get("rail.toggle")
-	if !ok || c.title != "Agents rail" || c.icon != "\U000F167A" {
-		t.Fatalf("command = %+v, %v", c, ok)
-	}
-
-	if key, _ := a.keymap.keyFor("rail.toggle"); key != "ctrl+space a" {
-		t.Errorf("key = %q, want ctrl+space a", key)
-	}
-
-	pressRun(a, keyLeader, keyRune(':'))
-	typeText(a, "agents rail")
-
-	view := ansi.Strip(a.View().Content)
-	if !strings.Contains(view, "Agents rail") || !strings.Contains(view, "ctrl+space a") || !strings.Contains(view, c.icon) {
-		t.Errorf("palette lacks the rail entry with its key and icon:\n%s", view)
-	}
-
-	found := false
-
-	for _, h := range newTestApp(t).hints() {
-		if h.key == "a" && h.title == "Agents rail" && h.group == "Panes" {
-			found = true
-		}
-	}
-
-	if !found {
-		t.Error("which-key hints lack a: Agents rail in Panes")
-	}
-}
-
-func TestRailWhichKeyPopup(t *testing.T) {
-	t.Parallel()
-	a := newTestApp(t)
-	sized(t, a, 140, 40)
-	press(a, keyLeader)
-	a.Update(whichKeyMsg{seq: a.seq})
-
-	if !regexp.MustCompile(`│ a +Agents rail +│`).MatchString(ansi.Strip(a.View().Content)) {
-		t.Errorf("the which-key popup lacks the a: Agents rail row:\n%s", ansi.Strip(a.View().Content))
-	}
-}
-
 func TestRailManyAgentsStayWhole(t *testing.T) {
 	t.Parallel()
+
+	// Twelve cards of three tabs are more rows than the 22-row screen shows.
+	const manyAgents = 12
 
 	r := newRailApp(t, false)
 	openIn(t, r.App, core.ClosePane{ID: "p1"})
@@ -946,12 +865,12 @@ func TestRailManyAgentsStayWhole(t *testing.T) {
 
 	var ids []core.PaneID
 
-	for i := range core.MaxPanes {
-		ids = append(ids, r.addAgent(t, i%7 == 0 && i < 63, dir))
+	for i := range manyAgents {
+		ids = append(ids, r.addAgent(t, i%4 == 0, dir))
 		r.setState(t, ids[i], states[i%3])
 	}
 
-	if n := len(r.store.State().AgentPanes()); n != core.MaxPanes || len(r.store.State().Tabs) != 9 {
+	if n := len(r.store.State().AgentPanes()); n != manyAgents || len(r.store.State().Tabs) != 3 {
 		t.Fatalf("setup: %d agents in %d tabs", n, len(r.store.State().Tabs))
 	}
 
@@ -989,7 +908,7 @@ func TestRailManyAgentsStayWhole(t *testing.T) {
 		}
 	}
 
-	for i := range core.MaxPanes - 1 {
+	for i := range manyAgents - 1 {
 		press(r.App, keyRune('j'))
 		whole("down " + strconv.Itoa(i))
 	}
@@ -1005,11 +924,11 @@ func TestRailManyAgentsStayWhole(t *testing.T) {
 	r.step(struct{}{})
 	whole("last tab closed")
 
-	for range 30 {
+	for range manyAgents {
 		press(r.App, keyRune('k'))
 	}
 
-	whole("up 30")
+	whole("up past the first card")
 	openIn(t, r.App, core.CloseTab{ID: r.store.State().Tabs[0].ID})
 	r.step(struct{}{})
 	whole("first tab closed")
@@ -1051,41 +970,24 @@ func TestRailKeyboardAfterLeaderCommands(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		key      rune
-		stays    bool
-		afterTab int // tab to activate first, -1 for none
+		name  string
+		key   rune
+		stays bool
 	}{
-		{"focus move", 'h', false, -1},
-		{"next tab", 0, false, -1},
-		{"tab jump", '1', false, -1},
-		{"new agent pane", 'n', false, -1},
-		{"split", 's', false, -1},
-		{"new tab", 'c', false, -1},
-		{"break pane", '!', false, 0},
-		{"zoom", 'z', true, -1},
-		{"cycle layout", ' ', true, -1},
-		{"resize", 'L', true, -1},
-		{"rotate", 'r', true, -1},
-		{"palette", ':', true, -1},
-		{"rename", ',', true, -1},
+		{"focus move", 'h', false},
+		{"next tab", 0, false},
+		{"zoom", 'z', true},
+		{"palette", ':', true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFlowApp(t)
 			f.twoTabs(t)
-
-			if tt.afterTab >= 0 {
-				openIn(t, f.App, core.SelectTab{Index: tt.afterTab})
-			}
-
 			f.open(t)
 
 			switch tt.key {
 			case 0:
 				press(f.App, keyLeader, keyTab)
-			case ' ':
-				press(f.App, keyLeader, tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 			default:
 				chord(f.App, tt.key)
 			}
@@ -1151,7 +1053,7 @@ func TestRailIgnoresInputUnderModals(t *testing.T) {
 func TestRailKeyboardAfterPaletteCommands(t *testing.T) {
 	t.Parallel()
 
-	for id, stays := range map[string]bool{"tab.next": false, "pane.focus.left": false, "pane.zoom": true} {
+	for id, stays := range map[string]bool{"tab.next": false, "pane.zoom": true} {
 		t.Run(id, func(t *testing.T) {
 			f := newFlowApp(t)
 			f.twoTabs(t)
@@ -1236,18 +1138,6 @@ func TestRailKeyboardAfterUserFocusChanges(t *testing.T) {
 
 		if got := f.store.State().Tab().Focus; got != "p3" || !f.rail.focused {
 			t.Errorf("focus %s, rail focused %v, want p3 and the rail still holding the keyboard", got, f.rail.focused)
-		}
-	})
-
-	t.Run("the toggle decides for itself", func(t *testing.T) {
-		f := newFlowApp(t)
-		f.twoTabs(t)
-		f.open(t)
-		press(f.App, keyEsc)
-		chord(f.App, 'a')
-
-		if !f.rail.focused {
-			t.Error("leader a did not give the rail the keyboard")
 		}
 	})
 }

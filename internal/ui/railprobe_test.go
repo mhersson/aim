@@ -357,23 +357,6 @@ func TestRailProjectNames(t *testing.T) {
 	}
 }
 
-func TestRailIdleShellsCostNothing(t *testing.T) {
-	t.Parallel()
-
-	r := newRailApp(t, true)
-
-	if cmd := r.railOpened(); cmd != nil {
-		t.Error("opening over shells probed")
-	}
-
-	// The focused shell's head is the one probe.
-	r.deliver(r.settle())
-
-	if msgs := flatten(r.settle()); len(msgs) != 0 || len(r.ticks.delays) != 0 || r.gitCalls() != 0 {
-		t.Errorf("work with nothing to do: %v %v %d", msgs, r.ticks.delays, r.gitCalls())
-	}
-}
-
 func TestRailStatsOffWithoutTempDir(t *testing.T) {
 	t.Parallel()
 

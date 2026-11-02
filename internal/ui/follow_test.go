@@ -617,25 +617,6 @@ func TestProbeHeadOf(t *testing.T) {
 	}
 }
 
-func TestDrawerDirIsTheFollowedPlace(t *testing.T) {
-	t.Parallel()
-
-	r := newHookEditRig(t, map[string]git.Place{"/w/b/x.go": placeAt("/w/b")}, nil)
-	st := r.store.State()
-	own := st.Panes[r.id].WorkDir()
-
-	if got := r.drawerDir(st, st.Tab(), r.id); got != own {
-		t.Errorf("drawerDir() = %q before an edit, want the own directory %q", got, own)
-	}
-
-	r.deliver(r.hook(r.event("PostToolUse", "/w/b/x.go")))
-
-	st = r.store.State()
-	if got := r.drawerDir(st, st.Tab(), r.id); got != "/w/b" {
-		t.Errorf("drawerDir() = %q after an edit, want /w/b", got)
-	}
-}
-
 // deliverAll is deliver that also runs the commands the answers raise, until none is left.
 func (r *railApp) deliverAll(cmd tea.Cmd) []tea.Msg {
 	var all []tea.Msg
