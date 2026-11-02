@@ -607,14 +607,18 @@ func TestRailClosingFreesWaitingProbes(t *testing.T) {
 	msgs := runAll(r.railOpened())
 
 	eventually(t, "four stats probes running", func() bool { return r.fake.inflight("Stats") == railProbeMax })
+
+	// Only calls made while the hold keeps the slots full count: a waiting
+	// probe that wins a freed slot after the close has an ended context, which
+	// real git refuses to start, but the fake still logs.
+	if n := r.fake.count("Stats"); n != railProbeMax {
+		t.Errorf("stats calls before the close = %d, want only the %d that held a slot", n, railProbeMax)
+	}
+
 	r.railClosed()
 
 	if got := drain(t, msgs, 5*time.Second); got != 10 {
 		t.Fatalf("%d of 10 probes returned after the rail closed; waiting probes were not cancelled", got)
-	}
-
-	if n := r.fake.count("Stats"); n != railProbeMax {
-		t.Errorf("stats calls = %d, want only the %d that held a slot", n, railProbeMax)
 	}
 }
 
