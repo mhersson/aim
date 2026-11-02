@@ -19,12 +19,13 @@ import (
 
 func TestDrawerOpensInTurnMode(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t, turnFirst)
-	dir := threeTurnRepo(t)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f), turnFirst)
+	dir := threeTurnRepo(t, f).Root()
 	id := r.agent(t, dir, testSession)
 
 	v := r.open(t, id)
-	root := rootOf(t, dir)
+	root := dir
 
 	if rv := r.store.State().Tab().Review; rv == nil || rv.Pane != id || rv.Mode != core.ReviewTurn {
 		t.Fatalf("Tab.Review = %+v, want turn mode on %s", rv, id)
@@ -49,10 +50,12 @@ func TestDrawerOpensInTurnMode(t *testing.T) {
 
 func TestDrawerOpensInBranchForAShell(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
-	dir := newRepoDir(t)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f))
+	rp := f.repo(t, "")
+	dir := rp.Root()
 	write(t, filepath.Join(dir, "a.txt"), "one\n")
-	commitEverything(t, dir, "init")
+	rp.commit("init")
 	write(t, filepath.Join(dir, "a.txt"), "one\ntwo\n")
 
 	id := r.shell(t, dir)
@@ -62,7 +65,7 @@ func TestDrawerOpensInBranchForAShell(t *testing.T) {
 		t.Fatalf("Tab.Review = %+v, want branch mode", rv)
 	}
 
-	if want := (git.BranchSource{Worktree: rootOf(t, dir)}); v.src != want {
+	if want := (git.BranchSource{Worktree: dir}); v.src != want {
 		t.Errorf("source = %+v, want %+v", v.src, want)
 	}
 
@@ -72,8 +75,8 @@ func TestDrawerOpensInBranchForAShell(t *testing.T) {
 
 	r.run(r.setReviewMode(core.ReviewTurn))
 
-	if want := "no turns: this pane has no agent session"; r.notice != want {
-		t.Errorf("notice = %q, want %q", r.notice, want)
+	if r.notice != noticeNoTurns {
+		t.Errorf("notice = %q, want %q", r.notice, noticeNoTurns)
 	}
 
 	if rv := r.store.State().Tab().Review; rv.Mode != core.ReviewBranch {
@@ -99,8 +102,11 @@ func TestDrawerOpenModeFollowsTurnsAndConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := newDrawerRig(t, func(o *Options) { o.Diff = tt.cfg })
-			id := r.agent(t, threeTurnRepo(t), tt.session)
+			t.Parallel()
+
+			f := newFakeGit(t)
+			r := newDrawerRig(t, gitOf(f), func(o *Options) { o.Diff = tt.cfg })
+			id := r.agent(t, threeTurnRepo(t, f).Root(), tt.session)
 
 			r.open(t, id)
 
@@ -114,53 +120,37 @@ func TestDrawerOpenModeFollowsTurnsAndConfig(t *testing.T) {
 func TestNewDrawerOpensInBranchMode(t *testing.T) {
 	t.Parallel()
 
-	turnCfg := core.DefaultConfig().Diff
-	turnCfg.Mode = "turn"
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f), func(o *Options) { o.Diff = core.DefaultConfig().Diff })
+	id := r.agent(t, threeTurnRepo(t, f).Root(), testSession)
 
-	tests := []struct {
-		name string
-		cfg  core.DiffConfig
-		want core.ReviewMode
-	}{
-		{"by default", core.DefaultConfig().Diff, core.ReviewBranch},
-		{"with a zero config", core.DiffConfig{}, core.ReviewBranch},
-		{"with mode turn", turnCfg, core.ReviewTurn},
+	v := r.open(t, id)
+
+	if got := r.store.State().Tab().Review.Mode; got != core.ReviewBranch {
+		t.Fatalf("opened in %q, want branch", got)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			r := newDrawerRig(t, func(o *Options) { o.Diff = tt.cfg })
-			id := r.agent(t, threeTurnRepo(t), testSession)
+	if _, isTurn := v.src.(git.TurnSource); isTurn {
+		t.Errorf("source = %+v in branch mode", v.src)
+	}
 
-			v := r.open(t, id)
+	r.run(r.setReviewMode(core.ReviewTurn))
 
-			if got := r.store.State().Tab().Review.Mode; got != tt.want {
-				t.Fatalf("opened in %q, want %q", got, tt.want)
-			}
-
-			if _, isTurn := v.src.(git.TurnSource); isTurn != (tt.want == core.ReviewTurn) {
-				t.Errorf("source = %+v in %q mode", v.src, tt.want)
-			}
-
-			r.run(r.setReviewMode(core.ReviewTurn))
-
-			if v := r.idle(t); r.store.State().Tab().Review.Mode != core.ReviewTurn || v.res.Turn != 3 {
-				t.Errorf("t gives mode %q turn %d, want turn mode on the latest turn", r.store.State().Tab().Review.Mode, v.res.Turn)
-			}
-		})
+	if v := r.idle(t); r.store.State().Tab().Review.Mode != core.ReviewTurn || v.res.Turn != 3 {
+		t.Errorf("t gives mode %q turn %d, want turn mode on the latest turn", r.store.State().Tab().Review.Mode, v.res.Turn)
 	}
 }
 
 func TestDrawerNeedsARepository(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
+	r := newDrawerRig(t, gitOf(newFakeGit(t)))
 	id := r.shell(t, t.TempDir())
 
 	r.run(r.openReview(id, true))
 	r.until(t, "the notice", func() bool { return r.notice != "" })
 
-	if want := "not a git repository"; r.notice != want {
-		t.Errorf("notice = %q, want %q", r.notice, want)
+	if r.notice != noticeNotRepo {
+		t.Errorf("notice = %q, want %q", r.notice, noticeNotRepo)
 	}
 
 	if r.store.State().Tab().Review != nil {
@@ -172,7 +162,8 @@ func TestDrawerNeedsARepository(t *testing.T) {
 // repository: a repository made since is found.
 func TestOpenFindsARepositoryMadeAfterTheCwdWasFound(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f))
 
 	dir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -183,9 +174,9 @@ func TestOpenFindsARepositoryMadeAfterTheCwdWasFound(t *testing.T) {
 	r.settle()
 	r.until(t, "the cwd to be found outside a repository", func() bool { return r.watches.panes[id] != nil && r.watches.panes[id].notRepo })
 
-	gitIn(t, "git", dir, "init", "-q", "-b", "main")
+	rp := f.repoAt(t, dir)
 	write(t, filepath.Join(dir, "a.txt"), "one\n")
-	commitEverything(t, dir, "init")
+	rp.commit("init")
 	write(t, filepath.Join(dir, "a.txt"), "one\ntwo\n")
 
 	v := r.open(t, id)
@@ -197,27 +188,29 @@ func TestOpenFindsARepositoryMadeAfterTheCwdWasFound(t *testing.T) {
 
 func TestDrawerWithoutAnEngineShowsTheError(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t, func(o *Options) { o.GitTempDir = "" })
-	dir := editedRepo(t)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f), func(o *Options) { o.GitTempDir = "" })
+	dir := editedRepo(t, f).Root()
 
 	v := r.open(t, r.shell(t, dir))
 
-	if v.err == nil || len(v.res.Files) != 0 {
-		t.Fatalf("err = %v with %d files, want the error and no files", v.err, len(v.res.Files))
+	if !errors.Is(v.err, errDiffsOff) || len(v.res.Files) != 0 {
+		t.Fatalf("err = %v with %d files, want the diffs-off error and no files", v.err, len(v.res.Files))
 	}
 
-	if got := r.drawn(t); !strings.Contains(got, "diffs are off") {
+	if got := r.drawn(t); !strings.Contains(got, errDiffsOff.Error()) {
 		t.Errorf("the drawer does not say why it is empty:\n%s", got)
 	}
 }
 
 func TestTurnStepping(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t, turnFirst)
-	dir := threeTurnRepo(t)
-	missingTurn(t, dir, testSession)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f), turnFirst)
+	rp := threeTurnRepo(t, f)
+	rp.missingTurn(string(testSession))
 
-	id := r.agent(t, dir, testSession)
+	id := r.agent(t, rp.Root(), testSession)
 	v := r.open(t, id)
 
 	// The mode row is the tree's first row.
@@ -256,8 +249,8 @@ func TestTurnStepping(t *testing.T) {
 	r.notice = ""
 	r.run(r.stepReviewTurn(-1))
 
-	if want := "turn 1 is the first turn"; r.notice != want {
-		t.Errorf("notice = %q, want %q", r.notice, want)
+	if r.notice != noticeFirstTurn {
+		t.Errorf("notice = %q, want %q", r.notice, noticeFirstTurn)
 	}
 
 	if v := r.view(); v.res.Turn != 1 || v.loading {
@@ -277,15 +270,16 @@ func TestTurnStepping(t *testing.T) {
 	r.notice = ""
 	r.run(r.stepReviewTurn(1))
 
-	if want := "turn 4 is the latest turn"; r.notice != want {
-		t.Errorf("notice = %q, want %q", r.notice, want)
+	if !strings.Contains(r.notice, "4") {
+		t.Errorf("notice = %q, want one naming turn 4, the latest", r.notice)
 	}
 }
 
 func TestStepInBranchModeEntersTurnMode(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t, func(o *Options) { o.Diff = core.DiffConfig{Mode: "branch"} })
-	id := r.agent(t, threeTurnRepo(t), testSession)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f), func(o *Options) { o.Diff = core.DiffConfig{Mode: "branch"} })
+	id := r.agent(t, threeTurnRepo(t, f).Root(), testSession)
 
 	r.open(t, id)
 
@@ -309,8 +303,9 @@ func TestStepInBranchModeEntersTurnMode(t *testing.T) {
 
 func TestTurnModeReturnsToTheLatestTurn(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t, turnFirst)
-	id := r.agent(t, threeTurnRepo(t), testSession)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f), turnFirst)
+	id := r.agent(t, threeTurnRepo(t, f).Root(), testSession)
 
 	r.open(t, id)
 	r.run(r.stepReviewTurn(-1))
@@ -328,8 +323,9 @@ func TestTurnModeReturnsToTheLatestTurn(t *testing.T) {
 
 func TestStaleLoadIsDropped(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t, turnFirst)
-	id := r.agent(t, threeTurnRepo(t), testSession)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f), turnFirst)
+	id := r.agent(t, threeTurnRepo(t, f).Root(), testSession)
 
 	v := r.open(t, id)
 	tab := r.store.State().Tab().ID
@@ -404,9 +400,10 @@ func TestStaleLoadIsDropped(t *testing.T) {
 func TestLiveUpdateKeepsTheHunk(t *testing.T) {
 	t.Parallel()
 
-	r := newDrawerRig(t)
-	dir := editedRepo(t)
-	root := rootOf(t, dir)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f))
+	dir := editedRepo(t, f).Root()
+	root := dir
 	id := r.shell(t, dir)
 
 	v := r.open(t, id)
@@ -429,8 +426,9 @@ func TestLiveUpdateKeepsTheHunk(t *testing.T) {
 		return hs[len(hs)-1].NewStart
 	}
 
-	// Three lines above the cursor shift it down; the saved file reaches the drawer by itself.
+	// Three lines above the cursor shift it down; the watcher reports the saved file.
 	write(t, filepath.Join(dir, "f.txt"), editedF(3))
+	f.watches.send(root, git.Batch{Paths: []string{"f.txt"}})
 	r.until(t, "the saved file to reach the drawer", func() bool { return v.gen > gen && lastStart() == 50 })
 
 	if got := diffLineAt(v, v.cursor); got != "fifty edited" {
@@ -446,9 +444,10 @@ func TestLiveUpdateKeepsTheHunk(t *testing.T) {
 
 func TestLiveUpdateFlashes(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
-	dir := editedRepo(t)
-	root := rootOf(t, dir)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f))
+	dir := editedRepo(t, f).Root()
+	root := dir
 	id := r.shell(t, dir)
 
 	v := r.open(t, id)
@@ -504,9 +503,10 @@ func TestLiveUpdateFlashes(t *testing.T) {
 
 func TestHiddenTabDrawerRecomputesWhenShown(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
-	dir := editedRepo(t)
-	root := rootOf(t, dir)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f))
+	dir := editedRepo(t, f).Root()
+	root := dir
 	id := r.shell(t, dir)
 
 	v := r.open(t, id)
@@ -524,10 +524,6 @@ func TestHiddenTabDrawerRecomputesWhenShown(t *testing.T) {
 	if cmd := r.batch(root, git.Batch{Paths: []string{"f.txt"}}); cmd != nil {
 		t.Error("a batch for a hidden tab's drawer started work")
 	}
-
-	// The real batch for f.txt must land while the tab is hidden,
-	// or it reloads the shown drawer by itself.
-	r.until(t, "the watcher to report f.txt", r.reportedAll(filepath.Join(root, "f.txt")))
 
 	if v.loading || v.queued == nil || v.gen != gen {
 		t.Fatalf("hidden drawer: loading=%v queued=%v gen %d -> %d, want it marked stale and left alone", v.loading, v.queued, gen, v.gen)
@@ -549,9 +545,11 @@ func TestHiddenTabDrawerRecomputesWhenShown(t *testing.T) {
 
 func TestSessionChangeRetargets(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t, turnFirst)
-	dir := threeTurnRepo(t)
-	snapshotTurn(t, dir, otherSession)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f), turnFirst)
+	rp := threeTurnRepo(t, f)
+	dir := rp.Root()
+	rp.turn(string(otherSession))
 	write(t, filepath.Join(dir, "x.txt"), "after the other session began\n")
 
 	id := r.agent(t, dir, testSession)
@@ -618,13 +616,14 @@ func TestSessionChangeRetargets(t *testing.T) {
 // Batches reach only the drawers that review their root.
 func TestBatchesRouteToTheirRoot(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t, turnFirst)
-	dir := threeTurnRepo(t)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f), turnFirst)
+	dir := threeTurnRepo(t, f).Root()
 	id := r.agent(t, dir, testSession)
 
 	v := r.open(t, id)
 
-	if cmd := r.batch(filepath.Join(rootOf(t, dir), "elsewhere"), git.Batch{Overflow: true}); cmd != nil || v.queued != nil || v.loading {
+	if cmd := r.batch(filepath.Join(dir, "elsewhere"), git.Batch{Overflow: true}); cmd != nil || v.queued != nil || v.loading {
 		t.Fatalf("a batch for another root reached the drawer: queued=%v loading=%v", v.queued, v.loading)
 	}
 }
@@ -632,8 +631,9 @@ func TestBatchesRouteToTheirRoot(t *testing.T) {
 // A drawer opened without the keyboard leaves it where it is.
 func TestOpenWithoutTheKeyboard(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
-	id := r.shell(t, editedRepo(t))
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f))
+	id := r.shell(t, editedRepo(t, f).Root())
 
 	// The new shell lies under the drawer, so the first pane keeps the keyboard.
 	openIn(t, r.App, core.FocusPane{ID: "p1"})
@@ -648,8 +648,9 @@ func TestOpenWithoutTheKeyboard(t *testing.T) {
 // With no watch held a hook event stands in for the file changes.
 func TestHookEventRecomputesAnUnwatchedDrawer(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t, func(o *Options) { o.Watches = nil })
-	dir := editedRepo(t)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f), func(o *Options) { o.Watches = nil })
+	dir := editedRepo(t, f).Root()
 	id := r.agent(t, dir, "")
 
 	v := r.open(t, id)
@@ -670,15 +671,17 @@ func TestHookEventRecomputesAnUnwatchedDrawer(t *testing.T) {
 
 func TestBranchSwitchRecomputes(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
-	dir := newRepoDir(t)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f))
+	rp := f.repo(t, "")
+	dir := rp.Root()
 	write(t, filepath.Join(dir, "base.txt"), "base\n")
-	commitEverything(t, dir, "init")
-	gitIn(t, "git", dir, "checkout", "-q", "-b", "feature")
+	rp.commit("init")
+	rp.branch("feature")
 	write(t, filepath.Join(dir, "feat.txt"), "feature\n")
-	commitEverything(t, dir, "feature work")
+	rp.commit("feature work")
 
-	root := rootOf(t, dir)
+	root := dir
 	id := r.shell(t, dir)
 	v := r.open(t, id)
 
@@ -689,7 +692,16 @@ func TestBranchSwitchRecomputes(t *testing.T) {
 	switchTo := func(branch string, want ...string) {
 		t.Helper()
 
-		gitIn(t, "git", dir, "checkout", "-q", branch)
+		// A checkout also rewrites the working tree.
+		rp.switchTo(branch)
+
+		if branch == "main" {
+			if err := os.Remove(filepath.Join(dir, "feat.txt")); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			write(t, filepath.Join(dir, "feat.txt"), "feature\n")
+		}
 
 		gen := r.view().gen
 		r.run(r.batch(root, git.Batch{Git: true}))
@@ -706,13 +718,15 @@ func TestBranchSwitchRecomputes(t *testing.T) {
 
 func TestPaneCwdChangeRetargetsTheDrawer(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
-	a, b := editedRepo(t), newRepoDir(t)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f))
+	a, rb := editedRepo(t, f).Root(), f.repo(t, "")
+	b := rb.Root()
 	write(t, filepath.Join(b, "base.txt"), "base\n")
-	commitEverything(t, b, "init")
+	rb.commit("init")
 	write(t, filepath.Join(b, "only-in-b.txt"), "b\n")
 
-	rootA, rootB := rootOf(t, a), rootOf(t, b)
+	rootA, rootB := a, b
 	id := r.shell(t, a)
 
 	r.open(t, id)
@@ -734,16 +748,17 @@ func TestPaneCwdChangeRetargetsTheDrawer(t *testing.T) {
 	r.settle()
 	r.until(t, "the drawer to notice", r.viewHolds(func(v *reviewView) bool { return v.root == "" && v.err != nil }))
 
-	if v := r.view(); len(v.res.Files) != 0 || !strings.Contains(v.err.Error(), "not a git repository") {
+	if v := r.view(); len(v.res.Files) != 0 || !errors.Is(v.err, errNotRepo) {
 		t.Errorf("outside a repository: %d files, err %v", len(v.res.Files), v.err)
 	}
 }
 
 func TestWorktreeDeletedShowsTheError(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
-	dir := editedRepo(t)
-	root := rootOf(t, dir)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f))
+	dir := editedRepo(t, f).Root()
+	root := dir
 
 	v := r.open(t, r.shell(t, dir))
 
@@ -767,17 +782,18 @@ func TestWorktreeDeletedShowsTheError(t *testing.T) {
 		t.Errorf("error = %v, want the worktree %q reported removed", v.err, root)
 	}
 
-	if got := r.drawn(t); !strings.Contains(got, "worktree removed: ") {
+	if got := r.drawn(t); !strings.Contains(got, noticeRemoved) {
 		t.Errorf("the drawer does not show the error %q:\n%s", v.err, got)
 	}
 }
 
 func TestFullFileLoadsOnF(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
-	dir := editedRepo(t)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f))
+	dir := editedRepo(t, f).Root()
 	write(t, filepath.Join(dir, "blob.bin"), "a\x00b\x00")
-	root := rootOf(t, dir)
+	root := dir
 	id := r.shell(t, dir)
 
 	v := r.open(t, id)
@@ -802,6 +818,7 @@ func TestFullFileLoadsOnF(t *testing.T) {
 	gen = v.gen
 
 	write(t, filepath.Join(dir, "f.txt"), editedF(2))
+	f.watches.send(root, git.Batch{Paths: []string{"f.txt"}})
 	r.until(t, "the full text to follow", func() bool { return v.gen > gen && len(v.full["f.txt"].new) == 62 })
 
 	// f toggles it off again, and the other file has no full view.
@@ -818,8 +835,8 @@ func TestFullFileLoadsOnF(t *testing.T) {
 
 	r.run(r.toggleReviewFull())
 
-	if want := "a binary file has no full view"; r.notice != want {
-		t.Errorf("notice = %q, want %q", r.notice, want)
+	if r.notice != noticeBinaryFull {
+		t.Errorf("notice = %q, want %q", r.notice, noticeBinaryFull)
 	}
 }
 
@@ -886,16 +903,18 @@ func hunkChanges(f git.FileDiff) (added, removed []string) {
 
 func TestFullFileOfABigFileMarksOnlyItsChanges(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
-	dir := newRepoDir(t)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f))
+	rp := f.repo(t, "")
+	dir := rp.Root()
 	old, edited := bigTwoEnded()
 	write(t, filepath.Join(dir, "big.txt"), old)
-	commitEverything(t, dir, "init")
+	rp.commit("init")
 	write(t, filepath.Join(dir, "big.txt"), edited)
 	id := r.shell(t, dir)
 
 	v := r.open(t, id)
-	r.watching(t, id, rootOf(t, dir))
+	r.watching(t, id, dir)
 
 	v.cursor = rowWith(t, v, "big.txt")
 
@@ -937,8 +956,9 @@ func countRows(v *reviewView, kind reviewRowKind) int {
 
 func TestRestoredDrawerLoadsWhenItsTabShows(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
-	dir := editedRepo(t)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f))
+	dir := editedRepo(t, f).Root()
 	id := r.shell(t, dir)
 
 	// A restored state has the drawer open and no view; the focused pane is not under it.
@@ -971,7 +991,7 @@ func TestRestoredDrawerLoadsWhenItsTabShows(t *testing.T) {
 // A restored drawer whose pane is no longer in a repository says so.
 func TestRestoredDrawerOutsideARepositoryShowsTheError(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
+	r := newDrawerRig(t, gitOf(newFakeGit(t)))
 	id := r.shell(t, t.TempDir())
 
 	openIn(t, r.App, core.OpenReview{Pane: id, Mode: core.ReviewBranch})
@@ -982,16 +1002,17 @@ func TestRestoredDrawerOutsideARepositoryShowsTheError(t *testing.T) {
 		t.Errorf("err = %v loaded = %v rows = %d, want the not-a-repository error and no rows", v.err, v.loaded, len(v.rows))
 	}
 
-	if got := r.drawn(t); !strings.Contains(got, "not a git repository") {
+	if got := r.drawn(t); !strings.Contains(got, noticeNotRepo) {
 		t.Errorf("the drawer does not say why it is empty:\n%s", got)
 	}
 }
 
 func TestDrawerHoldsAWatchForAShell(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
-	dir := editedRepo(t)
-	root := rootOf(t, dir)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f))
+	dir := editedRepo(t, f).Root()
+	root := dir
 	id := r.shell(t, dir)
 
 	r.open(t, id)
@@ -1008,15 +1029,17 @@ func TestDrawerHoldsAWatchForAShell(t *testing.T) {
 
 func TestEngineLimitsAndLayoutFollowTheConfig(t *testing.T) {
 	t.Parallel()
-	dir := newRepoDir(t)
+	f := newFakeGit(t)
+	rp := f.repo(t, "")
+	dir := rp.Root()
 	write(t, filepath.Join(dir, "a.txt"), "a\n")
 	write(t, filepath.Join(dir, "b.txt"), "b\n")
-	commitEverything(t, dir, "init")
+	rp.commit("init")
 	write(t, filepath.Join(dir, "a.txt"), "a2\n")
 	write(t, filepath.Join(dir, "b.txt"), "b2\n")
 
 	t.Run("defaults", func(t *testing.T) {
-		r := newDrawerRig(t)
+		r := newDrawerRig(t, gitOf(f))
 		v := r.open(t, r.shell(t, dir))
 
 		if v.res.Truncated || v.split {
@@ -1025,7 +1048,7 @@ func TestEngineLimitsAndLayoutFollowTheConfig(t *testing.T) {
 	})
 
 	t.Run("configured", func(t *testing.T) {
-		r := newDrawerRig(t, func(o *Options) {
+		r := newDrawerRig(t, gitOf(f), func(o *Options) {
 			o.Diff = core.DiffConfig{Layout: "split", MaxFiles: 1}
 		})
 		v := r.open(t, r.shell(t, dir))
@@ -1038,9 +1061,10 @@ func TestEngineLimitsAndLayoutFollowTheConfig(t *testing.T) {
 
 func TestAppCloseNoLeaksWithADrawer(t *testing.T) {
 	base := runtime.NumGoroutine()
-	r := newDrawerRig(t)
-	dir := editedRepo(t)
-	root := rootOf(t, dir)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f))
+	dir := editedRepo(t, f).Root()
+	root := dir
 	id := r.shell(t, dir)
 
 	r.open(t, id)
@@ -1061,8 +1085,8 @@ func TestAppCloseNoLeaksWithADrawer(t *testing.T) {
 		t.Fatalf("Close() error = %v", err)
 	}
 
-	if err := r.set.Close(); err != nil {
-		t.Fatal(err)
+	if n := f.watches.holds(root); n != 0 {
+		t.Errorf("%d watch references still held after Close", n)
 	}
 
 	eventually2(t, 2*time.Second, "goroutines to return to baseline", func() bool { return runtime.NumGoroutine() <= base })

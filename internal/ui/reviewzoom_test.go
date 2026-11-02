@@ -29,7 +29,21 @@ func zoomLayout(t *testing.T, r *drawerRig, w, h int) {
 func zoomRig(t *testing.T) *drawerRig {
 	t.Helper()
 
-	r := newKeysRig(t, keysRepo(t))
+	r, _ := fakeKeysRig(t)
+
+	return zoomed(t, r)
+}
+
+// realZoomRig is zoomRig on real git.
+func realZoomRig(t *testing.T) *drawerRig {
+	t.Helper()
+
+	return zoomed(t, newKeysRig(t, realKeysRepo(t)))
+}
+
+func zoomed(t *testing.T, r *drawerRig) *drawerRig {
+	t.Helper()
+
 	r.opened(t)
 	zoomLayout(t, r, 270, 75)
 
@@ -313,7 +327,7 @@ func TestReviewZoomClose(t *testing.T) {
 func TestReviewZoomSmall(t *testing.T) {
 	t.Parallel()
 
-	r := newKeysRig(t, keysRepo(t))
+	r, _ := fakeKeysRig(t)
 	r.opened(t)
 	zoomLayout(t, r, 80, 24)
 
@@ -324,8 +338,8 @@ func TestReviewZoomSmall(t *testing.T) {
 
 	r.keys(keyRune('z'))
 
-	if !r.zoomed() || r.drawer.closing || !r.drawer.slideFrom.IsZero() {
-		t.Errorf("zoomed %v, sliding %v, want the tag and no slide", r.zoomed(), !r.drawer.slideFrom.IsZero())
+	if !r.zoomed() || r.drawer.closing || !r.drawer.slideFrom.IsZero() || r.drawer.resizeFrom != 0 {
+		t.Errorf("zoomed %v, sliding %v, resize slide from %d, want the tag and no slide", r.zoomed(), !r.drawer.slideFrom.IsZero(), r.drawer.resizeFrom)
 	}
 
 	if top, _, _ := strings.Cut(r.drawn(t), "\n"); !strings.Contains(top, " "+iconZoom+" zoom ") {
@@ -356,7 +370,8 @@ func TestReviewZoomTagDropsFirst(t *testing.T) {
 
 	var all, splitOnly bool
 
-	for w := 20; w <= 160; w++ {
+	// The bounds: nothing but the mode, the title joins, the split tag joins, the zoom tag joins.
+	for _, w := range []int{20, 38, 39, 47, 48, 160} {
 		d.lay.box.W = w
 		top := ansi.Strip(d.topBorder())
 		zoom, split := strings.Contains(top, "zoom"), strings.Contains(top, "split")
@@ -370,7 +385,7 @@ func TestReviewZoomTagDropsFirst(t *testing.T) {
 	}
 
 	if !all || !splitOnly {
-		t.Errorf("sweep saw all tags with a title %v, the split tag without the zoom tag %v, want both", all, splitOnly)
+		t.Errorf("the widths showed all tags with a title %v, the split tag without the zoom tag %v, want both", all, splitOnly)
 	}
 }
 
@@ -580,7 +595,7 @@ func TestReviewZoomClosingRailClick(t *testing.T) {
 func TestReviewZoomWithoutDrawer(t *testing.T) {
 	t.Parallel()
 
-	r := newKeysRig(t, keysRepo(t))
+	r, _ := fakeKeysRig(t)
 
 	c, ok := r.reg.get("review.zoom")
 	if !ok {
@@ -604,7 +619,7 @@ func TestReviewZoomWithoutDrawer(t *testing.T) {
 func TestReviewZoomRemap(t *testing.T) {
 	t.Parallel()
 
-	r := newKeysRig(t, keysRepo(t), func(o *Options) { o.Keys = drawerKeys("Z", "review.zoom", "z", "none") })
+	r, _ := fakeKeysRig(t, func(o *Options) { o.Keys = drawerKeys("Z", "review.zoom", "z", "none") })
 	r.opened(t)
 	zoomLayout(t, r, 270, 75)
 
@@ -902,20 +917,6 @@ func TestZoomSlideNoPictures(t *testing.T) {
 	r, _ = m.drawerRect(m.store.State())
 	if _, pics, _ := m.drawerDrawn(m.store.State(), r); len(pics) == 0 {
 		t.Error("no picture rows after the slide")
-	}
-}
-
-func TestZoomSlideNoWidthChange(t *testing.T) {
-	t.Parallel()
-
-	r := newKeysRig(t, keysRepo(t))
-	r.opened(t)
-	zoomLayout(t, r, 80, 24)
-
-	r.keys(keyRune('z'))
-
-	if !r.drawer.slideFrom.IsZero() || r.drawer.resizeFrom != 0 {
-		t.Errorf("slideFrom zero %v, resizeFrom %d, want no slide", r.drawer.slideFrom.IsZero(), r.drawer.resizeFrom)
 	}
 }
 

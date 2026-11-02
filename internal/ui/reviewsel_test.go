@@ -572,7 +572,7 @@ func TestDiffPartPieces(t *testing.T) {
 	}
 }
 
-// diffSel is a drawer rig on keysRepo with the drawer open, a fake clipboard
+// diffSel is a drawer rig on realKeysRepo with the drawer open, a fake clipboard
 // and the unified diff showing.
 type diffSel struct {
 	*drawerRig
@@ -585,7 +585,7 @@ type diffSel struct {
 func newDiffSel(t *testing.T) *diffSel {
 	t.Helper()
 
-	dir := keysRepo(t)
+	dir := realKeysRepo(t)
 	r := newKeysRig(t, dir)
 	clip := fakeClip(r.App)
 	v := r.opened(t)
@@ -1182,35 +1182,35 @@ func TestSplitSelectionSide(t *testing.T) {
 	}{
 		{
 			name: "left code to the right half of the next row",
-			repo: keysRepo, row0: "line 3", row1: "line 4",
+			repo: realKeysRepo, row0: "line 3", row1: "line 4",
 			col0: func(l, _, _ int) int { return l },
 			col1: func(_, _, r int) int { return r + rightHalfOffset },
 			want: "line 3\nline 4", wantSide: 0,
 		},
 		{
 			name: "right code",
-			repo: keysRepo, row0: "line 3", row1: "line 3",
+			repo: realKeysRepo, row0: "line 3", row1: "line 3",
 			col0: func(_, _, r int) int { return r },
 			col1: func(_, _, r int) int { return r + len("edited 3") - 1 },
 			want: "edited 3", wantSide: 1,
 		},
 		{
 			name: "press on the left number column",
-			repo: keysRepo, row0: "line 3", row1: "line 3",
+			repo: realKeysRepo, row0: "line 3", row1: "line 3",
 			col0: func(l, _, _ int) int { return markW + 1 },
 			col1: func(l, _, _ int) int { return l + len("line 3") - 1 },
 			want: "line 3", wantSide: 0,
 		},
 		{
 			name: "press on the right number column",
-			repo: keysRepo, row0: "line 3", row1: "line 3",
+			repo: realKeysRepo, row0: "line 3", row1: "line 3",
 			col0: func(_, _, r int) int { return r - 2 },
 			col1: func(_, _, r int) int { return r + len("edited 3") - 1 },
 			want: "edited 3", wantSide: 1,
 		},
 		{
 			name: "press on the divider",
-			repo: keysRepo, row0: "line 3", row1: "line 4",
+			repo: realKeysRepo, row0: "line 3", row1: "line 4",
 			col0: func(_, sep, _ int) int { return sep },
 			col1: func(l, _, _ int) int { return l + len("line 4") - 1 },
 			want: "\nline 4", wantSide: 0,
@@ -1255,7 +1255,7 @@ func TestSplitSelectionSide(t *testing.T) {
 // Not parallel: the drawer highlights code, which takes the highlighter's time.
 func TestSplitSelectionPaint(t *testing.T) {
 	for _, side := range []int{0, 1} {
-		d := newSplitSel(t, keysRepo(t))
+		d := newSplitSel(t, realKeysRepo(t))
 		pair := rowWith(t, d.v, "line 3")
 		l, sep, r := d.splitCols(t)
 		lay := d.layout(t)
@@ -1350,7 +1350,7 @@ func edgeOverlay(t *testing.T) edgeCase {
 func edgeDiff(t *testing.T) edgeCase {
 	t.Helper()
 
-	r := newKeysRig(t, keysRepo(t))
+	r := newKeysRig(t, realKeysRepo(t))
 	fakeClip(r.App)
 	v := r.opened(t)
 

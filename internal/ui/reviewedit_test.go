@@ -445,7 +445,7 @@ func TestEditLine(t *testing.T) {
 // first, so it, which the operator never moved the focus to, hears nothing.
 func TestEditSendsNoFocusReportsToTheDrawersPane(t *testing.T) {
 	t.Parallel()
-	r := newKeysRig(t, keysRepo(t))
+	r := newKeysRig(t, realKeysRepo(t))
 	r.run(r.openPane(core.KindShell, core.SplitVertical))
 
 	procs := map[core.PaneID]*fakeProc{}

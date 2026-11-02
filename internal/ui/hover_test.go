@@ -42,7 +42,7 @@ func cellsOf(t *testing.T, r *drawerRig) hoverCells {
 func hoverRig(t *testing.T, w, h int) *drawerRig {
 	t.Helper()
 
-	r := newKeysRig(t, keysRepo(t))
+	r := newKeysRig(t, realKeysRepo(t))
 	r.opened(t)
 	zoomLayout(t, r, w, h)
 	r.focusFollows = true

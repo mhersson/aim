@@ -742,7 +742,7 @@ func TestPaletteHints(t *testing.T) {
 func TestDrawerRemappedKeys(t *testing.T) {
 	t.Parallel()
 
-	r := newKeysRig(t, keysRepo(t), func(o *Options) {
+	r, _ := fakeKeysRig(t, func(o *Options) {
 		o.Keys = drawerKeys("n", "review.line.next", "w", "none")
 	})
 	v := r.opened(t)

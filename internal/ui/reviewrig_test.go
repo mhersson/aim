@@ -79,18 +79,43 @@ func snapshotTurn(t *testing.T, dir string, session core.SessionID) {
 	}
 }
 
-func missingTurn(t *testing.T, dir string, session core.SessionID) {
-	t.Helper()
-
-	if _, err := git.MarkMissing(context.Background(), dir, string(session), 0, false); err != nil {
-		t.Fatalf("MarkMissing: %v", err)
-	}
-}
-
 // threeTurnRepo has three turns of testSession: turn 1 edits a.txt, turn 2
 // edits b.txt, deletes d.txt and adds an untracked file, and turn 3 edits
 // dir/c.txt and commits.
-func threeTurnRepo(t *testing.T) string {
+func threeTurnRepo(t *testing.T, f *fakeGit) *fakeRepo {
+	t.Helper()
+
+	r := f.repo(t, "")
+	dir := r.Root()
+	write(t, filepath.Join(dir, "a.txt"), "a\n")
+	write(t, filepath.Join(dir, "b.txt"), "b\n")
+	write(t, filepath.Join(dir, "dir/c.txt"), "c\n")
+	r.commit("init")
+	write(t, filepath.Join(dir, "d.txt"), "d\n")
+	write(t, filepath.Join(dir, "e.txt"), "e\n")
+	r.commit("more")
+
+	r.turn(string(testSession))
+	write(t, filepath.Join(dir, "a.txt"), "turn one\n")
+
+	r.turn(string(testSession))
+	write(t, filepath.Join(dir, "b.txt"), "turn two\n")
+
+	if err := os.Remove(filepath.Join(dir, "d.txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	write(t, filepath.Join(dir, "new.txt"), "untracked\n")
+
+	r.turn(string(testSession))
+	write(t, filepath.Join(dir, "dir/c.txt"), "turn three\n")
+	r.commit("agent commit")
+
+	return r
+}
+
+// realThreeTurnRepo is threeTurnRepo on real git.
+func realThreeTurnRepo(t *testing.T) string {
 	t.Helper()
 
 	dir := newRepoDir(t)
@@ -123,7 +148,19 @@ func threeTurnRepo(t *testing.T) string {
 
 // editedRepo has f.txt of 60 lines committed on main with lines 5 and 50
 // edited in the working tree: two hunks.
-func editedRepo(t *testing.T) string {
+func editedRepo(t *testing.T, f *fakeGit) *fakeRepo {
+	t.Helper()
+
+	r := f.repo(t, "")
+	write(t, filepath.Join(r.Root(), "f.txt"), numberedLines("line", 60))
+	r.commit("init")
+	write(t, filepath.Join(r.Root(), "f.txt"), editedF(0))
+
+	return r
+}
+
+// realEditedRepo is editedRepo on real git.
+func realEditedRepo(t *testing.T) string {
 	t.Helper()
 
 	dir := newRepoDir(t)
@@ -179,14 +216,16 @@ func (h *heldTicks) fire() []tea.Msg {
 
 func (h *heldTicks) scheduled(d time.Duration) bool { return slices.Contains(h.delays, d) }
 
-// drawerRig is an app with a diff engine and a real watch set. A pump stands
-// in for the Bubble Tea runtime, so loads run off the test's goroutine.
+// drawerRig is an app with a diff engine on a fake git and its watch set, or
+// on real git and a real watch set when the options carry no gitOf. A pump
+// stands in for the Bubble Tea runtime, so loads run off the test's goroutine.
 type drawerRig struct {
 	*App
 	ticks *heldTicks
 	clk   *fakeClock
 	pm    *pump
-	set   *git.WatchSet
+	set   *git.WatchSet // nil on a fake git
+	fake  *fakeGit      // nil on real git
 	wait  time.Duration // how long until gives up
 
 	reported map[string]bool // the paths, absolute, that watcher batches fed to step named
@@ -205,17 +244,31 @@ func newDrawerRig(t *testing.T, opts ...func(*Options)) *drawerRig {
 func newDrawerRigWatching(t *testing.T, wo git.WatchOptions, opts ...func(*Options)) *drawerRig {
 	t.Helper()
 
-	set := git.NewWatchSet(context.Background(), wo)
+	var probe Options
 
-	t.Cleanup(func() { _ = set.Close() })
+	for _, f := range opts {
+		f(&probe)
+	}
+
+	fake, _ := probe.Git.(*fakeGit)
 
 	// The app's wiring: a run directory for temporary indexes and a cache of
 	// refreshed index copies.
 	tmp, cache := t.TempDir(), t.TempDir()
-	set0 := func(o *Options) { o.GitTempDir, o.IndexCache, o.Watches = tmp, cache, set }
+	set0 := func(o *Options) { o.GitTempDir, o.IndexCache = tmp, cache }
+
+	var set *git.WatchSet
+
+	if fake == nil {
+		set = git.NewWatchSet(context.Background(), wo)
+
+		t.Cleanup(func() { _ = set.Close() })
+
+		set0 = func(o *Options) { o.GitTempDir, o.IndexCache, o.Watches = tmp, cache, set }
+	}
 
 	a, _, clk := kindApp(t, append([]func(*Options){set0}, opts...)...)
-	r := &drawerRig{App: a, ticks: &heldTicks{}, clk: clk, pm: newPump(t), set: set, wait: watchWait, reported: map[string]bool{}}
+	r := &drawerRig{App: a, ticks: &heldTicks{}, clk: clk, pm: newPump(t), set: set, fake: fake, wait: watchWait, reported: map[string]bool{}}
 	r.pm.stopWith(t, a)
 	a.tick = r.ticks.tick
 
@@ -357,6 +410,10 @@ func (r *drawerRig) held(id core.PaneID) string {
 }
 
 func (r *drawerRig) watched(root string) bool {
+	if r.fake != nil {
+		return r.fake.watches.holds(root) > 0
+	}
+
 	_, ok := r.set.Seq(root)
 
 	return ok
@@ -450,6 +507,18 @@ func mustRect(t *testing.T, r *drawerRig) core.Rect {
 	}
 
 	return rect
+}
+
+// settled feeds queued messages until the active view has no load running or
+// queued.
+func (r *drawerRig) settled(t *testing.T) {
+	t.Helper()
+
+	r.until(t, "the drawer to settle", func() bool {
+		v := r.view()
+
+		return v != nil && !v.loading && v.queued == nil
+	})
 }
 
 // quiet feeds messages until nothing arrives for d and no load is pending.

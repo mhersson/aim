@@ -37,7 +37,21 @@ var treeWindows = []struct {
 func treeRig(t *testing.T, w, h int, from treeStart) (*drawerRig, *reviewView) {
 	t.Helper()
 
-	r := newKeysRig(t, keysRepo(t))
+	r, _ := fakeKeysRig(t)
+
+	return treeRigOn(t, r, w, h, from)
+}
+
+// realTreeRig is treeRig on real git.
+func realTreeRig(t *testing.T, w, h int, from treeStart) (*drawerRig, *reviewView) {
+	t.Helper()
+
+	return treeRigOn(t, newKeysRig(t, realKeysRepo(t)), w, h, from)
+}
+
+func treeRigOn(t *testing.T, r *drawerRig, w, h int, from treeStart) (*drawerRig, *reviewView) {
+	t.Helper()
+
 	sized(t, r.App, w, h)
 
 	v := r.opened(t)
@@ -86,7 +100,7 @@ func TestReviewTreeToggle(t *testing.T) {
 	for _, win := range treeWindows {
 		for _, tt := range tests {
 			t.Run(fmt.Sprintf("%s/%s", win.name, tt.name), func(t *testing.T) {
-				r, v := treeRig(t, win.w, win.h, tt.from)
+				r, v := realTreeRig(t, win.w, win.h, tt.from)
 
 				if got := r.layout(t).innerW; got != win.want {
 					t.Fatalf("setup: inner width %d, want %d", got, win.want)
@@ -137,7 +151,7 @@ func TestNewDrawerDrawsNoTree(t *testing.T) {
 		w, h int
 	}{{"120 inner columns", 244, 40}, {"98 inner columns", 200, 50}, {"58 inner columns", 100, 30}} {
 		t.Run(win.name, func(t *testing.T) {
-			r, _ := treeRig(t, win.w, win.h, treeStartHidden)
+			r, _ := realTreeRig(t, win.w, win.h, treeStartHidden)
 
 			lay := r.layout(t)
 			if lay.treeW != 0 || lay.diffW != lay.innerW {
@@ -155,7 +169,7 @@ func TestNewDrawerDrawsNoTree(t *testing.T) {
 func TestReopenedDrawerStartsWithTheTreeClosed(t *testing.T) {
 	t.Parallel()
 	t.Run("another pane", func(t *testing.T) {
-		dir := keysRepo(t)
+		dir := realKeysRepo(t)
 		r := newKeysRig(t, dir)
 
 		// The drawer reviews the right pane, which it covers; p1 stays in view.
@@ -181,7 +195,7 @@ func TestReopenedDrawerStartsWithTheTreeClosed(t *testing.T) {
 	})
 
 	t.Run("same pane", func(t *testing.T) {
-		r, _ := treeRig(t, 200, 50, treeStartIdle)
+		r, _ := realTreeRig(t, 200, 50, treeStartIdle)
 
 		// The first leader d closes the drawer and the second opens it again.
 		r.leader('d')
@@ -203,7 +217,7 @@ func TestReopenedDrawerStartsWithTheTreeClosed(t *testing.T) {
 // that its tab's drawer does not show.
 func TestReviewTreeIsPerTab(t *testing.T) {
 	t.Parallel()
-	dir := keysRepo(t)
+	dir := realKeysRepo(t)
 	r := newKeysRig(t, dir)
 	r.opened(t)
 	r.keys(keyTab)
@@ -295,7 +309,7 @@ func TestResizeKeepsTheTreeOpen(t *testing.T) {
 		{"the diff has the keyboard", []tea.KeyPressMsg{keyTab, keyEsc}, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			r, _ := treeRig(t, 244, 40, treeStartHidden)
+			r, _ := realTreeRig(t, 244, 40, treeStartHidden)
 			r.keys(tt.keys...)
 
 			wide := r.layout(t)
@@ -332,7 +346,7 @@ func TestResizeKeepsTheTreeOpen(t *testing.T) {
 // Where a hidden tree would be, a click lands in the diff.
 func TestClickWhereAHiddenTreeWouldBe(t *testing.T) {
 	t.Parallel()
-	r, v := treeRig(t, 200, 50, treeStartHidden)
+	r, v := realTreeRig(t, 200, 50, treeStartHidden)
 	r.leader('h')
 
 	// Row 8 of the drawer is where a tree lists z.txt, after the mode and totals rows and a blank.

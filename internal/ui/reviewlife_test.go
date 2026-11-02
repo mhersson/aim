@@ -24,7 +24,7 @@ func (r *drawerRig) holdCount() int {
 func TestNoOpReloadKeepsTheFlash(t *testing.T) {
 	t.Parallel()
 	r := newDrawerRig(t)
-	dir := editedRepo(t)
+	dir := realEditedRepo(t)
 	root := rootOf(t, dir)
 	id := r.shell(t, dir)
 
@@ -107,7 +107,7 @@ func TestTreeSelFollowsItsFile(t *testing.T) {
 func TestFullFileReadsEndWithTheirView(t *testing.T) {
 	t.Parallel()
 	r := newDrawerRig(t)
-	id := r.shell(t, editedRepo(t))
+	id := r.shell(t, realEditedRepo(t))
 
 	v := r.open(t, id)
 	v.cursor = rowWith(t, v, "f.txt")
@@ -139,7 +139,7 @@ func TestFullFileReadsEndWithTheirView(t *testing.T) {
 func TestLateAnswersAfterCloseAreDropped(t *testing.T) {
 	t.Parallel()
 	r := newDrawerRig(t)
-	id := r.shell(t, editedRepo(t))
+	id := r.shell(t, realEditedRepo(t))
 
 	r.open(t, id)
 
@@ -180,7 +180,7 @@ func TestClosePaneAndMoveReleaseTheDrawersWatch(t *testing.T) {
 		t.Helper()
 
 		r := newDrawerRig(t)
-		dir := editedRepo(t)
+		dir := realEditedRepo(t)
 		root := rootOf(t, dir)
 		agent := r.agent(t, dir, "")
 		shell := r.shell(t, dir)
@@ -234,7 +234,7 @@ func TestClosePaneAndMoveReleaseTheDrawersWatch(t *testing.T) {
 func TestCancelledFullReadDoesNotShadowTheNewOne(t *testing.T) {
 	t.Parallel()
 	r := newDrawerRig(t)
-	id := r.shell(t, editedRepo(t))
+	id := r.shell(t, realEditedRepo(t))
 
 	v := r.open(t, id)
 	v.cursor = rowWith(t, v, "f.txt")

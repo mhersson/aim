@@ -30,7 +30,7 @@ func isBranchSource(v *reviewView) bool {
 func TestSessionEndAndStartKeepTurnMode(t *testing.T) {
 	t.Parallel()
 	r := newDrawerRig(t, turnFirst)
-	dir := threeTurnRepo(t)
+	dir := realThreeTurnRepo(t)
 	root := rootOf(t, dir)
 	id := r.agent(t, dir, testSession)
 
@@ -90,7 +90,7 @@ func TestSessionEndAndStartKeepTurnMode(t *testing.T) {
 func TestNoTurnsYetNotices(t *testing.T) {
 	t.Parallel()
 	r := newDrawerRig(t)
-	dir := editedRepo(t)
+	dir := realEditedRepo(t)
 	id := r.agent(t, dir, testSession)
 
 	// A restored drawer in turn mode, on a session with no turns.
@@ -168,7 +168,7 @@ func TestTurnStartRefreshesTheDrawer(t *testing.T) {
 	t.Parallel()
 	t.Run("a turn that changes files", func(t *testing.T) {
 		r := newDrawerRig(t, turnFirst)
-		dir := threeTurnRepo(t)
+		dir := realThreeTurnRepo(t)
 		id := r.agent(t, dir, testSession)
 
 		r.open(t, id)
@@ -195,7 +195,7 @@ func TestTurnStartRefreshesTheDrawer(t *testing.T) {
 	t.Run("a turn that changes nothing yet", func(t *testing.T) {
 		t.Parallel()
 		r := newDrawerRig(t, turnFirst)
-		dir := threeTurnRepo(t)
+		dir := realThreeTurnRepo(t)
 		id := r.agent(t, dir, testSession)
 
 		r.open(t, id)
@@ -210,7 +210,7 @@ func TestTurnStartRefreshesTheDrawer(t *testing.T) {
 
 	t.Run("a past turn", func(t *testing.T) {
 		r := newDrawerRig(t, turnFirst)
-		dir := threeTurnRepo(t)
+		dir := realThreeTurnRepo(t)
 		id := r.agent(t, dir, testSession)
 
 		r.open(t, id)
@@ -240,7 +240,7 @@ func TestTurnStartRefreshesTheDrawer(t *testing.T) {
 	// The wait for the snapshot ends with the app, so no command outlives it.
 	t.Run("the app ending ends the wait", func(t *testing.T) {
 		r := newDrawerRig(t)
-		id := r.agent(t, threeTurnRepo(t), testSession)
+		id := r.agent(t, realThreeTurnRepo(t), testSession)
 		r.open(t, id)
 
 		cmd := r.reviewHook(id, true, make(chan struct{}))
@@ -272,7 +272,7 @@ func TestFailedWatchOfANewRepositoryFallsBackToHooks(t *testing.T) {
 	t.Parallel()
 	t.Run("a failed acquire releases the old watch", func(t *testing.T) {
 		r := newDrawerRig(t)
-		first, second := editedRepo(t), editedRepo(t)
+		first, second := realEditedRepo(t), realEditedRepo(t)
 		id := r.agent(t, first, "")
 
 		r.open(t, id)
@@ -302,7 +302,7 @@ func TestFailedWatchOfANewRepositoryFallsBackToHooks(t *testing.T) {
 
 	t.Run("the old root's watch does not count while another root is wanted", func(t *testing.T) {
 		r := newDrawerRig(t)
-		dir := editedRepo(t)
+		dir := realEditedRepo(t)
 		id := r.agent(t, dir, "")
 
 		v := r.open(t, id)
@@ -325,7 +325,7 @@ func TestFailedWatchOfANewRepositoryFallsBackToHooks(t *testing.T) {
 func TestHookEventMarksAHiddenDrawerStale(t *testing.T) {
 	t.Parallel()
 	r := newDrawerRig(t, func(o *Options) { o.Watches = nil })
-	dir := editedRepo(t)
+	dir := realEditedRepo(t)
 	id := r.agent(t, dir, "")
 
 	v := r.open(t, id)
@@ -356,7 +356,7 @@ func TestHookEventMarksAHiddenDrawerStale(t *testing.T) {
 func TestTurnKeysDoNotTrustTheEndedSessionsCount(t *testing.T) {
 	t.Parallel()
 	r := newDrawerRig(t)
-	dir := threeTurnRepo(t)
+	dir := realThreeTurnRepo(t)
 	root := rootOf(t, dir)
 	id := r.agent(t, dir, testSession)
 
@@ -389,7 +389,7 @@ func TestTurnKeysDoNotTrustTheEndedSessionsCount(t *testing.T) {
 func TestTurnKeysSwitchToANewSessionThatHasTurns(t *testing.T) {
 	t.Parallel()
 	r := newDrawerRig(t)
-	dir := threeTurnRepo(t)
+	dir := realThreeTurnRepo(t)
 	root := rootOf(t, dir)
 	snapshotTurn(t, dir, otherSession)
 	write(t, filepath.Join(dir, "other.txt"), "the other session's change\n")
@@ -420,7 +420,7 @@ func TestTurnKeysSwitchToANewSessionThatHasTurns(t *testing.T) {
 func TestAnswerForAnotherSessionDoesNotSetTheCount(t *testing.T) {
 	t.Parallel()
 	r := newDrawerRig(t)
-	id := r.agent(t, threeTurnRepo(t), testSession)
+	id := r.agent(t, realThreeTurnRepo(t), testSession)
 
 	v := r.open(t, id)
 	tab := r.store.State().Tab().ID
@@ -439,7 +439,7 @@ func TestAnswerForAnotherSessionDoesNotSetTheCount(t *testing.T) {
 func TestLaterKeyReplacesTheHeldTurnKey(t *testing.T) {
 	t.Parallel()
 	r := newDrawerRig(t)
-	dir := threeTurnRepo(t)
+	dir := realThreeTurnRepo(t)
 	root := rootOf(t, dir)
 	snapshotTurn(t, dir, otherSession)
 	id := r.agent(t, dir, testSession)
@@ -486,7 +486,7 @@ func TestTurnKeyOutsideARepositoryAnswersAtOnce(t *testing.T) {
 func TestNewSessionDropsAHeldTurnKey(t *testing.T) {
 	t.Parallel()
 	r := newDrawerRig(t)
-	dir := threeTurnRepo(t)
+	dir := realThreeTurnRepo(t)
 	root := rootOf(t, dir)
 	snapshotTurn(t, dir, otherSession)
 	id := r.agent(t, dir, testSession)
@@ -710,7 +710,7 @@ func TestQuestionTurnIsNotListed(t *testing.T) {
 func TestPastTurnViewRecountsOnPathBatches(t *testing.T) {
 	t.Parallel()
 	r := newDrawerRig(t, turnFirst)
-	dir := threeTurnRepo(t)
+	dir := realThreeTurnRepo(t)
 	root := rootOf(t, dir)
 	id := r.agent(t, dir, testSession)
 
