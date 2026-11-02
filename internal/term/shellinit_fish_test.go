@@ -121,7 +121,7 @@ func TestFishIntegration(t *testing.T) {
 		ig := r.integrate(t)
 
 		rt := r.start(t, ShellCommand(fishEnv, ig, r.Home, nil))
-		rt.typeLine(t, fishToFile("leak", "set -q __aim_dir __aim_bin __aim_path; or echo clean"))
+		rt.typeLine(t, fishToFile("leak", "if not set -q __aim_dir; and not set -q __aim_bin; and not set -q __aim_path; echo clean; end"))
 
 		if got := strings.TrimSpace(r.await(t, "leak")); got != "clean" {
 			t.Errorf("leak check = %q, want clean", got)

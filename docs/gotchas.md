@@ -237,8 +237,8 @@ what to do about it. Skim it before your first commit each session.
   function is written `function claude {` in bash too.
 - A hashed `claude` outlives its file: the function drops the hash entry
   before it falls back to `command claude`.
-- `fish_add_path` always moves its dir first: it checks `fish_user_paths`, not
-  PATH.
+- `fish_add_path` puts its dir in `fish_user_paths`, which fish keeps ahead of
+  PATH, so it lands before AIM's entry (and `--move` moves it first again).
 - A fish `alias` is a function that calls `command claude`, which only the PATH
   entry catches.
 - `-C` runs after `conf.d` and `config.fish`. A `vendor_conf.d` route through

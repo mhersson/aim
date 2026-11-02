@@ -79,10 +79,10 @@ nothing, and anywhere else it closes the popover and goes no further.
   script adds `status job-control full`).
 - The arguments follow a fixed script and are never quoted into it, because no
   quoting is safe in every shell. The script ends in `exec "$SHELL" -l` (with the
-  shell integration, zsh first gets AIM's `ZDOTDIR` and bash becomes
-  `exec "$SHELL" --posix -l` with AIM's `ENV`, except Apple's `/bin/bash`, which
-  ignores `ENV`, and fish becomes `exec "$SHELL" -l -C` with a line that sources
-  AIM's `init.fish`), so leaving Claude leaves a shell.
+  shell integration, zsh first gets AIM's `ZDOTDIR`, bash becomes
+  `exec "$SHELL" --posix -l` with AIM's `ENV` (except Apple's `/bin/bash`, which
+  ignores `ENV`), and fish becomes `exec "$SHELL" -l -C` with a line that
+  sources AIM's `init.fish`), so leaving Claude leaves a shell.
 - Every pane gets `TERM=xterm-256color` and `COLORTERM=truecolor` and loses an
   inherited `TMUX`, `TMUX_PANE`, `AIM_PANE`, `AIM_SOCK`, `AIM_SHELL_DIR`,
   `AIM_ZDOTDIR` and `AIM_ENV` (`term.PaneEnv`).
