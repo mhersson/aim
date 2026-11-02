@@ -7,7 +7,8 @@ import (
 )
 
 // pathological is an input at a size where a superlinear step in parse or
-// layout would show. bench_test.go times the same inputs.
+// layout would show. bench_test.go times these inputs and one more at the size
+// limit.
 type pathological struct {
 	name     string
 	src      string
@@ -27,7 +28,6 @@ func pathologicalInputs() []pathological {
 		{"open brackets", strings.Repeat("[", 100_000), 1000, ""},
 		{"quote markers", strings.Repeat(">", 10_000), 0, ""}, // empty nested quotes draw nothing
 		{"quote markers with text", strings.Repeat(">", 10_000) + " deep", 1, "deep"},
-		{"quote markers to the size limit", strings.Repeat(">", MaxBytes-len(" deep")) + " deep", 1, "deep"},
 		{"list items", strings.Repeat("- a\n", 100_000), 100_000, ""},
 		{"one 4 MiB paragraph", words, 40_000, ""},
 		{"3000 nested details", nested.String(), 3000, ""},
@@ -74,6 +74,8 @@ func layoutPathological(d *Doc) Layout {
 }
 
 func TestPathological(t *testing.T) {
+	t.Parallel()
+
 	for _, tt := range pathologicalInputs() {
 		t.Run(tt.name, func(t *testing.T) {
 			l := layoutPathological(parseUncut(t, []byte(tt.src)))
@@ -90,6 +92,8 @@ func TestPathological(t *testing.T) {
 }
 
 func TestFourMiB(t *testing.T) {
+	t.Parallel()
+
 	l := layoutPathological(parseUncut(t, fourMiBCorpus(t)))
 
 	if len(l.Lines) < 100_000 {

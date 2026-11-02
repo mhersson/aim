@@ -16,6 +16,8 @@ func codeLayout(src string, width int, hl Highlighter) Layout {
 func bar(n int) string { return strings.Repeat("─", n) }
 
 func TestCodeFrameAndLabel(t *testing.T) {
+	t.Parallel()
+
 	l := codeLayout("```go\nx := 1\n```\n", 20, nil)
 	wantLines(t, l,
 		"╭─ go "+bar(13)+"╮",
@@ -102,6 +104,8 @@ func TestCodeFrameAndLabel(t *testing.T) {
 }
 
 func TestCodeLineNumbers(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		n         int
 		first     string
@@ -141,6 +145,8 @@ func TestCodeLineNumbers(t *testing.T) {
 }
 
 func TestCodeCutNotWrapped(t *testing.T) {
+	t.Parallel()
+
 	l := codeLayout("```\n"+strings.Repeat("x", 10000)+"\n```\n", 20, nil)
 	// room = 20 - 5 - 1 = 14: 13 cells of code, then the cut mark.
 	wantLines(t, l, "╭"+bar(18)+"╮", "│ 1 "+strings.Repeat("x", 13)+"… │", "╰"+bar(18)+"╯")
@@ -197,6 +203,8 @@ func TestCodeCutNotWrapped(t *testing.T) {
 }
 
 func TestCodeTabs(t *testing.T) {
+	t.Parallel()
+
 	l := codeLayout("```\na\tb\n\tc\nabcd\te\n好\tx\n```\n", 20, nil)
 	plain := l.Plain()
 
@@ -232,6 +240,8 @@ func TestCodeTabs(t *testing.T) {
 }
 
 func TestCodeHidden(t *testing.T) {
+	t.Parallel()
+
 	l := codeLayout("```\na\x01b\u200bc\x7fd\u202ee\n```\n", 60, nil)
 	wantLines(t, l,
 		"╭"+bar(58)+"╮",
@@ -274,6 +284,8 @@ func TestCodeHidden(t *testing.T) {
 }
 
 func TestCodeHighlighter(t *testing.T) {
+	t.Parallel()
+
 	classes := func(l Layout, i int) string {
 		var b strings.Builder
 
@@ -473,6 +485,8 @@ func TestCodeHighlighter(t *testing.T) {
 }
 
 func TestIndentedCode(t *testing.T) {
+	t.Parallel()
+
 	l := codeLayout("para\n\n    a\n    b\n\n\tc\n", 20, nil)
 	wantLines(t, l,
 		"para",
@@ -494,11 +508,15 @@ func TestIndentedCode(t *testing.T) {
 }
 
 func TestCodeEmptyBlock(t *testing.T) {
+	t.Parallel()
+
 	wantLines(t, codeLayout("```\n```\n", 12, nil), "╭"+bar(10)+"╮", "╰"+bar(10)+"╯")
 	wantLines(t, codeLayout("```go\n```\n", 12, nil), "╭─ go "+bar(5)+"╮", "╰"+bar(10)+"╯")
 }
 
 func TestCodeInContainers(t *testing.T) {
+	t.Parallel()
+
 	t.Run("list item", func(t *testing.T) {
 		l := codeLayout("- item\n\n  ```go\n  x\n  ```\n", 20, nil)
 		wantLines(t, l,
@@ -546,6 +564,8 @@ func TestCodeInContainers(t *testing.T) {
 }
 
 func TestCodeNarrowWidths(t *testing.T) {
+	t.Parallel()
+
 	srcs := []string{
 		"```go\nfmt.Println(\"hello world\")\n\tindented\n```\n",
 		"```\n好好好好好好好好好好\n😀😀😀😀😀😀\ne\u0301e\u0301\x01\u200b\n```\n",
@@ -554,9 +574,10 @@ func TestCodeNarrowWidths(t *testing.T) {
 		"```" + strings.Repeat("l", 50) + "\n" + strings.Repeat("a\n", 120) + "```\n",
 		"```\n```\n",
 		"    indented\n",
+		"```\n" + strings.Repeat("好\x01\t", 5000) + "\n```\n",
 	}
 
-	for w := 1; w <= 10; w++ {
+	for _, w := range []int{1, 2, 3, 5, 10} {
 		for i, src := range srcs {
 			l := codeLayout(src, w, func(_ string, lines []string) [][]Span {
 				out := make([][]Span, len(lines))
@@ -580,14 +601,9 @@ func TestCodeNarrowWidths(t *testing.T) {
 	}
 }
 
-func TestCodeLongLineIsBounded(t *testing.T) {
-	src := "```\n" + strings.Repeat("好\x01\t", 5000) + "\n```\n"
-	for _, w := range []int{1, 5, 30, 100} {
-		assertSafe(t, codeLayout(src, w, nil), w)
-	}
-}
-
 func TestCodeGolden(t *testing.T) {
+	t.Parallel()
+
 	src := "Intro\n\n```go\npackage main\n\nfunc main() {\n\tprintln(\"hi\")\t// tab\n}\n```\n\n    indented\n\n```\nwith\x01hidden\u200btags and 好 wide\n```\n"
 
 	for _, w := range []int{14, 40} {

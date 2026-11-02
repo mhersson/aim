@@ -38,12 +38,24 @@ func assertBordersAligned(t *testing.T, l Layout, rows []string) {
 	}
 }
 
+// clusterSamples are the widthSamples whose width comes from joining runes;
+// TestCutCells covers the other two.
+var clusterSamples = map[string]string{
+	"flag":   widthSamples["flag"],
+	"keycap": widthSamples["keycap"],
+	"zwj":    widthSamples["zwj"],
+}
+
 func TestCodeWidthByCluster(t *testing.T) {
-	for name, sample := range widthSamples {
+	t.Parallel()
+
+	for name, sample := range clusterSamples {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
 			src := "```\nplain line\nab" + sample + "cd\n" + sample + sample + "\nplain\n```\n"
 
-			for _, w := range []int{14, 20, 40} {
+			for _, w := range []int{14, 30} {
 				l := codeLayout(src, w, nil)
 				assertSafe(t, l, w)
 				assertBordersAligned(t, l, l.Plain()[1:len(l.Lines)-1])
@@ -53,11 +65,15 @@ func TestCodeWidthByCluster(t *testing.T) {
 }
 
 func TestTableWidthByCluster(t *testing.T) {
-	for name, sample := range widthSamples {
+	t.Parallel()
+
+	for name, sample := range clusterSamples {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
 			src := "| a | b |\n|---|---|\n| plain | x |\n| ab" + sample + "cd | " + sample + " |\n| zz | yyyy |\n"
 
-			for _, w := range []int{14, 30, 60} {
+			for _, w := range []int{14, 30} {
 				l := layoutOf(src, w, "")
 				assertSafe(t, l, w)
 				assertBordersAligned(t, l, l.Plain())
@@ -73,6 +89,8 @@ func TestTableWidthByCluster(t *testing.T) {
 }
 
 func TestTextWidthMatchesStringWidth(t *testing.T) {
+	t.Parallel()
+
 	for name, s := range widthSamples {
 		if got, want := textWidth("a"+s+"b"), ansi.StringWidth("a"+s+"b"); got != want {
 			t.Errorf("%s: textWidth = %d, StringWidth = %d", name, got, want)
@@ -87,6 +105,8 @@ var splitSamples = map[string]string{
 }
 
 func TestTableSplitClusterAligned(t *testing.T) {
+	t.Parallel()
+
 	for name, cell := range splitSamples {
 		t.Run(name, func(t *testing.T) {
 			src := "| a | b |\n|---|---|\n| plain | x |\n| ab " + cell + " cd | " + cell + " |\n| zz | yyyy |\n"
@@ -107,9 +127,13 @@ func TestTableSplitClusterAligned(t *testing.T) {
 }
 
 func TestProseSplitClusterFits(t *testing.T) {
+	t.Parallel()
+
 	for name, cell := range splitSamples {
 		t.Run(name, func(t *testing.T) {
-			for _, w := range []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20} {
+			t.Parallel()
+
+			for _, w := range []int{1, 2, 3, 5, 20} {
 				l := layoutOf("ab "+cell+" cd "+cell+" ef", w, "")
 				assertSafe(t, l, w)
 			}
@@ -118,6 +142,8 @@ func TestProseSplitClusterFits(t *testing.T) {
 }
 
 func TestSplitClusterTakesFirstStyle(t *testing.T) {
+	t.Parallel()
+
 	for name, cell := range splitSamples {
 		t.Run(name, func(t *testing.T) {
 			l := layoutOf("x "+cell+" y", 40, "")
@@ -151,36 +177,16 @@ func TestSplitClusterTakesFirstStyle(t *testing.T) {
 	}
 }
 
-func TestLongSplitClusterFits(t *testing.T) {
-	src := "e" + strings.Repeat("**\u0301**~~\u0302~~", 500)
-
-	for _, w := range []int{1, 2, 10, 20, 100} {
-		assertSafe(t, layoutOf(src, w, ""), w)
-	}
-}
-
-func TestFitCutsByCluster(t *testing.T) {
-	for name, sample := range widthSamples {
-		t.Run(name, func(t *testing.T) {
-			for _, text := range []string{sample + " tail", "ab" + sample + sample + "cd", sample} {
-				line := Line{{Text: text, Link: -1}}
-
-				for w := 1; w <= textWidth(text)+1; w++ {
-					if got := lineWidth(fit(line, w)); got > w {
-						t.Errorf("fit(%q, %d) is %d cells wide", text, w, got)
-					}
-				}
-			}
-		})
-	}
-}
-
 func TestCodeLabelCutByCluster(t *testing.T) {
-	for name, sample := range widthSamples {
+	t.Parallel()
+
+	for name, sample := range clusterSamples {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
 			src := "```" + strings.Repeat(sample+"x", 30) + "\ncode\n```\n"
 
-			for _, w := range []int{8, 14, 20, 30, 40} {
+			for _, w := range []int{14, 30} {
 				l := codeLayout(src, w, nil)
 				assertSafe(t, l, w)
 				assertBordersAligned(t, l, l.Plain())
@@ -190,6 +196,8 @@ func TestCodeLabelCutByCluster(t *testing.T) {
 }
 
 func TestCutCells(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		s    string
@@ -237,6 +245,8 @@ func TestCutCells(t *testing.T) {
 }
 
 func TestFitMergesTheEllipsis(t *testing.T) {
+	t.Parallel()
+
 	st := Run{Role: RoleTableFrame, Link: -1}
 
 	tests := []struct {

@@ -109,6 +109,8 @@ func mergeCopyMarks(line Line) Line {
 }
 
 func TestRoleNamesComplete(t *testing.T) {
+	t.Parallel()
+
 	for i, n := range roleNames {
 		if n == "" {
 			t.Errorf("role %d has no debug name", i)

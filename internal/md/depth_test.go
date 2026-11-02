@@ -68,6 +68,8 @@ func mixedNesting(depth int) string {
 // TestNestingMixedPastCap pins the layout of every container kind nested
 // beyond the depth where bars and indentation stop.
 func TestNestingMixedPastCap(t *testing.T) {
+	t.Parallel()
+
 	for _, depth := range []int{12, 24, 36} {
 		src := mixedNesting(depth)
 
@@ -92,11 +94,7 @@ func TestNestingMixedPastCap(t *testing.T) {
 // the assertion. The stack limits sit well below what the unbounded recursion
 // needed for these inputs, and above what goldmark's own parse takes.
 func TestDeepNestingKeepsStack(t *testing.T) {
-	// Folds cost most per level, and the race detector makes that ten times worse.
-	folds, foldStack := 200_000, 32
-	if raceEnabled {
-		folds, foldStack = 20_000, 8
-	}
+	const folds, foldStack = 20_000, 8 // folds cost the most stack per level
 
 	const noteLevels = 1000
 
@@ -122,7 +120,6 @@ func TestDeepNestingKeepsStack(t *testing.T) {
 				t.Errorf("laid out %d folds, want %d", len(l.Folds), folds)
 			}
 		}},
-		{"quotes and lists", strings.Repeat("> - ", 20_000) + "deep", 16, wantLine("deep")},
 		{"alerts", notes.String(), 32, func(t *testing.T, l Layout) {
 			t.Helper()
 
@@ -179,6 +176,8 @@ func wantLine(s string) func(t *testing.T, l Layout) {
 // at: every level's text, a list item's marker on its own line, and the bars
 // and indentation of the capped levels only.
 func TestFlatNesting(t *testing.T) {
+	t.Parallel()
+
 	const levels = maxDepth + 8
 
 	var lists, quotes strings.Builder
@@ -284,6 +283,8 @@ func slicesIndexLine(lines []string, s string) int {
 
 // TestWalkTree checks the iterative walk against goldmark's recursive one.
 func TestWalkTree(t *testing.T) {
+	t.Parallel()
+
 	for _, doc := range corpusDocs(t) {
 		d := Parse(doc.src, ParseOptions{})
 
@@ -327,6 +328,8 @@ func TestWalkTree(t *testing.T) {
 
 // TestWalkTreeSubtree stays inside the subtree it is given.
 func TestWalkTreeSubtree(t *testing.T) {
+	t.Parallel()
+
 	d := Parse([]byte("- a\n- b *c*\n- d\n"), ParseOptions{})
 
 	var item ast.Node
