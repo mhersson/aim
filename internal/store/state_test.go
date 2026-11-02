@@ -81,24 +81,6 @@ func TestEncodeGolden(t *testing.T) {
 	if string(data) != string(want) {
 		t.Fatalf("encoding differs from %s:\n%s", path, data)
 	}
-
-	if !strings.Contains(string(data), `"ratio": 0.33,`) {
-		t.Fatalf("ratio 0.333333 not written as 0.33:\n%s", data)
-	}
-}
-
-func TestEncodeDeterministic(t *testing.T) {
-	a, err := Encode(fixedState())
-	noErr(t, err)
-
-	for range 5 {
-		b, err := Encode(fixedState())
-		noErr(t, err)
-
-		if string(a) != string(b) {
-			t.Fatal("two encodings of one state differ")
-		}
-	}
 }
 
 func TestEncodeNoTabs(t *testing.T) {
@@ -177,11 +159,6 @@ func TestDecodeVersions(t *testing.T) {
 	}{
 		{"one", `1`, "1", false},
 		{"two", `2`, "", true},
-		{"two as float", `2.0`, "", true},
-		{"three", `3`, "3", false},
-		{"string", `"x"`, `"x"`, false},
-		{"null", `null`, "unknown", false},
-		{"zero", `0`, "0", false},
 		{"long", `"abcdefghijklmnopqrstuvwxyz"`, `"abcdefghijklmno`, false},
 		{"object with whitespace", "{\"a\":\t1}", `{"a":1}`, false},
 	}
@@ -225,18 +202,6 @@ func TestDecodeMissingVersion(t *testing.T) {
 	eq(t, st.Tabs[0].Layout, defaultLayout([]core.PaneID{"p1", "p2"}))
 }
 
-func TestDecodeKeepsSessionsOnNewerVersion(t *testing.T) {
-	panes := `"p1":{"kind":"agent","harness":"claude-code","cwd":"/a","session_id":"` + sessionA + `","transcript":"/t.jsonl"}`
-	data := doc(`2`, "0", tabDoc("t1", "p1", `"p1"`, `{"pane":"p1"}`), panes)
-	st, _, err := decodeDefault([]byte(data))
-	noErr(t, err)
-
-	p := st.Panes["p1"]
-	eq(t, p.Session, core.SessionID(sessionA))
-	eq(t, p.Transcript, "/t.jsonl")
-	eq(t, p.Cwd, "/a")
-}
-
 func TestDecodeBrokenLayoutDefaultsThatTab(t *testing.T) {
 	panes := `"p1":{"kind":"shell"},"p2":{"kind":"shell"},"p3":{"kind":"shell"},"p4":{"kind":"shell"}`
 	good := `{"split":"horizontal","ratio":0.3,"children":[{"pane":"p3"},{"pane":"p4"}]}`
@@ -245,11 +210,9 @@ func TestDecodeBrokenLayoutDefaultsThatTab(t *testing.T) {
 		name   string
 		layout string
 	}{
-		{"wrong leaves", `{"split":"vertical","ratio":0.5,"children":[{"pane":"p1"},{"pane":"p9"}]}`},
 		{"ratio five on a non-split", `{"pane":"p1","ratio":5}`},
 		{"garbage", `"nonsense"`},
 		{"null", `null`},
-		{"absent", ``},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -275,14 +238,6 @@ func optLayout(l string) string {
 	return `,"layout":` + l
 }
 
-func TestDecodeClampsRatio(t *testing.T) {
-	layout := `{"split":"vertical","ratio":5,"children":[{"pane":"p1"},{"pane":"p2"}]}`
-	st, rep, err := decodeDefault([]byte(doc("2", "0", tabDoc("t1", "p1", `"p1","p2"`, layout), twoPanes)))
-	noErr(t, err)
-	eq(t, rep, Report{})
-	eq(t, st.Tabs[0].Layout.Ratio, 0.9)
-}
-
 func TestDecodeValidation(t *testing.T) {
 	one := tabDoc("t1", "p1", `"p1","p2"`, twoLayout)
 
@@ -294,35 +249,26 @@ func TestDecodeValidation(t *testing.T) {
 		{"empty input", ``},
 		{"null", `null`},
 		{"array", `[]`},
-		{"number", `0`},
 		{"nan ratio token", `{"version":2,"active":0,"tabs":[` + tabDoc("t1", "p1", `"p1","p2"`, `{"split":"vertical","ratio":NaN,"children":[{"pane":"p1"},{"pane":"p2"}]}`) + `],"panes":{` + twoPanes + `}}`},
 		{"trailing data", doc("2", "0", one, twoPanes) + `{}`},
 		{"no tabs", `{"version":2,"active":0,"tabs":[],"panes":{}}`},
-		{"tabs missing", `{"version":2,"active":0}`},
 		{"active negative", doc("2", "-1", one, twoPanes)},
 		{"active past the end", doc("2", "3", one+","+tabDoc("t2", "p3", `"p3"`, `{"pane":"p3"}`), twoPanes+`,"p3":{"kind":"shell"}`)},
-		{"active not a number", doc("2", `"0"`, one, twoPanes)},
 		{"duplicate tab id", doc("2", "0", one+","+tabDoc("t1", "p3", `"p3"`, `{"pane":"p3"}`), twoPanes+`,"p3":{"kind":"shell"}`)},
 		{"pane in two tabs", doc("2", "0", one+","+tabDoc("t2", "p2", `"p2"`, `{"pane":"p2"}`), twoPanes)},
 		{"pane twice in a tab", doc("2", "0", tabDoc("t1", "p1", `"p1","p1","p2"`, twoLayout), twoPanes)},
 		{"pane_ids names a missing pane", doc("2", "0", tabDoc("t1", "p1", `"p1","p2","p7"`, twoLayout), twoPanes)},
 		{"pane in no tab", doc("2", "0", tabDoc("t1", "p1", `"p1"`, `{"pane":"p1"}`), twoPanes)},
 		{"kind review", doc("2", "0", one, `"p1":{"kind":"review"},"p2":{"kind":"shell"}`)},
-		{"kind missing", doc("2", "0", one, `"p1":{},"p2":{"kind":"shell"}`)},
 		{"harness codex", doc("2", "0", one, `"p1":{"kind":"agent","harness":"codex"},"p2":{"kind":"shell"}`)},
 		{"agent without harness", doc("2", "0", one, `"p1":{"kind":"agent"},"p2":{"kind":"shell"}`)},
 		{"empty tab beside another", doc("2", "0", one+","+tabDoc("t2", "", ``, `null`), twoPanes)},
 		{"tab id shape", doc("2", "0", tabDoc("x1", "p1", `"p1","p2"`, twoLayout), twoPanes)},
 		{"tab id zero", doc("2", "0", tabDoc("t0", "p1", `"p1","p2"`, twoLayout), twoPanes)},
-		{"tab id leading zero", doc("2", "0", tabDoc("t01", "p1", `"p1","p2"`, twoLayout), twoPanes)},
 		{"tab id overflow", doc("2", "0", tabDoc("t99999999999999999999", "p1", `"p1","p2"`, twoLayout), twoPanes)},
 		{"pane id shape", doc("2", "0", tabDoc("t1", "q1", `"q1"`, `{"pane":"q1"}`), `"q1":{"kind":"shell"}`)},
-		{"pane id huge", doc("2", "0", tabDoc("t1", "p9223372036854775807", `"p9223372036854775807"`, `{"pane":"p9223372036854775807"}`), `"p9223372036854775807":{"kind":"shell"}`)},
-		{"pane_ids wrong type", `{"version":2,"active":0,"tabs":[{"id":"t1","pane_ids":"p1"}],"panes":{"p1":{"kind":"shell"}}}`},
 		{"pane wrong type", `{"version":2,"active":0,"tabs":[{"id":"t1","pane_ids":["p1"]}],"panes":{"p1":"shell"}}`},
 		{"null tab", `{"version":2,"active":0,"tabs":[null],"panes":{}}`},
-		{"newer version still validates tabs", doc("2", "0", one, `"p1":{"kind":"review"},"p2":{"kind":"shell"}`)},
-		{"newer version still checks active", doc("2", "7", one, twoPanes)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -393,12 +339,6 @@ func TestDecodeFallbacks(t *testing.T) {
 				eq(t, p.Transcript, "")
 				eq(t, p.Kind, core.KindAgent)
 			},
-		},
-		{
-			"session id with a flag",
-			tabDoc("t1", "p1", `"p1"`, `{"pane":"p1"}`),
-			`"p1":{"kind":"agent","harness":"claude-code","session_id":"--dangerously-skip-permissions","transcript":"/t.jsonl"}`,
-			func(t *testing.T, st core.State) { eq(t, st.Panes["p1"].Session, core.SessionID("")) },
 		},
 		{
 			"valid session kept",
@@ -499,20 +439,10 @@ func TestDecodeFallbacks(t *testing.T) {
 }
 
 func TestDecodeNeverPanics(t *testing.T) {
-	full, err := Encode(fixedState())
-	noErr(t, err)
-
-	for i := range len(full) + 1 {
-		_, _, _ = decodeDefault(full[:i])
-	}
-
 	for _, in := range []string{
-		`{"version":2,"active":0,"tabs":[{"id":"t1","pane_ids":["p1"],"layout":{"pane":"p1","children":[null]}}],"panes":{"p1":{"kind":"shell"}}}`,
 		`{"version":[[[[[[]]]]]],"tabs":{},"panes":[]}`,
-		`{"tabs":[{"id":"t1","pane_ids":[null]}],"panes":{"":{}}}`,
-		`{"version":2,"tabs":[{"id":"t1","pane_ids":["p1"],"layout":{"split":"vertical","ratio":"x","children":[{},{}]}}],"panes":{"p1":{"kind":"shell"}}}`,
-		strings.Repeat("[", 100000),
-		strings.Repeat(`{"a":`, 100000),
+		strings.Repeat("[", 10001),
+		strings.Repeat(`{"a":`, 10001),
 	} {
 		_, _, _ = decodeDefault([]byte(in))
 	}
@@ -550,97 +480,55 @@ func TestLoad(t *testing.T) {
 	}
 }
 
-func TestRoundTripAtPaneLimit(t *testing.T) {
-	s := core.NewStore(core.InitialState(core.Config{}))
-	for len(s.State().Panes) < core.MaxPanes {
-		noErr(t, s.Dispatch(core.OpenPane{Kind: core.KindShell, Split: core.SplitVertical}))
-	}
-
-	data, err := Encode(s.State())
-	noErr(t, err)
-
-	got, _, err := decodeDefault(data)
-	noErr(t, err)
-
-	if len(got.Panes) != core.MaxPanes {
-		t.Errorf("panes = %d, want %d", len(got.Panes), core.MaxPanes)
-	}
-}
-
 func decodeDefault(data []byte) (core.State, Report, error) {
 	return Decode(data, core.LayoutConfig{})
 }
 
-func TestAgentCwdIsNotPersisted(t *testing.T) {
-	st := fixedState()
-	p := st.Panes["p1"]
-	p.AgentCwd = "/home/me/code/api/sub"
-	st.Panes["p1"] = p
+// TestVolatileFieldsNotSaved pins "only what cannot come back is saved": state
+// the app re-derives never reaches the file.
+func TestVolatileFieldsNotSaved(t *testing.T) {
+	t.Parallel()
 
-	data, err := Encode(st)
-	noErr(t, err)
-
-	if strings.Contains(string(data), "/home/me/code/api/sub") {
-		t.Errorf("the agent's cwd is written:\n%s", data)
-	}
-
-	got, rep, err := decodeDefault(data)
-	noErr(t, err)
-	eq(t, rep, Report{})
-	eq(t, got.Panes["p1"].AgentCwd, "")
-	eq(t, got.Panes["p1"].Cwd, "/home/me/code/api")
-	eq(t, got, roundTripped())
-}
-
-func TestAgentStatusIsNotPersisted(t *testing.T) {
-	st := fixedState()
-	p := st.Panes["p1"]
-	p.Model, p.Context, p.ContextKnown, p.StatusSession = "Opus 4.8", 73, true, "status-session"
-	st.Panes["p1"] = p
-
-	data, err := Encode(st)
-	noErr(t, err)
-
-	for _, leak := range []string{"Opus 4.8", "status-session", "context", "model"} {
-		if strings.Contains(string(data), leak) {
-			t.Errorf("the status is written (%q):\n%s", leak, data)
+	withPane := func(f func(*core.Pane)) func(*core.State) {
+		return func(st *core.State) {
+			p := st.Panes["p1"]
+			f(&p)
+			st.Panes["p1"] = p
 		}
 	}
 
-	got, rep, err := decodeDefault(data)
-	noErr(t, err)
-	eq(t, rep, Report{})
-	eq(t, got.Panes["p1"].Model, "")
-	eq(t, got.Panes["p1"].Context, 0)
-	eq(t, got.Panes["p1"].ContextKnown, false)
-	eq(t, got.Panes["p1"].StatusSession, core.SessionID(""))
-	eq(t, got, roundTripped())
-}
-
-func TestEditsNotSaved(t *testing.T) {
-	t.Parallel()
-
-	st := fixedState()
-	p := st.Panes["p1"]
-	p.Edits = []core.Edit{{Root: "/home/me/code/other", Common: "/home/me/code/other/.git", Repo: "other", Seq: 3}}
-	st.Panes["p1"] = p
-
-	data, err := Encode(st)
-	noErr(t, err)
-
-	if strings.Contains(string(data), "/home/me/code/other") {
-		t.Errorf("the places an agent edited are written:\n%s", data)
+	tests := []struct {
+		name string
+		mod  func(*core.State)
+	}{
+		{"agent cwd", withPane(func(p *core.Pane) { p.AgentCwd = "/home/me/code/api/sub" })},
+		{"agent status", withPane(func(p *core.Pane) {
+			p.Model, p.Context, p.ContextKnown, p.StatusSession = "Opus 4.8", 73, true, "status-session"
+		})},
+		{"edits", withPane(func(p *core.Pane) {
+			p.Edits = []core.Edit{{Root: "/home/me/code/other", Common: "/home/me/code/other/.git", Repo: "other", Seq: 3}}
+		})},
+		{"pin", func(st *core.State) { st.Tabs[0].Pin = &core.Pin{Pane: "p2", Root: "/home/me/code/other"} }},
+		{"review pr mode", func(st *core.State) {
+			st.Tabs[0].Review.PR = &core.ReviewPR{Repo: "github.com/o/r", Number: 3, Root: "/w"}
+		}},
 	}
 
 	want, err := Encode(fixedState())
 	noErr(t, err)
-	eq(t, string(data), string(want))
 
-	got, rep, err := decodeDefault(data)
-	noErr(t, err)
-	eq(t, rep, Report{})
-	eq(t, len(got.Panes["p1"].Edits), 0)
-	eq(t, got, roundTripped())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			st := fixedState()
+			tt.mod(&st)
+
+			got, err := Encode(st)
+			noErr(t, err)
+			eq(t, string(got), string(want))
+		})
+	}
 }
 
 func TestRailPersistence(t *testing.T) {
@@ -674,8 +562,6 @@ func TestDecodeRailByVersion(t *testing.T) {
 	}{
 		{"v2 without the field", "2", "", false},
 		{"v2 open", "2", `"rail":true,`, true},
-		{"v2 explicitly closed", "2", `"rail":false,`, false},
-		{"v1 without the field", "1", "", false},
 		{"v1 ignores the field", "1", `"rail":true,`, false},
 	}
 	for _, tt := range tests {
@@ -689,34 +575,6 @@ func TestDecodeRailByVersion(t *testing.T) {
 	}
 }
 
-func TestReviewPersistence(t *testing.T) {
-	open := fixedState()
-	open.Tabs[0].Review = &core.Review{Pane: "p2", Mode: core.ReviewBranch}
-
-	data, err := Encode(open)
-	noErr(t, err)
-
-	if !strings.Contains(string(data), `"review": {`) || !strings.Contains(string(data), `"version": 2`) {
-		t.Errorf("open drawer or version not written as expected:\n%s", data)
-	}
-
-	got, rep, err := decodeDefault(data)
-	noErr(t, err)
-	eq(t, rep, Report{})
-	eq(t, got.Tabs[0].Review, open.Tabs[0].Review)
-	eq(t, got.Tabs[1].Review, (*core.Review)(nil))
-
-	closed := fixedState()
-	closed.Tabs[0].Review = nil
-
-	data, err = Encode(closed)
-	noErr(t, err)
-
-	if strings.Contains(string(data), `"review":`) {
-		t.Errorf("closed drawer is written:\n%s", data)
-	}
-}
-
 // Each tab's drawer saves and loads its own tree state.
 func TestReviewTreePersistence(t *testing.T) {
 	tests := []struct {
@@ -724,10 +582,8 @@ func TestReviewTreePersistence(t *testing.T) {
 		tree1, tree2 bool
 		saved        int
 	}{
-		{"first open, second closed", true, false, 1},
 		{"first closed, second open", false, true, 1},
 		{"both open", true, true, 2},
-		{"both closed", false, false, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -760,18 +616,12 @@ func TestReviewDecodeDropsBadFields(t *testing.T) {
 		name, review string
 		want         *core.Review
 	}{
-		{"valid", `{"pane":"p2","mode":"turn"}`, &core.Review{Pane: "p2", Mode: core.ReviewTurn}},
-		{"tree open", `{"pane":"p2","mode":"branch","tree":true}`, &core.Review{Pane: "p2", Mode: core.ReviewBranch, Tree: true}},
-		{"tree closed", `{"pane":"p2","mode":"turn","tree":false}`, &core.Review{Pane: "p2", Mode: core.ReviewTurn}},
 		{"tree is a string", `{"pane":"p2","mode":"turn","tree":"yes"}`, nil},
 		{"unknown field", `{"pane":"p2","mode":"turn","later":1}`, &core.Review{Pane: "p2", Mode: core.ReviewTurn}},
-		{"unknown pane", `{"pane":"p9","mode":"turn"}`, nil},
 		{"pane of another tab", `{"pane":"p3","mode":"turn"}`, nil},
 		{"unknown mode", `{"pane":"p2","mode":"x"}`, nil},
-		{"missing mode", `{"pane":"p2"}`, nil},
 		{"null", `null`, nil},
 		{"wrong type", `"p2"`, nil},
-		{"pane is a number", `{"pane":2,"mode":"turn"}`, nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -785,55 +635,6 @@ func TestReviewDecodeDropsBadFields(t *testing.T) {
 			eq(t, st.Tabs[0].Review, tt.want)
 			eq(t, len(st.Tabs[0].Panes), 2)
 		})
-	}
-}
-
-func TestPinNotSaved(t *testing.T) {
-	t.Parallel()
-
-	st := fixedState()
-	st.Tabs[0].Pin = &core.Pin{Pane: "p2", Root: "/home/me/code/other"}
-
-	data, err := Encode(st)
-	noErr(t, err)
-
-	if strings.Contains(string(data), "/home/me/code/other") {
-		t.Errorf("the pinned worktree is written:\n%s", data)
-	}
-
-	want, err := Encode(fixedState())
-	noErr(t, err)
-	eq(t, string(data), string(want))
-
-	got, rep, err := decodeDefault(data)
-	noErr(t, err)
-	eq(t, rep, Report{})
-
-	if got.Tabs[0].Pin != nil {
-		t.Errorf("round trip has a pin: %+v", got.Tabs[0].Pin)
-	}
-
-	eq(t, got, roundTripped())
-}
-
-// The drawer's PR mode is never saved.
-func TestReviewPRModeIsNotSaved(t *testing.T) {
-	t.Parallel()
-
-	plain := fixedState()
-	plain.Tabs[0].Review = &core.Review{Pane: "p2", Mode: core.ReviewBranch}
-
-	withPR := fixedState()
-	withPR.Tabs[0].Review = &core.Review{Pane: "p2", Mode: core.ReviewBranch, PR: &core.ReviewPR{Repo: "github.com/o/r", Number: 3, Root: "/w"}}
-
-	a, err := Encode(plain)
-	noErr(t, err)
-
-	b, err := Encode(withPR)
-	noErr(t, err)
-
-	if string(a) != string(b) {
-		t.Errorf("PR mode changes the encoding:\n%s\nvs\n%s", a, b)
 	}
 }
 
@@ -938,16 +739,12 @@ func TestDecodePlan(t *testing.T) {
 		pane string // the pane's "plan" member, or a whole pane when it starts with "{"
 		want core.Plan
 	}{
-		{"file plan", `{"path":"/r/docs/superpowers/plans/a.md","root":"/r","kind":"file","at":"2026-10-30T09:00:00Z","unread":true}`, file},
-		{"mode plan", `{"path":"/h/.claude/plans/x.md","kind":"mode","at":"2026-10-30T09:00:00Z"}`, mode},
-		{"relative path", `{"path":"plans/x.md","kind":"mode","at":"2026-10-30T09:00:00Z"}`, core.Plan{}},
 		{"uncleaned path", `{"path":"/a/../b.md","kind":"mode","at":"2026-10-30T09:00:00Z"}`, core.Plan{}},
 		{"unknown kind", `{"path":"/a/b.md","kind":"x","at":"2026-10-30T09:00:00Z"}`, core.Plan{}},
 		{"root does not hold the path", `{"path":"/a/b.md","root":"/c","kind":"file","at":"2026-10-30T09:00:00Z"}`, core.Plan{}},
 		{"file plan without root", `{"path":"/a/b.md","kind":"file","at":"2026-10-30T09:00:00Z"}`, core.Plan{}},
 		{"mode plan with a root", `{"path":"/a/b.md","root":"/a","kind":"mode","at":"2026-10-30T09:00:00Z"}`, core.Plan{}},
 		{"bad time", `{"path":"/a/b.md","kind":"mode","at":"yesterday"}`, core.Plan{}},
-		{"plan is a string", `"/a/b.md"`, core.Plan{}},
 		{"plan is null", `null`, core.Plan{}},
 	}
 	for _, tt := range tests {

@@ -1,6 +1,7 @@
 package diffview
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -60,8 +61,8 @@ func TestHighlighterLang(t *testing.T) {
 		t.Error("a known language was not highlighted")
 	}
 
-	for range 2 * langMissMax {
-		if h.HighlightLang("nope-"+strings.Repeat("x", 3), []string{"x"}) != nil {
+	for i := range langMissMax + 2 {
+		if h.HighlightLang(fmt.Sprint("nope-", i), []string{"x"}) != nil {
 			t.Fatal("an unknown language was highlighted")
 		}
 	}
@@ -70,8 +71,8 @@ func TestHighlighterLang(t *testing.T) {
 	n := len(h.misses)
 	h.missMu.Unlock()
 
-	if n > langMissMax {
-		t.Errorf("%d misses kept, cap is %d", n, langMissMax)
+	if n == 0 || n > langMissMax {
+		t.Errorf("%d misses kept, want between 1 and the cap %d", n, langMissMax)
 	}
 }
 
