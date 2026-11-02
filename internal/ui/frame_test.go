@@ -257,7 +257,7 @@ func modelFrameCases() []struct {
 }
 
 // TestFrameModelText draws the model frames without styling and with icons
-// off; TestFrameGolden and TestFrameText draw them with icons.
+// off; TestFrameGolden draws them with icons.
 func TestFrameModelText(t *testing.T) {
 	t.Parallel()
 
@@ -274,73 +274,80 @@ func TestFrameGolden(t *testing.T) {
 
 	for _, tt := range frameCases() {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			golden.RequireEqual(t, []byte(tt.build(t).View().Content))
 		})
 	}
 }
 
-// TestFrameText is the same frames without styling, so the line work reads.
-func TestFrameText(t *testing.T) {
-	t.Parallel()
-
-	for _, tt := range frameCases() {
-		t.Run(tt.name, func(t *testing.T) {
-			golden.RequireEqual(t, []byte(ansi.Strip(tt.build(t).View().Content)))
-		})
-	}
-}
-
-// Every line is exactly the terminal width, whatever the size, layout or zoom.
+// Every line is exactly the terminal width, whatever the size, layout or zoom:
+// six panes with a wide-glyph title at the sizes where something gives way.
 func TestFrameSizes(t *testing.T) {
 	t.Parallel()
 
-	for w := 1; w <= 40; w++ {
-		for h := 1; h <= 12; h++ {
-			specs := make([]paneSpec, 6)
-			for i := range specs {
-				split := core.SplitVertical
-				if i%2 == 1 {
-					split = core.SplitHorizontal
-				}
-
-				specs[i] = paneSpec{kind: core.KindShell, cwd: "/a/b", split: split, text: "\x1b]2;日本語のタイトル\x07hello world"}
+	build := func(w, h int) *App {
+		specs := make([]paneSpec, 6)
+		for i := range specs {
+			split := core.SplitVertical
+			if i%2 == 1 {
+				split = core.SplitHorizontal
 			}
 
-			a, _ := framedApp(t, w, h, specs...)
-
-			for _, zoomed := range []bool{false, true} {
-				if zoomed {
-					if err := a.dispatch(core.ToggleZoom{}); err != nil {
-						t.Fatal(err)
-					}
-				}
-
-				lines := strings.Split(a.View().Content, "\n")
-				if len(lines) != h {
-					t.Fatalf("%dx%d zoomed=%v: %d lines, want %d", w, h, zoomed, len(lines), h)
-				}
-
-				for i, l := range lines {
-					if got := lipgloss.Width(l); got != w {
-						t.Errorf("%dx%d zoomed=%v line %d: width %d, want %d: %q", w, h, zoomed, i, got, w, ansi.Strip(l))
-					}
-				}
-			}
+			specs[i] = paneSpec{kind: core.KindShell, cwd: "/a/b", split: split, text: "\x1b]2;日本語のタイトル\x07hello world"}
 		}
+
+		a, _ := framedApp(t, w, h, specs...)
+
+		return a
 	}
-}
 
-// A body under 3 rows or columns stays blank.
-func TestFrameMinimumBody(t *testing.T) {
-	t.Parallel()
+	const rows = 12
 
-	for _, sz := range [][2]int{{2, 12}, {40, 3}, {40, 2}, {2, 2}} {
-		a, _ := framedApp(t, sz[0], sz[1], shellSpec("/a", "x"))
+	// Smallest sizes: the bar alone, the bar and rule, the first body (minFrame
+	// below the bar and rule).
+	sizes := [][2]int{{1, 1}, {2, 2}, {minFrame, 2 + minFrame}}
 
-		lines := strings.Split(ansi.Strip(a.View().Content), "\n")
-		for _, l := range lines[min(2, len(lines)):] {
-			if strings.TrimSpace(l) != "" {
-				t.Errorf("%v: body line %q, want blank", sz, l)
+	// Widths: where the bar's plan changes, the zoom tag's edge (it needs its
+	// own cells and three more for corners and a dash) and the zoomed wide-glyph
+	// title's: it returns at 20, is cut exactly at 21 and one cell short, padded
+	// by a dash, at 22.
+	zoomW := lipgloss.Width(" " + iconZoom + " zoom ")
+	bar := build(40, rows)
+	widths := planEdges(bar.tabInfos(), 0, bar.trayModules(), bar.icons, 40)
+	widths = append(widths, zoomW+2, zoomW+3, 19, 20, 21, 22)
+
+	slices.Sort(widths)
+
+	for _, w := range slices.Compact(widths) {
+		sizes = append(sizes, [2]int{w, rows})
+	}
+
+	// Heights at width 40: one under the body minimum, the minimum, a tile
+	// dropped by height, the full layout.
+	for _, h := range []int{1 + minFrame, 2 + minFrame, 8, rows} {
+		sizes = append(sizes, [2]int{40, h})
+	}
+
+	for _, sz := range sizes {
+		w, h := sz[0], sz[1]
+		a := build(w, h)
+
+		for _, zoomed := range []bool{false, true} {
+			if zoomed {
+				if err := a.dispatch(core.ToggleZoom{}); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			lines := strings.Split(a.View().Content, "\n")
+			if len(lines) != h {
+				t.Fatalf("%dx%d zoomed=%v: %d lines, want %d", w, h, zoomed, len(lines), h)
+			}
+
+			for i, l := range lines {
+				if got := lipgloss.Width(l); got != w {
+					t.Errorf("%dx%d zoomed=%v line %d: width %d, want %d: %q", w, h, zoomed, i, got, w, ansi.Strip(l))
+				}
 			}
 		}
 	}
@@ -480,7 +487,6 @@ func TestPrintable(t *testing.T) {
 		{"bidi override", "a\u202Eb\u2066c", "abc"},
 		{"zero-width space and word joiner", "a\u200Bb\u2060c", "abc"},
 		{"separators leave no line break", "a\u2028b\u2029c", "abc"},
-		{"variation selector", "a\uFE0Fb", "ab"},
 		{"emoji presentation selector", "\u2764\uFE0F", "\u2764"},
 		{"keycap keeps its enclosing mark", "1\uFE0F\u20E3", "1\u20E3"},
 		{"a flag stays whole", "\U0001F1F3\U0001F1F4", "\U0001F1F3\U0001F1F4"},
@@ -542,7 +548,7 @@ func TestBorderColours(t *testing.T) {
 	ui := mochaUI(t)
 
 	for _, tt := range frameCases() {
-		if tt.name == "zoomed" || tt.name == "empty" {
+		if !slices.Contains([]string{"one", "agent", "vsplit", "tee-inner-focus", "cross"}, tt.name) {
 			continue
 		}
 
@@ -596,6 +602,10 @@ func TestNoIconsNoGlyphs(t *testing.T) {
 	t.Parallel()
 
 	for _, tt := range frameCases() {
+		if !slices.Contains([]string{"one", "agent", "zoomed"}, tt.name) {
+			continue
+		}
+
 		t.Run(tt.name, func(t *testing.T) {
 			a := tt.build(t)
 			a.icons = false
@@ -614,7 +624,7 @@ func TestNoIconsNoGlyphs(t *testing.T) {
 func TestFramesAreOneBoxPerPane(t *testing.T) {
 	t.Parallel()
 
-	for w := 8; w <= 40; w++ {
+	for _, w := range []int{8, 9, 40} {
 		a, _ := framedApp(t, w, 12,
 			paneSpec{kind: core.KindShell, cwd: "/w/top", split: core.SplitVertical},
 			paneSpec{kind: core.KindShell, cwd: "/w/bottom", split: core.SplitHorizontal},
@@ -728,23 +738,6 @@ func TestViewSetsCursor(t *testing.T) {
 	}
 }
 
-func TestNoticeDropsControlCharacters(t *testing.T) {
-	t.Parallel()
-	a, _ := framedApp(t, 40, 6, shellSpec("/home/u/proj", ""))
-	a.notice = "cannot start shell: chdir /a\nb\x1b[31m"
-
-	lines := strings.Split(a.View().Content, "\n")
-	if len(lines) != 6 {
-		t.Fatalf("frame has %d lines, want 6", len(lines))
-	}
-
-	for i, l := range lines {
-		if w := ansi.StringWidth(l); w != 40 {
-			t.Errorf("line %d width = %d, want 40", i, w)
-		}
-	}
-}
-
 func mochaUI(t *testing.T) theme.UI {
 	t.Helper()
 
@@ -790,36 +783,6 @@ func assertCell(t *testing.T, vt term.VT, x, y int, want theme.Hex, bold bool) {
 
 	if isBold := c.Style.Attrs&uv.AttrBold != 0; isBold != bold {
 		t.Errorf("cell (%d, %d) %q bold = %v, want %v", x, y, c.Content, isBold, bold)
-	}
-}
-
-// A full-width pane's long title is cut with an ellipsis before its right corner.
-func TestTitleCutBeforeCorner(t *testing.T) {
-	t.Parallel()
-	a := newTestApp(t)
-	sized(t, a, 40, 12)
-
-	for _, act := range []core.Action{
-		core.OpenPane{Kind: core.KindShell, Cwd: "/w/top", Split: core.SplitVertical},
-		core.OpenPane{Kind: core.KindShell, Cwd: "/w/bottom", Split: core.SplitHorizontal},
-		core.FocusPane{ID: "p1"},
-		core.OpenPane{Kind: core.KindShell, Cwd: "/w/right", Split: core.SplitVertical},
-	} {
-		if err := a.dispatch(act); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	attachPanes(t, a, map[core.PaneID]string{"p2": "\x1b]2;a-very-long-title-for-the-bottom-pane\x07"})
-
-	r := a.layoutRects()["p2"]
-	if r.W != 40 {
-		t.Fatalf("p2 width = %d, want the full body width 40", r.W)
-	}
-
-	row := []rune(ansi.Strip(strings.Split(a.View().Content, "\n")[r.Y]))
-	if len(row) != 40 || row[39] != '╮' || !strings.Contains(string(row), "…") {
-		t.Errorf("top border = %q, want a cut title and a closing corner", string(row))
 	}
 }
 

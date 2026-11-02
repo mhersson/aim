@@ -2,6 +2,7 @@ package ui
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"log/slog"
@@ -11,6 +12,10 @@ import (
 
 	"golang.org/x/sys/unix"
 )
+
+// noWarm skips the first sample's real wait: the checks here need no gap
+// between the two tick reads.
+func noWarm(context.Context) error { return nil }
 
 func TestSysLoadMemory(t *testing.T) {
 	t.Parallel()
@@ -29,7 +34,10 @@ func TestSysLoadMemory(t *testing.T) {
 		t.Errorf("readVMPages = %+v, want free and file-backed pages", pages)
 	}
 
-	got, err := newSysLoad(slog.New(slog.DiscardHandler)).Sample(t.Context())
+	s := newSysLoad(slog.New(slog.DiscardHandler)).(*sysLoad)
+	s.warm = noWarm
+
+	got, err := s.Sample(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +125,8 @@ func TestSysLoadTicks(t *testing.T) {
 
 	var logged bytes.Buffer
 
-	s := newSysLoad(slog.New(slog.NewTextHandler(&logged, nil)))
+	s := newSysLoad(slog.New(slog.NewTextHandler(&logged, nil))).(*sysLoad)
+	s.warm = noWarm
 
 	for range 2 {
 		got, err := s.Sample(t.Context())

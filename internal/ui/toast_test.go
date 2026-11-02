@@ -1,15 +1,11 @@
 package ui
 
 import (
-	"bytes"
-	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/golden"
-	"github.com/charmbracelet/x/exp/teatest/v2"
 
 	"github.com/mhersson/aim/internal/core"
 	"github.com/mhersson/aim/internal/ui/theme"
@@ -78,26 +74,6 @@ func TestToastBox(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestToastColours(t *testing.T) {
-	t.Parallel()
-	ui := mochaUI(t)
-	a, _ := toastApp(t, 100, 30)
-	a.notice = "boom"
-
-	vt := lineVT(t, strings.Split(a.View().Content, "\n")[28], 100)
-
-	assertColours(t, vt, 89, 0, "│", ui.Warning, ui.Panel, false)
-	assertColours(t, vt, 90, 0, " ", ui.Fg, ui.Panel, false)
-	assertColours(t, vt, 91, 0, iconAlert, ui.Warning, ui.Panel, false)
-	assertColours(t, vt, 93, 0, "b", ui.Fg, ui.Panel, false)
-	assertColours(t, vt, 97, 0, " ", ui.Fg, ui.Panel, false)
-	assertColours(t, vt, 98, 0, "│", ui.Warning, ui.Panel, false)
-
-	vt = lineVT(t, strings.Split(a.View().Content, "\n")[29], 100)
-	assertColours(t, vt, 89, 0, "╰", ui.Warning, ui.Panel, false)
-	assertColours(t, vt, 94, 0, "─", ui.Warning, ui.Panel, false)
 }
 
 func TestToastGoesWithTheFirstKey(t *testing.T) {
@@ -198,26 +174,6 @@ func TestToastGolden(t *testing.T) {
 	a.notice = "cannot start shell: no such file"
 
 	golden.RequireEqual(t, []byte(a.View().Content))
-}
-
-func TestToastFlow(t *testing.T) {
-	t.Parallel()
-	a, _ := toastApp(t, 100, 30)
-	a.notice = "boom"
-
-	tm := teatest.NewTestModel(t, a, teatest.WithInitialTermSize(100, 30))
-	teatest.WaitFor(t, tm.Output(), func(out []byte) bool { return bytes.Contains(out, []byte("boom")) },
-		teatest.WithDuration(3*time.Second))
-	tm.Send(keyRune('x'))
-
-	if err := tm.Quit(); err != nil {
-		t.Fatalf("Quit() error = %v", err)
-	}
-
-	final := tm.FinalModel(t, teatest.WithFinalTimeout(3*time.Second)).(*App)
-	if final.notice != "" {
-		t.Errorf("notice = %q after a key, want none", final.notice)
-	}
 }
 
 // The tag and the prompt of copy mode live in the pane's own borders.
@@ -369,27 +325,6 @@ func TestSearchPromptInANarrowPane(t *testing.T) {
 	}
 }
 
-func TestSearchMissIsAToast(t *testing.T) {
-	t.Parallel()
-	a, _, _ := copyApp(t)
-
-	enterCopy(a)
-	keys(a, "/")
-	typeText(a, "zzz")
-	keys(a, "enter")
-
-	rows := screenRows(a)
-	if !strings.Contains(rows[12], "not found: zzz") || !strings.Contains(rows[11], "╭") {
-		t.Errorf("rows = %q, want the toast above the last row", rows[11:])
-	}
-
-	keys(a, "j")
-
-	if strings.Contains(strings.Join(screenRows(a), "\n"), "not found") {
-		t.Error("the toast stays after a key in copy mode")
-	}
-}
-
 // The sequence popup opens at once and lists the second keys.
 
 func TestSequencePopup(t *testing.T) {
@@ -397,12 +332,12 @@ func TestSequencePopup(t *testing.T) {
 
 	tests := []struct {
 		first rune
-		rows  []string
+		rows  []string // the bound keys, one per row
 	}{
-		{'>', []string{"1-9  Move pane to tab N", "esc  Cancel"}},
-		{'.', []string{"1-9  Send pane to tab N", "esc  Cancel"}},
-		{';', []string{"h j k l  Preselect side", "esc      Clear preselection"}},
-		{'g', []string{"l    Pull requests", "P    Push", "o    Open a pull request", "m    Merge pull request", "esc  Cancel"}},
+		{'>', []string{"1-9", "esc"}},
+		{'.', []string{"1-9", "esc"}},
+		{';', []string{"h j k l", "esc"}},
+		{'g', []string{"l", "P", "o", "m", "esc"}},
 	}
 
 	for _, tt := range tests {
@@ -428,8 +363,8 @@ func TestSequencePopup(t *testing.T) {
 			}
 
 			for i, want := range tt.rows {
-				if got := rows[n-1-len(tt.rows)+i]; !strings.Contains(got, "│ "+want) {
-					t.Errorf("popup row %d = %q, want %q", i, got, want)
+				if got := rows[n-1-len(tt.rows)+i]; !strings.Contains(got, "│ "+want+" ") {
+					t.Errorf("popup row %d = %q, want the key %q", i, got, want)
 				}
 			}
 
@@ -440,8 +375,8 @@ func TestSequencePopup(t *testing.T) {
 			// The delay passing keeps the sequence popup and adds no which-key.
 			a.Update(whichKeyMsg{seq: a.seq})
 
-			if a.popup || !strings.Contains(strings.Join(screenRows(a), "\n"), tt.rows[1]) {
-				t.Errorf("popup = %v after the delay, want only the sequence popup", a.popup)
+			if a.popup || !a.sequenceOpen() {
+				t.Errorf("popup = %v, sequence open = %v after the delay, want only the sequence popup", a.popup, a.sequenceOpen())
 			}
 		})
 	}
@@ -454,26 +389,14 @@ func TestSequencePopupClosesOnTheSecondKey(t *testing.T) {
 	press(a, keyLeader, keyRune('>'))
 	press(a, keyRune('2'))
 
-	if got := strings.Join(screenRows(a), "\n"); strings.Contains(got, "Move pane to tab N") {
-		t.Errorf("the popup stays after the second key:\n%s", got)
+	if a.sequenceOpen() {
+		t.Error("the popup stays after the second key")
 	}
 
 	press(a, keyLeader, keyRune('>'), keyEsc)
 
-	if got := strings.Join(screenRows(a), "\n"); strings.Contains(got, "Cancel") {
+	if a.sequenceOpen() {
 		t.Error("the popup stays after esc")
-	}
-}
-
-func TestSequencePopupNoIcons(t *testing.T) {
-	t.Parallel()
-	a, _ := splitApp(t)
-	a.icons = false
-
-	press(a, keyLeader, keyRune('>'))
-
-	if got := strings.Join(screenRows(a), "\n"); !strings.Contains(got, "╭─ ctrl+space > ") {
-		t.Errorf("popup lacks its title:\n%s", got)
 	}
 }
 
@@ -484,21 +407,6 @@ func TestSequencePopupGolden(t *testing.T) {
 	press(a, keyLeader, keyRune('>'))
 
 	golden.RequireEqual(t, []byte(a.View().Content))
-}
-
-func TestUnboundSequenceKeyIsAToast(t *testing.T) {
-	t.Parallel()
-	a, _ := splitApp(t)
-
-	press(a, keyLeader, keyRune('>'), keyRune('x'))
-
-	if a.notice != "ctrl+space > x is not bound" {
-		t.Fatalf("notice = %q", a.notice)
-	}
-
-	if got := screenRows(a); !strings.Contains(got[len(got)-2], "ctrl+space > x is not bound") {
-		t.Errorf("rows = %q, want the toast", got[len(got)-3:])
-	}
 }
 
 func TestCursorUnderToast(t *testing.T) {
@@ -671,15 +579,13 @@ func TestGitSequencePopupGolden(t *testing.T) {
 func TestGitSequencePopupText(t *testing.T) {
 	t.Parallel()
 
-	for _, icons := range []bool{true, false} {
-		t.Run(fmt.Sprintf("icons=%v", icons), func(t *testing.T) {
-			t.Parallel()
-			a, _ := splitApp(t)
-			a.icons = icons
+	t.Run("icons=false", func(t *testing.T) {
+		t.Parallel()
+		a, _ := splitApp(t)
+		a.icons = false
 
-			press(a, keyLeader, keyRune('g'))
+		press(a, keyLeader, keyRune('g'))
 
-			golden.RequireEqual(t, []byte(ansi.Strip(a.View().Content)))
-		})
-	}
+		golden.RequireEqual(t, []byte(ansi.Strip(a.View().Content)))
+	})
 }

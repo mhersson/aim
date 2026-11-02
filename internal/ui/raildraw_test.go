@@ -356,7 +356,8 @@ func railCases() []railCase {
 }
 
 // TestRailGolden draws each case once in colour, in the default theme with icons.
-// TestRailText covers icons off and TestScreensTakeTheirColoursFromTheTheme the other theme.
+// TestRailText covers icons off and TestScreensTakeTheirColoursFromTheTheme the other theme
+// for the scenes it picks.
 // It compares highlighted colours, so it runs serially (docs/gotchas.md).
 func TestRailGolden(t *testing.T) {
 	for _, c := range railCases() {

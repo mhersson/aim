@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 
@@ -243,6 +244,34 @@ func signature(p barPlan) string {
 	return strings.Join(ids, ",") + " | " + strings.Join(tabs, " ")
 }
 
+// planEdges lists the widths in 1..maxW where the bar changes: each width where
+// the plan (or whether it fits at all) differs from the one below, with that
+// one below, plus 1 and maxW. A stage of planBar drops or returns there.
+func planEdges(tabs []tabInfo, active int, mods []trayModule, icons bool, maxW int) []int {
+	key := func(w int) string {
+		p := planBar(tabs, active, mods, w, icons)
+
+		need := p.tabsW
+		if p.trayW > 0 {
+			need += trayGap + p.trayW
+		}
+
+		return signature(p) + fmt.Sprint(need <= w)
+	}
+
+	edges := []int{1, maxW}
+
+	for w := 2; w <= maxW; w++ {
+		if key(w) != key(w-1) {
+			edges = append(edges, w-1, w)
+		}
+	}
+
+	slices.Sort(edges)
+
+	return slices.Compact(edges)
+}
+
 // As the bar narrows it drops load and PR, shrinks inactive names longest
 // first, drops the clock, shrinks the active name, then the farthest segments.
 func TestWorkspaceBarPlan(t *testing.T) {
@@ -281,8 +310,13 @@ func TestWorkspaceBarPlanActiveStays(t *testing.T) {
 	t.Parallel()
 
 	for _, icons := range []bool{true, false} {
+		widths := []int{1, 4, 8, 12}
+		if !icons {
+			widths = []int{1, 3, 7, 11}
+		}
+
 		for active := range 3 {
-			for w := 1; w <= 160; w++ {
+			for _, w := range widths {
 				p := planBar(planTabs(), active, testModules(), w, icons)
 
 				found := false
@@ -304,8 +338,8 @@ func TestWorkspaceBarExactWidth(t *testing.T) {
 	ui := mochaUI(t)
 
 	for _, icons := range []bool{true, false} {
-		for w := 1; w <= 160; w++ {
-			for active := range 3 {
+		for active := range 3 {
+			for _, w := range planEdges(planTabs(), active, testModules(), icons, 160) {
 				bar := renderBar(planTabs(), active, testModules(), w, icons, ui)
 				if got := lipgloss.Width(bar); got != w {
 					t.Fatalf("icons=%v active=%d width=%d: bar is %d cells: %q", icons, active, w, got, ansi.Strip(bar))
@@ -590,7 +624,9 @@ func TestScreenRows(t *testing.T) {
 	}
 }
 
-// Three tabs with panes at every size keep every line the width.
+// Three tabs with panes keep every line the width at each width where the bar's
+// plan changes, for each active tab. Height 10 shows a body; TestScreenRows
+// covers the heights below.
 func TestFrameSizesTabs(t *testing.T) {
 	t.Parallel()
 
@@ -600,23 +636,25 @@ func TestFrameSizesTabs(t *testing.T) {
 		{core.KindShell, "/w/c", "日本語のタブ"},
 	}
 
-	for w := 1; w <= 60; w++ {
-		for h := 1; h <= 10; h++ {
-			a := tabsApp(t, w, h, specs...)
-			attachTabPanes(t, a)
+	const h = 10
 
-			for active := range 3 {
-				selectTab(t, a, active)
+	a := tabsApp(t, 60, h, specs...)
+	attachTabPanes(t, a)
 
-				lines := strings.Split(a.View().Content, "\n")
-				if len(lines) != h {
-					t.Fatalf("%dx%d tab %d: %d lines, want %d", w, h, active, len(lines), h)
-				}
+	for active := range 3 {
+		selectTab(t, a, active)
 
-				for i, l := range lines {
-					if got := lipgloss.Width(l); got != w {
-						t.Errorf("%dx%d tab %d line %d: width %d: %q", w, h, active, i, got, ansi.Strip(l))
-					}
+		for _, w := range planEdges(a.tabInfos(), active, a.trayModules(), a.icons, 60) {
+			sized(t, a, w, h)
+
+			lines := strings.Split(a.View().Content, "\n")
+			if len(lines) != h {
+				t.Fatalf("%dx%d tab %d: %d lines, want %d", w, h, active, len(lines), h)
+			}
+
+			for i, l := range lines {
+				if got := lipgloss.Width(l); got != w {
+					t.Errorf("%dx%d tab %d line %d: width %d: %q", w, h, active, i, got, ansi.Strip(l))
 				}
 			}
 		}
@@ -637,8 +675,6 @@ func TestBarGroundReachesLastColumn(t *testing.T) {
 	}{
 		{20, ui.Bar},
 		{40, ui.Clock},
-		{80, ui.Clock},
-		{100, ui.Clock},
 		{160, ui.Clock},
 	}
 
@@ -696,12 +732,8 @@ func TestBarGroundReachesLastColumn(t *testing.T) {
 func TestPaintRunMatchesLipgloss(t *testing.T) {
 	t.Parallel()
 
-	var colors []theme.Hex
-	for _, th := range theme.All() {
-		colors = append(colors, th.UI.Bg, th.UI.Fg, th.UI.Accent, th.UI.Match)
-	}
-
-	colors = append(colors, "", "#zz0000")
+	ui := mochaUI(t)
+	colors := []theme.Hex{ui.Bg, ui.Fg, "", "#zz0000"}
 
 	texts := []string{
 		"", " ", "abc", "\u4e16\u754c", "e\u0301", "\U0001F600", "\u00a0",

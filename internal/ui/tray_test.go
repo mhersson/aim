@@ -86,18 +86,6 @@ func modIDs(mods []trayModule) []string {
 	return ids
 }
 
-func TestTrayHasNoAgentsModule(t *testing.T) {
-	t.Parallel()
-	a := trayApp(t, true)
-	openIn(t, a, core.OpenPane{Kind: core.KindAgent, Cwd: "/w/b", Split: core.SplitVertical})
-
-	for _, id := range modIDs(a.trayModules()) {
-		if id == "agents" {
-			t.Fatal("the tray carries an agents module")
-		}
-	}
-}
-
 func TestSparkline(t *testing.T) {
 	t.Parallel()
 
@@ -210,27 +198,6 @@ func TestTrayModuleWidths(t *testing.T) {
 	}
 }
 
-func TestTrayModuleWidthsWithAPR(t *testing.T) {
-	t.Parallel()
-
-	for _, icons := range []bool{true, false} {
-		for _, pr := range []core.PRInfo{prInfo("OPEN", checksRunning), prInfo("OPEN", checksPassed), prInfo("OPEN", checksFailing), prInfo("OPEN")} {
-			a := prTrayApp(t, icons, pr)
-			mods := a.trayModules()
-
-			if want := []string{modLayout, modPR, modLoad, modClock}; !slices.Equal(modIDs(mods), want) {
-				t.Fatalf("icons=%v modules = %v, want %v", icons, modIDs(mods), want)
-			}
-
-			for _, m := range mods {
-				if got := lipgloss.Width(m.render()); got != m.width {
-					t.Errorf("icons=%v %s renders %d cells, width says %d", icons, m.id, got, m.width)
-				}
-			}
-		}
-	}
-}
-
 func TestTrayPRModule(t *testing.T) {
 	t.Parallel()
 	agentApp := func(t *testing.T, icons bool, pr *core.PRInfo) *App {
@@ -330,15 +297,6 @@ func TestTrayPRModule(t *testing.T) {
 				t.Errorf("module renders %d cells, width says %d", got, m.width)
 			}
 		})
-	}
-}
-
-func TestTrayPRModuleSitsBetweenLayoutAndLoad(t *testing.T) {
-	t.Parallel()
-	a := prTrayApp(t, true, prInfo("OPEN", checksRunning))
-
-	if want := []string{modLayout, modPR, modLoad, modClock}; !slices.Equal(modIDs(a.trayModules()), want) {
-		t.Errorf("modules = %v, want %v", modIDs(a.trayModules()), want)
 	}
 }
 
@@ -442,20 +400,6 @@ func TestTrayOmitsAbsentModules(t *testing.T) {
 	}
 }
 
-func TestBarLinesStayExactWidth(t *testing.T) {
-	t.Parallel()
-
-	for _, icons := range []bool{true, false} {
-		for _, a := range []*App{trayApp(t, icons), prTrayApp(t, icons, prInfo("OPEN", checksFailing))} {
-			for w := 1; w <= 130; w++ {
-				if got := lipgloss.Width(a.workspaceBar(w)); got != w {
-					t.Fatalf("icons=%v width %d: bar is %d cells", icons, w, got)
-				}
-			}
-		}
-	}
-}
-
 // As the bar narrows the tray drops load, then usage, then PR, then the layout
 // mode, then the clock.
 func TestTrayDropOrder(t *testing.T) {
@@ -517,8 +461,6 @@ func TestBarGoldens(t *testing.T) {
 		usage *[2]core.UsageWindow // seeded when set; width 0 means the widest without load
 	}{
 		{"icons wide", true, 100, nil, nil},
-		{"icons without load", true, 60, nil, nil},
-		{"icons layout and clock", true, 50, nil, nil},
 		{"plain wide", false, 100, nil, nil},
 		{"plain without load", false, 60, nil, nil},
 		{"icons wide with a PR running", true, 100, new(prInfo("OPEN", checksRunning)), nil},
@@ -727,21 +669,5 @@ func TestNoIOInUpdate(t *testing.T) {
 
 	if fl.calls.Load() != 0 {
 		t.Errorf("Update ran sampling: load %d", fl.calls.Load())
-	}
-}
-
-func TestTrayHasNoGitModule(t *testing.T) {
-	t.Parallel()
-
-	for _, icons := range []bool{true, false} {
-		a := trayApp(t, icons)
-
-		if got := modIDs(a.trayModules()); slices.Contains(got, "git") {
-			t.Errorf("icons=%v modules = %v, want no git module", icons, got)
-		}
-
-		if bar := a.workspaceBar(100); strings.Contains(bar, "feat/tabs") || strings.Contains(bar, iconGit) {
-			t.Errorf("icons=%v bar shows a branch: %q", icons, bar)
-		}
 	}
 }

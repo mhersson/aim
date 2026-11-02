@@ -256,21 +256,6 @@ func TestWhichKey(t *testing.T) {
 	}
 }
 
-// cellOf finds the first cell of needle in the stripped screen rows.
-func cellOf(t *testing.T, rows []string, needle string) (x, y int) {
-	t.Helper()
-
-	for y, row := range rows {
-		if before, _, ok := strings.Cut(row, needle); ok {
-			return lipgloss.Width(before), y
-		}
-	}
-
-	t.Fatalf("screen lacks %q:\n%s", needle, strings.Join(rows, "\n"))
-
-	return 0, 0
-}
-
 // bindingsWithout returns the default keymap minus the given keys.
 func bindingsWithout(keys ...string) keymap {
 	km := defaultKeymap()

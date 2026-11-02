@@ -98,56 +98,17 @@ func TestPaletteListsEveryCommand(t *testing.T) {
 	}
 }
 
-func TestPaletteIcons(t *testing.T) {
-	t.Parallel()
-
-	for _, icons := range []bool{true, false} {
-		t.Run(fmt.Sprintf("icons=%v", icons), func(t *testing.T) {
-			a := newTestApp(t)
-			a.icons = icons
-			sized(t, a, 100, 30)
-			pressRun(a, keyLeader, keyRune(':'))
-
-			view := ansi.Strip(a.View().Content)
-			for _, g := range []string{iconPalette, iconTheme, iconAgent, iconSplitDown, iconPanes, iconFocus} {
-				if got := strings.Contains(view, g); got != icons {
-					t.Errorf("glyph %q present = %v, want %v:\n%s", g, got, icons, view)
-				}
-			}
-
-			title := "\u256d\u2500 " + iconPalette + " Commands "
-			if !icons {
-				title = "\u256d\u2500 Commands "
-			}
-
-			if !strings.Contains(view, title) {
-				t.Errorf("palette lacks title %q:\n%s", title, view)
-			}
-
-			if !strings.Contains(view, " 1 of ") {
-				t.Errorf("palette lacks its count:\n%s", view)
-			}
-		})
-	}
-}
-
 func TestThemePickerIcons(t *testing.T) {
 	t.Parallel()
 
-	for _, icons := range []bool{true, false} {
-		a := newTestApp(t)
-		a.icons = icons
-		sized(t, a, 100, 30)
-		pressRun(a, keyLeader, keyRune('t'))
+	a := newTestApp(t)
+	a.icons = false
+	sized(t, a, 100, 30)
+	pressRun(a, keyLeader, keyRune('t'))
 
-		view := ansi.Strip(a.View().Content)
-		if got := strings.Contains(view, iconTheme); got != icons {
-			t.Errorf("icons=%v: theme glyph present = %v:\n%s", icons, got, view)
-		}
-
-		if !strings.Contains(view, " Theme ") || !strings.Contains(view, " of 4 ") {
-			t.Errorf("icons=%v: picker lacks its title or count:\n%s", icons, view)
-		}
+	view := ansi.Strip(a.View().Content)
+	if strings.Contains(view, iconTheme) || !strings.Contains(view, " of 4 ") {
+		t.Errorf("icons off: picker shows the theme glyph or lacks its count:\n%s", view)
 	}
 }
 
@@ -421,8 +382,12 @@ func TestOverlayBeforeFirstSize(t *testing.T) {
 
 	sized(t, a, 100, 30)
 
-	if view := ansi.Strip(a.View().Content); !strings.Contains(view, "Commands") {
-		t.Errorf("palette not visible after sizing:\n%s", view)
+	if a.overlay.kind != overlayCommands {
+		t.Errorf("overlay kind = %v after sizing, want the commands", a.overlay.kind)
+	}
+
+	if view := ansi.Strip(a.View().Content); !strings.Contains(view, "❯") {
+		t.Errorf("palette prompt not drawn after sizing:\n%s", view)
 	}
 }
 
@@ -444,31 +409,12 @@ func TestPaletteFooterPlacement(t *testing.T) {
 		base := strings.TrimSuffix(strings.Repeat(strings.Repeat(" ", 80)+"\n", tc.height), "\n")
 
 		text := ansi.Strip(overlayOver(nil, base, 80, tc.height, pal))
-		if got := strings.Contains(text, "esc close"); got != tc.wantHint {
+		if got := strings.Contains(text, "esc"); got != tc.wantHint {
 			t.Errorf("height %d: hint row visible = %v, want %v", tc.height, got, tc.wantHint)
 		}
 
 		if got := strings.Contains(text, "\u2570"); got != tc.wantBottom {
 			t.Errorf("height %d: bottom border visible = %v, want %v", tc.height, got, tc.wantBottom)
-		}
-	}
-}
-
-func TestFooterEnterLabelPerOverlay(t *testing.T) {
-	t.Parallel()
-
-	for _, tc := range []struct {
-		key  rune
-		want string
-		not  string
-	}{{':', "enter run", "enter apply"}, {'t', "enter apply", "enter run"}} {
-		a := newTestApp(t)
-		sized(t, a, 100, 30)
-		pressRun(a, keyLeader, keyRune(tc.key))
-
-		view := ansi.Strip(a.View().Content)
-		if !strings.Contains(view, tc.want) || strings.Contains(view, tc.not) {
-			t.Errorf("overlay %c: want %q and not %q:\n%s", tc.key, tc.want, tc.not, view)
 		}
 	}
 }

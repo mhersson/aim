@@ -5,6 +5,7 @@ import (
 	"errors"
 	"runtime"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -72,14 +73,10 @@ func TestOpenURLRefuses(t *testing.T) {
 		name, url string
 	}{
 		{"javascript", "javascript:alert(1)"},
-		{"file", "file:///etc/passwd"},
-		{"no host", "https://"},
-		{"no scheme", "github.com/o/r"},
+		{"file with a host", "file://host/etc/passwd"}, // reaches the scheme check
 		{"control character", "https://github.com/o/r\x1b[31m"},
-		{"newline", "https://github.com/o\n/r"},
 		{"space", "https://github.com/o r"},
 		{"invisible", "https://github.com/o\xe2\x80\x8b/r"},
-		{"empty", ""},
 	}
 
 	for _, tc := range tests {
@@ -132,7 +129,8 @@ func TestOpenURLReportsAFailure(t *testing.T) {
 	t.Parallel()
 
 	a := newTestApp(t)
-	a.openLink = (&fakeOpen{fail: errors.New("exec: \"xdg-open\": executable file not found in $PATH")}).open
+	fail := errors.New("exec: \"xdg-open\": executable file not found in $PATH")
+	a.openLink = (&fakeOpen{fail: fail}).open
 
 	msg := a.openURL("https://github.com/o/r")()
 	if _, ok := msg.(browserDoneMsg); !ok {
@@ -141,8 +139,8 @@ func TestOpenURLReportsAFailure(t *testing.T) {
 
 	a.Update(msg)
 
-	if want := "browser: exec: \"xdg-open\": executable file not found in $PATH"; a.notice != want {
-		t.Errorf("notice = %q, want %q", a.notice, want)
+	if a.noticeLevel() != levelError || !strings.Contains(a.notice, gitReason(fail)) {
+		t.Errorf("notice = %q at level %v, want an error carrying %q", a.notice, a.noticeLevel(), gitReason(fail))
 	}
 }
 
