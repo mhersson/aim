@@ -28,6 +28,7 @@ type Client struct {
 	host    string
 	restAPI *api.RESTClient
 	gqlAPI  *api.GraphQLClient
+	refused atomic.Bool // the host answered the token with a 401
 }
 
 // NewClient builds a client for host, which must be named. Host, token and
@@ -52,7 +53,8 @@ func NewClient(host string, o Options) (*Client, error) {
 		timeout = defaultTimeout
 	}
 
-	etags := newETagTransport(base)
+	c := &Client{host: host}
+	etags := newETagTransport(refusalTransport{next: base, refused: &c.refused})
 	opts := api.ClientOptions{
 		Host:         host,
 		AuthToken:    o.Token,
@@ -74,7 +76,30 @@ func NewClient(host string, o Options) (*Client, error) {
 		return nil, fmt.Errorf("github: graphql client: %w", err)
 	}
 
-	return &Client{host: host, restAPI: restClient, gqlAPI: gqlClient}, nil
+	c.restAPI, c.gqlAPI = restClient, gqlClient
+
+	return c, nil
+}
+
+// TokenRefused reports whether the host has answered the client's token with
+// a 401, as it does once the token is revoked or expired; a cache then builds
+// a new client, which reads the token again.
+func (c *Client) TokenRefused() bool { return c.refused.Load() }
+
+// refusalTransport notes a 401 to a request that carried the token. go-gh adds
+// the token only for the host's own API, so a redirect target's 401 does not count.
+type refusalTransport struct {
+	next    http.RoundTripper
+	refused *atomic.Bool
+}
+
+func (t refusalTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.next.RoundTrip(req)
+	if err == nil && resp.StatusCode == http.StatusUnauthorized && req.Header.Get("Authorization") != "" {
+		t.refused.Store(true)
+	}
+
+	return resp, err
 }
 
 // resetKey keys the resetHolder a query puts in its request context.

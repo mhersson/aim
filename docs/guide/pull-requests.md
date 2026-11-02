@@ -12,7 +12,7 @@ AIM talks to GitHub with a token it finds the way `gh` does, for `github.com` an
 - the token in `gh`'s own config;
 - the answer of `gh auth token --secure-storage --hostname <host>`, when `gh` is on your `PATH`.
 
-Without a token, everything that does not talk to GitHub keeps working: panes, diffs, review and push. The pull request data does not load, and the notice is `pull requests for <host>/<owner>/<name>: run gh auth login --hostname <host>`. A creating, approving or merging action fails with the reason. A remote that is not on a host AIM knows says `<branch>'s remote is not on GitHub`.
+Without a token, everything that does not talk to GitHub keeps working: panes, diffs, review and push. The pull request data does not load, and the notice is `pull requests for <host>/<owner>/<name>: run gh auth login --hostname <host>`. A creating, approving or merging action fails with the reason. A remote that is not on a host AIM knows says `<branch>'s remote is not on GitHub`. When GitHub refuses a token that has been revoked or has expired, AIM looks the token up again at the next poll or action, so the pull requests, checks and actions pick up a new `gh auth login` without a restart.
 
 ## Push
 

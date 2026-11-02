@@ -814,6 +814,87 @@ func TestPollerClientKeptPerHost(t *testing.T) {
 	}
 }
 
+func TestPollerRebuildsAClientItsHostRefused(t *testing.T) {
+	t.Parallel()
+
+	repoE := Repo{Host: "ghe.example.com", Owner: "octo", Name: "e"}
+
+	tests := []struct {
+		name   string
+		status int
+		builds int64 // of the first host's client
+	}{
+		{"a 401 rebuilds it", http.StatusUnauthorized, 2},
+		{"a 403 keeps it", http.StatusForbidden, 1},
+		{"a 502 keeps it", http.StatusBadGateway, 1},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			first, other := &pollServer{}, &pollServer{}
+			first.pendingPR.Store(1)
+			other.pendingPR.Store(1)
+
+			first.handle = func(n int64, w http.ResponseWriter, _ *http.Request) bool {
+				if n != 1 {
+					return false
+				}
+
+				w.WriteHeader(tc.status)
+				fmt.Fprint(w, `{"message":"Bad credentials"}`)
+
+				return true
+			}
+
+			firstClients := make([]*Client, 2)
+			for i := range firstClients {
+				firstClients[i], _ = newTestClient(t, repoA.Host, first)
+			}
+
+			otherClient, _ := newTestClient(t, repoE.Host, other)
+
+			var firstBuilds, otherBuilds atomic.Int64
+
+			p, col := startPoller(t, first, PollerOptions{
+				Client: func(_ context.Context, host string) (*Client, error) {
+					if host == repoE.Host {
+						otherBuilds.Add(1)
+
+						return otherClient, nil
+					}
+
+					n := firstBuilds.Add(1)
+
+					return firstClients[min(n, 2)-1], nil
+				},
+			}, nil)
+
+			p.Set([]Watch{{Repo: repoA, Visible: []int{1}}, {Repo: repoE, Visible: []int{1}}})
+
+			col.waitFor(5*time.Second, "the first host's failed poll", func(s Snapshot) bool {
+				return s.Repo == repoA && s.Err != nil
+			})
+			col.waitFor(5*time.Second, "a later good poll of the first host", func(s Snapshot) bool {
+				return s.Repo == repoA && s.Err == nil
+			})
+
+			for len(col.forRepo(repoA)) < 4 || len(col.forRepo(repoE)) < 4 {
+				col.waitCount(5*time.Second, len(col.all())+1)
+			}
+
+			if n := firstBuilds.Load(); n != tc.builds {
+				t.Errorf("the first host's client was built %d times after a %d, want %d", n, tc.status, tc.builds)
+			}
+
+			if n := otherBuilds.Load(); n != 1 {
+				t.Errorf("the other host's client was built %d times, want it kept", n)
+			}
+		})
+	}
+}
+
 func TestPollerRefresh(t *testing.T) {
 	srv := &pollServer{}
 	p, col := startPoller(t, srv, PollerOptions{}, nil)

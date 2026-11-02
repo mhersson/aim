@@ -285,10 +285,12 @@ the followed place back, and one after a session change records nothing.
 ## GitHub
 
 - **Auth** (`internal/github/token.go`): go-gh's environment and config, else
-  `gh auth token --secure-storage`, one client per host. Without a token the
-  GitHub features are off and the rest works. Errors never hold a token, and
-  git's and the API's errors have their URLs removed, since a URL may carry
-  credentials.
+  `gh auth token --secure-storage`, one client per host. A client whose token
+  the host answers with a 401 is built again at the next call, which reads the
+  token anew (`Client.TokenRefused`), so a new login needs no restart. Without
+  a token the GitHub features are off and the rest works. Errors never hold a
+  token, and git's and the API's errors have their URLs removed, since a URL
+  may carry credentials.
 - **Repositories.** The remote URL names the repository, ssh aliases mapped
   through `ssh -G` (`internal/github/repo.go`). Only watched repositories are
   polled: each agent's followed place, the focused shell's, and whatever the

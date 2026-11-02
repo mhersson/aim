@@ -45,7 +45,8 @@ type Snapshot struct {
 
 // PollerOptions configure a Poller.
 type PollerOptions struct {
-	// Client returns the client for a host; a success is kept per host.
+	// Client returns the client for a host; a success is kept per host until
+	// the host refuses its token.
 	Client                 func(ctx context.Context, host string) (*Client, error)
 	Fast, Slow, MaxBackoff time.Duration // 0 = 10 s, 60 s, 5 min
 
@@ -372,14 +373,15 @@ func containsInt(s []int, v int) bool {
 	return slices.Contains(s, v)
 }
 
-// client returns the kept client for host, or builds one. The lock is not
-// held while the factory runs; a lost race keeps the first client.
+// client returns the kept client for host, or builds one when none is kept or
+// the host refused its token. The lock is not held while the factory runs; a
+// lost race keeps the first client.
 func (p *Poller) client(ctx context.Context, host string) (*Client, error) {
 	p.mu.Lock()
 	c := p.clients[host]
 	p.mu.Unlock()
 
-	if c != nil {
+	if c != nil && !c.TokenRefused() {
 		return c, nil
 	}
 
@@ -399,7 +401,7 @@ func (p *Poller) client(ctx context.Context, host string) (*Client, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if kept := p.clients[host]; kept != nil {
+	if kept := p.clients[host]; kept != nil && !kept.TokenRefused() {
 		return kept, nil
 	}
 
