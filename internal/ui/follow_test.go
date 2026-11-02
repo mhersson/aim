@@ -26,6 +26,7 @@ type followRig struct {
 	id                  core.PaneID
 	dirA, dirB, dirC    string
 	rootA, rootB, rootC string
+	repoA, repoB, repoC *fakeRepo // nil on the real git
 
 	mu       sync.Mutex
 	resolved []string // the paths the edit resolver ran for
@@ -55,6 +56,7 @@ func newFollowRig(t *testing.T, session core.SessionID, opts ...func(*Options)) 
 	c.commit("init")
 	c.branch("other")
 
+	r.repoA, r.repoB, r.repoC = a, b, c
 	r.dirA, r.dirB, r.dirC = a.Root(), b.Root(), c.Root()
 	r.rootA, r.rootB, r.rootC = r.dirA, r.dirB, r.dirC
 
@@ -166,19 +168,6 @@ func (r *followRig) cardOn(branch string, added int) func() bool {
 		c, ok := r.card()
 
 		return ok && c.branch == branch && (added < 0 || c.statsKnown && c.stats.Added == added)
-	}
-}
-
-// quiet feeds what is still in flight to the app until nothing arrives for a while.
-// Only the tests on the real git use it; the others wait for landed.
-func (r *followRig) quiet() {
-	for {
-		select {
-		case m := <-r.pm.msgs:
-			r.run(r.step(m))
-		case <-time.After(150 * time.Millisecond):
-			return
-		}
 	}
 }
 

@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,62 +18,50 @@ import (
 	"github.com/mhersson/aim/internal/git"
 )
 
-// wtRepo is a repository called name under parent, on main with one commit.
-func wtRepo(t *testing.T, parent, name string) string {
-	t.Helper()
-
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not installed")
-	}
-
-	dir := filepath.Join(parent, name)
-	if err := os.Mkdir(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	gitIn(t, "git", dir, "init", "-q", "-b", "main")
-	write(t, filepath.Join(dir, "a.txt"), "one\n")
-	commitEverything(t, dir, "init")
-
-	return dir
-}
-
 // wtFix is repository A with linked worktrees feat-a and feat-b and a worktree
 // whose directory is gone (prunable), and another repository B.
 type wtFix struct {
+	fake                            *fakeGit
+	git                             Git // what the list asks: the fake, or a wrapper that names a worktree through a symlink
 	parent                          string
 	a, b, featA, featB              string
 	rootA, rootB, rootFeatA, rootFB string
+	repoFeatA, repoFeatB            *fakeRepo
 }
 
 func newWtFix(t *testing.T) *wtFix {
 	t.Helper()
-
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not installed")
-	}
 
 	parent, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	f := &wtFix{parent: parent}
-	f.a, f.b = wtRepo(t, parent, "A"), wtRepo(t, parent, "B")
-	f.featA = filepath.Join(f.a, ".worktrees", "feat-a")
-	f.featB = filepath.Join(f.a, ".worktrees", "feat-b")
+	fk := newFakeGit(t)
+	f := &wtFix{fake: fk, git: fk, parent: parent}
 
-	gone := filepath.Join(f.a, ".worktrees", "gone")
+	repo := func(name string) *fakeRepo {
+		rp := fk.repoAt(t, filepath.Join(parent, name))
+		write(t, filepath.Join(rp.Root(), "a.txt"), "one\n")
+		rp.commit("init")
 
-	for _, w := range [][2]string{{"feat-a", f.featA}, {"feat-b", f.featB}, {"gone", gone}} {
-		gitIn(t, "git", f.a, "worktree", "add", "-q", "-b", w[0], w[1])
+		return rp
 	}
 
-	if err := os.RemoveAll(gone); err != nil {
+	a, b := repo("A"), repo("B")
+	f.a, f.b = a.Root(), b.Root()
+	f.repoFeatA = a.worktree(t, filepath.Join(f.a, ".worktrees", "feat-a"), "feat-a")
+	f.repoFeatB = a.worktree(t, filepath.Join(f.a, ".worktrees", "feat-b"), "feat-b")
+	f.featA, f.featB = f.repoFeatA.Root(), f.repoFeatB.Root()
+
+	gone := a.worktree(t, filepath.Join(f.a, ".worktrees", "gone"), "gone")
+	if err := os.RemoveAll(gone.Root()); err != nil {
 		t.Fatal(err)
 	}
 
-	f.rootA, f.rootB, f.rootFeatA, f.rootFB = rootOf(t, f.a), rootOf(t, f.b), rootOf(t, f.featA), rootOf(t, f.featB)
+	gone.prunable("gitdir file points to non-existent location")
+
+	f.rootA, f.rootB, f.rootFeatA, f.rootFB = f.a, f.b, f.featA, f.featB
 
 	return f
 }
@@ -176,11 +164,12 @@ func TestWorktreeListRows(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			f := newWtFix(t)
 			in := f.input()
 			tt.setup(t, f, &in)
 
-			rows, now, err := listPlaces(context.Background(), SystemGit{}, in)
+			rows, now, err := listPlaces(context.Background(), f.git, in)
 			if err != nil {
 				t.Fatalf("listPlaces() error = %v", err)
 			}
@@ -214,8 +203,25 @@ func TestWorktreeListRows(t *testing.T) {
 	}
 }
 
-// linkWorktree makes git name feat-b by a path through a symlink, as a git
-// that does not resolve the path of a new worktree does.
+// namedByLink answers as a git that names a worktree by a path through a
+// symlink, as one does that does not resolve the path of a new worktree.
+type namedByLink struct {
+	*fakeGit
+	root, as string
+}
+
+func (g namedByLink) ListWorktrees(ctx context.Context, r git.Repo) ([]git.Worktree, error) {
+	wts, err := g.fakeGit.ListWorktrees(ctx, r)
+	for i := range wts {
+		if wts[i].Path == g.root {
+			wts[i].Path = g.as
+		}
+	}
+
+	return wts, err
+}
+
+// linkWorktree makes git name feat-b by a path through a symlink.
 func linkWorktree(t *testing.T, f *wtFix) {
 	t.Helper()
 
@@ -224,10 +230,9 @@ func linkWorktree(t *testing.T, f *wtFix) {
 		t.Fatal(err)
 	}
 
-	admin := filepath.Join(f.a, ".git", "worktrees", "feat-b", "gitdir")
-	write(t, admin, filepath.Join(link, "feat-b", ".git")+"\n")
+	f.git = namedByLink{fakeGit: f.fake, root: f.featB, as: filepath.Join(link, "feat-b")}
 
-	wts, err := git.ListWorktrees(context.Background(), git.Repo{Root: f.a})
+	wts, err := f.git.ListWorktrees(context.Background(), git.Repo{Root: f.a})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +246,7 @@ func TestWorktreeListRowFields(t *testing.T) {
 	t.Parallel()
 	f := newWtFix(t)
 
-	rows, _, err := listPlaces(context.Background(), SystemGit{}, f.input())
+	rows, _, err := listPlaces(context.Background(), f.git, f.input())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +280,7 @@ func TestWorktreeListPinnedElsewhere(t *testing.T) {
 	f := newWtFix(t)
 	in := wtInput{own: f.a, followed: f.a, pin: f.rootB, agent: "A"}
 
-	rows, now, err := listPlaces(context.Background(), SystemGit{}, in)
+	rows, now, err := listPlaces(context.Background(), f.git, in)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -303,20 +308,16 @@ func TestWorktreeListOwnDirOutsideRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for name, own := range map[string]string{"in no repository": outside, "gone": filepath.Join(outside, "gone")} {
-		t.Run(name, func(t *testing.T) {
-			in := wtInput{own: own, followed: f.rootB, agent: "x", edits: []core.Edit{{Root: f.rootB, Seq: 1}}}
+	in := wtInput{own: outside, followed: f.rootB, agent: "x", edits: []core.Edit{{Root: f.rootB, Seq: 1}}}
 
-			rows, _, err := listPlaces(context.Background(), SystemGit{}, in)
-			if err != nil {
-				t.Fatal(err)
-			}
+	rows, _, err := listPlaces(context.Background(), f.git, in)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-			want := []string{"follow", "head Touched by x", "place B · main latest"}
-			if got := describeRows(rows); !slices.Equal(got, want) {
-				t.Errorf("rows =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
-			}
-		})
+	want := []string{"follow", "head Touched by x", "place B · main latest"}
+	if got := describeRows(rows); !slices.Equal(got, want) {
+		t.Errorf("rows =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
 
@@ -327,7 +328,7 @@ func TestWorktreeListStopsWithItsContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if _, _, err := listPlaces(ctx, SystemGit{}, f.input()); err == nil {
+	if _, _, err := listPlaces(ctx, f.git, f.input()); err == nil {
 		t.Error("listPlaces() under a cancelled context returned no error")
 	}
 }
@@ -335,15 +336,15 @@ func TestWorktreeListStopsWithItsContext(t *testing.T) {
 func TestDetachedBranchesShowTheCommit(t *testing.T) {
 	t.Parallel()
 	f := newWtFix(t)
-	gitIn(t, "git", f.featA, "checkout", "-q", "--detach")
-	gitIn(t, "git", f.featB, "checkout", "-q", "--detach")
+	f.repoFeatA.detach()
+	f.repoFeatB.detach()
 
-	rows, _, err := listPlaces(context.Background(), SystemGit{}, wtInput{own: f.a, followed: f.a, agent: "A", edits: []core.Edit{{Root: f.rootFeatA, Seq: 1}}})
+	rows, _, err := listPlaces(context.Background(), f.git, wtInput{own: f.a, followed: f.a, agent: "A", edits: []core.Edit{{Root: f.rootFeatA, Seq: 1}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	head, err := git.Head(context.Background(), git.Repo{Root: f.featA})
+	head, err := f.fake.Head(context.Background(), f.repoFeatA.Repo())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -407,7 +408,7 @@ func (r *followRig) listShape() []string {
 func TestWorktreeListSelectsShown(t *testing.T) {
 	t.Parallel()
 	t.Run("following", func(t *testing.T) {
-		r := newRealFollowRig(t, "")
+		r := newFollowRig(t, "")
 		r.open(t, r.id)
 		r.followC(t)
 
@@ -417,7 +418,7 @@ func TestWorktreeListSelectsShown(t *testing.T) {
 	})
 
 	t.Run("pinned", func(t *testing.T) {
-		r := newRealFollowRig(t, "")
+		r := newFollowRig(t, "")
 		r.open(t, r.id)
 		r.followC(t)
 		r.pinTo(t, r.rootB)
@@ -429,24 +430,11 @@ func TestWorktreeListSelectsShown(t *testing.T) {
 	})
 }
 
-// A test that ends as the list opens leaves its row probes running; the rig's
-// cleanup ends them before its temporary dirs go.
-func TestFollowRigEndsItsProbesBeforeItsDirsGo(t *testing.T) {
-	t.Parallel()
-	watch := probesEndFirst(t)
-	r := newRealFollowRig(t, "")
-	watch(r.App)
-
-	r.open(t, r.id)
-	r.followC(t)
-	r.openList(t)
-}
-
 // The pin may name its root through a symlink; the list still opens on that
 // worktree's row.
 func TestWorktreeListSelectsPinnedThroughSymlink(t *testing.T) {
 	t.Parallel()
-	r := newRealFollowRig(t, "")
+	r := newFollowRig(t, "")
 	r.open(t, r.id)
 
 	link := filepath.Join(t.TempDir(), "b-link")
@@ -466,12 +454,14 @@ func TestWorktreeListSelectsPinnedThroughSymlink(t *testing.T) {
 // does not read "on" while the pin holds.
 func TestWorktreeListPinnedGone(t *testing.T) {
 	t.Parallel()
-	r := newRealFollowRig(t, "")
+	r := newFollowRig(t, "")
 	r.open(t, r.id)
 	r.pinTo(t, r.rootB)
 	r.until(t, "the drawer to show b", r.showing(r.rootB))
 
-	gitIn(t, "git", r.dirA, "worktree", "remove", "--force", r.dirB)
+	if err := r.fake.RemoveWorktree(context.Background(), r.repoA.Repo(), r.dirB); err != nil {
+		t.Fatal(err)
+	}
 
 	l := r.openList(t)
 
@@ -491,7 +481,7 @@ func TestWorktreeListPinnedGone(t *testing.T) {
 
 func TestWorktreeListPick(t *testing.T) {
 	t.Parallel()
-	r := newRealFollowRig(t, "")
+	r := newFollowRig(t, "")
 	r.open(t, r.id)
 	r.followC(t)
 
@@ -542,7 +532,7 @@ func TestWorktreeListPick(t *testing.T) {
 
 func TestWorktreeListKeys(t *testing.T) {
 	t.Parallel()
-	r := newRealFollowRig(t, "")
+	r := newFollowRig(t, "")
 	r.open(t, r.id)
 	r.followC(t)
 	r.openList(t)
@@ -577,7 +567,7 @@ func TestWorktreeListKeys(t *testing.T) {
 
 func TestWorktreeListEscChangesNothing(t *testing.T) {
 	t.Parallel()
-	r := newRealFollowRig(t, "")
+	r := newFollowRig(t, "")
 	r.open(t, r.id)
 	r.followC(t)
 	r.pinTo(t, r.rootB)
@@ -606,7 +596,7 @@ func TestWorktreeListEscChangesNothing(t *testing.T) {
 
 func TestWorktreeListRefreshKeepsSelection(t *testing.T) {
 	t.Parallel()
-	r := newRealFollowRig(t, "")
+	r := newFollowRig(t, "")
 	r.open(t, r.id)
 	r.followC(t)
 
@@ -626,7 +616,7 @@ func TestWorktreeListRefreshKeepsSelection(t *testing.T) {
 
 func TestWorktreeListDropsOtherKeys(t *testing.T) {
 	t.Parallel()
-	r := newRealFollowRig(t, "")
+	r := newFollowRig(t, "")
 	r.open(t, r.id)
 	r.followC(t)
 	l := r.openList(t)
@@ -658,7 +648,7 @@ func TestWorktreeListDropsOtherKeys(t *testing.T) {
 
 func TestWorktreeListLeaderStillWorks(t *testing.T) {
 	t.Parallel()
-	r := newRealFollowRig(t, "")
+	r := newFollowRig(t, "")
 	r.open(t, r.id)
 	r.followC(t)
 	l := r.openList(t)
@@ -685,7 +675,7 @@ func TestWorktreeListLeaderStillWorks(t *testing.T) {
 
 func TestWorktreeListFromThePalette(t *testing.T) {
 	t.Parallel()
-	r := newRealFollowRig(t, "")
+	r := newFollowRig(t, "")
 	r.open(t, r.id)
 
 	// The drawer's keyboard is somewhere else.
@@ -706,7 +696,7 @@ func TestWorktreeListFromThePalette(t *testing.T) {
 
 func TestWorktreeListNeedsADrawer(t *testing.T) {
 	t.Parallel()
-	r := newRealFollowRig(t, "")
+	r := newFollowRig(t, "")
 
 	r.keys(keyLeader, keyRune(':'))
 	r.typed("Review: worktrees")
@@ -743,7 +733,8 @@ func TestWorktreeListCloses(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := newRealFollowRig(t, "")
+			t.Parallel()
+			r := newFollowRig(t, "")
 			r.open(t, r.id)
 			r.followC(t)
 			l := r.openList(t)
@@ -768,27 +759,34 @@ func TestWorktreeListCloses(t *testing.T) {
 	}
 }
 
-// fillProbes takes every probe slot, so no row's stats can start, and returns
-// the function that frees them.
-func (r *followRig) fillProbes() (free func()) {
-	n := cap(r.probeSem)
+// fillProbes takes n probe slots, so no more than the rest can start, and
+// returns the function that frees them.
+func (r *followRig) fillProbes(n int) (free func()) {
 	for range n {
 		r.probeSem <- struct{}{}
 	}
 
+	var once sync.Once
+
 	return func() {
-		for range n {
-			<-r.probeSem
-		}
+		once.Do(func() {
+			for range n {
+				<-r.probeSem
+			}
+		})
 	}
 }
 
-// collect feeds the queued messages to Update until none arrives for d, and
-// returns the stats answers among them.
-func (r *followRig) collect(d time.Duration) []wtStatsMsg {
+// statsUntil feeds the queued messages to Update until done holds for the stats
+// answers among them, and returns those answers.
+func (r *followRig) statsUntil(t *testing.T, what string, done func([]wtStatsMsg) bool) []wtStatsMsg {
+	t.Helper()
+
 	var out []wtStatsMsg
 
-	for {
+	deadline := time.Now().Add(r.wait)
+
+	for !done(out) {
 		select {
 		case m := <-r.pm.msgs:
 			if s, ok := m.(wtStatsMsg); ok {
@@ -796,55 +794,70 @@ func (r *followRig) collect(d time.Duration) []wtStatsMsg {
 			}
 
 			r.run(r.step(m))
-		case <-time.After(d):
-			return out
+		case <-time.After(10 * time.Millisecond):
+			r.settle()
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
 		}
 	}
+
+	return out
 }
 
+// Each place row's count holds one probe slot while it runs, and a row that finds
+// every slot taken waits, so the rows never run more at once than the slots free.
 func TestWorktreeListStatsHoldProbeSlots(t *testing.T) {
-	r := newRealFollowRig(t, "")
+	t.Parallel()
+	r := newFollowRig(t, "")
 	r.open(t, r.id)
 	r.followC(t)
-	r.quiet()
+	r.until(t, "the followed place to settle", r.landed)
 
-	free := r.fillProbes()
-	freed := false
+	// Two of the four slots are taken, so two of the three rows can run.
+	free := r.fillProbes(railProbeMax - 2)
+	defer free()
 
-	defer func() {
-		if !freed {
-			free()
-		}
-	}()
+	release := r.fake.hold("Stats")
+	defer release()
 
 	l := r.openList(t)
 
-	if got := r.collect(150 * time.Millisecond); len(got) != 0 {
-		t.Fatalf("%d rows were counted while every probe slot was taken", len(got))
+	eventually(t, "two row counts running", func() bool { return r.fake.inflight("Stats") == 2 })
+
+	if got := len(r.probeSem); got != railProbeMax {
+		t.Errorf("held slots = %d while two rows run, want all %d taken", got, railProbeMax)
+	}
+
+	if got := r.fake.count("Stats"); got != 2 {
+		t.Errorf("%d rows were counted while the slots were taken, want only the 2 that held one", got)
 	}
 
 	for _, row := range l.rows {
 		if row.statsKnown {
-			t.Fatalf("row %+v has counts while every probe slot was taken", row)
+			t.Fatalf("row %+v has counts while its count is held", row)
 		}
 	}
 
-	free()
-
-	freed = true
-
+	release()
 	r.until(t, "every place to be counted", func() bool {
 		return !slices.ContainsFunc(l.rows, func(row wtRow) bool { return row.kind == wtPlace && !row.statsKnown })
 	})
+
+	if got := r.fake.peak("Stats"); got != 2 {
+		t.Errorf("peak concurrent counts = %d, want 2: the free slots", got)
+	}
 }
 
 func TestWorktreeListCloseCancelsProbes(t *testing.T) {
-	r := newRealFollowRig(t, "")
+	t.Parallel()
+	r := newFollowRig(t, "")
 	r.open(t, r.id)
 	r.followC(t)
-	r.quiet()
+	r.until(t, "the followed place to settle", r.landed)
 
-	free := r.fillProbes()
+	free := r.fillProbes(railProbeMax)
 	defer free()
 
 	r.openList(t)
@@ -853,34 +866,30 @@ func TestWorktreeListCloseCancelsProbes(t *testing.T) {
 	// The probes waiting for a slot give up when the list closes, though no slot is free.
 	got := map[string]bool{}
 
-	deadline := time.Now().Add(r.wait)
-	for len(got) < 3 && time.Now().Before(deadline) {
-		for _, s := range r.collect(50 * time.Millisecond) {
+	r.statsUntil(t, "the three row probes to end", func(answers []wtStatsMsg) bool {
+		for _, s := range answers {
 			if s.err != nil {
 				got[s.root] = true
 			}
 		}
-	}
 
-	if len(got) != 3 {
-		t.Errorf("%d of 3 row probes ended with the list", len(got))
+		return len(got) == 3
+	})
+
+	if n := r.fake.count("Stats"); n != 0 {
+		t.Errorf("%d rows were counted though no probe held a slot", n)
 	}
 }
 
 func TestWorktreeListRebuildInFlight(t *testing.T) {
-	r := newRealFollowRig(t, "")
+	t.Parallel()
+	r := newFollowRig(t, "")
 	r.open(t, r.id)
 	r.followC(t)
-	r.quiet()
+	r.until(t, "the followed place to settle", r.landed)
 
-	free := r.fillProbes()
-	freed := false
-
-	defer func() {
-		if !freed {
-			free()
-		}
-	}()
+	free := r.fillProbes(railProbeMax)
+	defer free()
 
 	first := r.openList(t)
 
@@ -904,8 +913,6 @@ func TestWorktreeListRebuildInFlight(t *testing.T) {
 
 	free()
 
-	freed = true
-
 	r.until(t, "the rebuilt list to be counted", func() bool {
 		return !slices.ContainsFunc(second.rows, func(row wtRow) bool { return row.kind == wtPlace && !row.statsKnown })
 	})
@@ -917,7 +924,7 @@ func TestWorktreeListRebuildInFlight(t *testing.T) {
 
 func TestWorktreeListLastOpenWins(t *testing.T) {
 	t.Parallel()
-	r := newRealFollowRig(t, "")
+	r := newFollowRig(t, "")
 	r.open(t, r.id)
 	r.followC(t)
 

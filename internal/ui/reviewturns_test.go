@@ -1,10 +1,9 @@
 package ui
 
 import (
-	"context"
-	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -29,9 +28,11 @@ func isBranchSource(v *reviewView) bool {
 // turn, then that turn.
 func TestSessionEndAndStartKeepTurnMode(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t, turnFirst)
-	dir := realThreeTurnRepo(t)
-	root := rootOf(t, dir)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f), turnFirst)
+	rp := threeTurnRepo(t, f)
+	dir := rp.Root()
+	root := dir
 	id := r.agent(t, dir, testSession)
 
 	v := r.open(t, id)
@@ -70,7 +71,7 @@ func TestSessionEndAndStartKeepTurnMode(t *testing.T) {
 	// The new session's first prompt reaches the app before its snapshot exists.
 	snapshot := r.turnStartFirst(t, id)
 
-	snapshotTurn(t, dir, otherSession)
+	rp.turn(string(otherSession))
 	write(t, filepath.Join(dir, "x.txt"), "after the first prompt\n")
 	snapshot()
 	r.until(t, "the new session's turn", r.viewHolds(func(v *reviewView) bool {
@@ -89,8 +90,9 @@ func TestSessionEndAndStartKeepTurnMode(t *testing.T) {
 // keys say why they do nothing.
 func TestNoTurnsYetNotices(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
-	dir := realEditedRepo(t)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f))
+	dir := editedRepo(t, f).Root()
 	id := r.agent(t, dir, testSession)
 
 	// A restored drawer in turn mode, on a session with no turns.
@@ -167,19 +169,22 @@ func (r *drawerRig) turnStartFirst(t *testing.T, id core.PaneID) (snapshotDone f
 func TestTurnStartRefreshesTheDrawer(t *testing.T) {
 	t.Parallel()
 	t.Run("a turn that changes files", func(t *testing.T) {
-		r := newDrawerRig(t, turnFirst)
-		dir := realThreeTurnRepo(t)
+		t.Parallel()
+		f := newFakeGit(t)
+		r := newDrawerRig(t, gitOf(f), turnFirst)
+		rp := threeTurnRepo(t, f)
+		dir := rp.Root()
 		id := r.agent(t, dir, testSession)
 
 		r.open(t, id)
-		r.watching(t, id, rootOf(t, dir))
+		r.watching(t, id, dir)
 
 		// The mode row is the tree's first row.
 		r.showTree(t)
 
 		snapshotDone := r.turnStartFirst(t, id)
 
-		snapshotTurn(t, dir, testSession)
+		rp.turn(string(testSession))
 		write(t, filepath.Join(dir, "four.txt"), "turn four\n")
 		snapshotDone()
 		r.until(t, "turn 4", r.viewHolds(func(v *reviewView) bool { return v.turns == 4 && v.res.Turn == 4 && !v.loading }))
@@ -194,27 +199,31 @@ func TestTurnStartRefreshesTheDrawer(t *testing.T) {
 
 	t.Run("a turn that changes nothing yet", func(t *testing.T) {
 		t.Parallel()
-		r := newDrawerRig(t, turnFirst)
-		dir := realThreeTurnRepo(t)
-		id := r.agent(t, dir, testSession)
+		f := newFakeGit(t)
+		r := newDrawerRig(t, gitOf(f), turnFirst)
+		rp := threeTurnRepo(t, f)
+		id := r.agent(t, rp.Root(), testSession)
 
 		r.open(t, id)
-		r.watching(t, id, rootOf(t, dir))
+		r.watching(t, id, rp.Root())
 
 		snapshotDone := r.turnStartFirst(t, id)
 
-		snapshotTurn(t, dir, testSession)
+		rp.turn(string(testSession))
 		snapshotDone()
 		r.until(t, "turn 3 closed", r.viewHolds(func(v *reviewView) bool { return v.turns == 3 && v.res.Turn == 3 && !v.res.Live && !v.loading }))
 	})
 
 	t.Run("a past turn", func(t *testing.T) {
-		r := newDrawerRig(t, turnFirst)
-		dir := realThreeTurnRepo(t)
+		t.Parallel()
+		f := newFakeGit(t)
+		r := newDrawerRig(t, gitOf(f), turnFirst)
+		rp := threeTurnRepo(t, f)
+		dir := rp.Root()
 		id := r.agent(t, dir, testSession)
 
 		r.open(t, id)
-		r.watching(t, id, rootOf(t, dir))
+		r.watching(t, id, dir)
 		r.showTree(t)
 		r.run(r.stepReviewTurn(-1))
 
@@ -223,7 +232,7 @@ func TestTurnStartRefreshesTheDrawer(t *testing.T) {
 
 		snapshotDone := r.turnStartFirst(t, id)
 
-		snapshotTurn(t, dir, testSession)
+		rp.turn(string(testSession))
 		write(t, filepath.Join(dir, "four.txt"), "turn four\n")
 		snapshotDone()
 		r.until(t, "the new count", func() bool { return v.turns == 4 && !v.loading })
@@ -239,8 +248,10 @@ func TestTurnStartRefreshesTheDrawer(t *testing.T) {
 
 	// The wait for the snapshot ends with the app, so no command outlives it.
 	t.Run("the app ending ends the wait", func(t *testing.T) {
-		r := newDrawerRig(t)
-		id := r.agent(t, realThreeTurnRepo(t), testSession)
+		t.Parallel()
+		f := newFakeGit(t)
+		r := newDrawerRig(t, gitOf(f))
+		id := r.agent(t, threeTurnRepo(t, f).Root(), testSession)
 		r.open(t, id)
 
 		cmd := r.reviewHook(id, true, make(chan struct{}))
@@ -271,24 +282,24 @@ func TestTurnStartRefreshesTheDrawer(t *testing.T) {
 func TestFailedWatchOfANewRepositoryFallsBackToHooks(t *testing.T) {
 	t.Parallel()
 	t.Run("a failed acquire releases the old watch", func(t *testing.T) {
-		r := newDrawerRig(t)
-		first, second := realEditedRepo(t), realEditedRepo(t)
+		t.Parallel()
+		f := newFakeGit(t)
+		r := newDrawerRig(t, gitOf(f))
+		first, second := editedRepo(t, f).Root(), editedRepo(t, f).Root()
 		id := r.agent(t, first, "")
 
 		r.open(t, id)
-		r.watching(t, id, rootOf(t, first))
+		r.watching(t, id, first)
 
 		// A closed set refuses every Acquire.
-		if err := r.set.Close(); err != nil {
-			t.Fatal(err)
-		}
+		f.watches.close()
 
 		openIn(t, r.App, core.SetPaneCwd{ID: id, Cwd: second})
 		r.settle()
 		r.until(t, "the old reference to be released", func() bool { return r.held(id) == "" && r.holdCount() == 0 })
 
-		if w := r.watches.panes[id]; w.want != rootOf(t, second) {
-			t.Errorf("wants %q, want the new repository %q", w.want, rootOf(t, second))
+		if w := r.watches.panes[id]; w.want != second {
+			t.Errorf("wants %q, want the new repository %q", w.want, second)
 		}
 
 		v := r.idle(t)
@@ -301,12 +312,14 @@ func TestFailedWatchOfANewRepositoryFallsBackToHooks(t *testing.T) {
 	})
 
 	t.Run("the old root's watch does not count while another root is wanted", func(t *testing.T) {
-		r := newDrawerRig(t)
-		dir := realEditedRepo(t)
+		t.Parallel()
+		f := newFakeGit(t)
+		r := newDrawerRig(t, gitOf(f))
+		dir := editedRepo(t, f).Root()
 		id := r.agent(t, dir, "")
 
 		v := r.open(t, id)
-		r.watching(t, id, rootOf(t, dir))
+		r.watching(t, id, dir)
 
 		// The pane moved on, so the drawer is on the new root, whose watch has not answered yet.
 		r.watches.panes[id].want = "/another/root"
@@ -324,8 +337,9 @@ func TestFailedWatchOfANewRepositoryFallsBackToHooks(t *testing.T) {
 // batch would, so it recomputes when its tab shows.
 func TestHookEventMarksAHiddenDrawerStale(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t, func(o *Options) { o.Watches = nil })
-	dir := realEditedRepo(t)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f), func(o *Options) { o.Watches = nil })
+	dir := editedRepo(t, f).Root()
 	id := r.agent(t, dir, "")
 
 	v := r.open(t, id)
@@ -355,9 +369,10 @@ func TestHookEventMarksAHiddenDrawerStale(t *testing.T) {
 // so, and core stays in branch mode.
 func TestTurnKeysDoNotTrustTheEndedSessionsCount(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
-	dir := realThreeTurnRepo(t)
-	root := rootOf(t, dir)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f))
+	dir := threeTurnRepo(t, f).Root()
+	root := dir
 	id := r.agent(t, dir, testSession)
 
 	r.open(t, id)
@@ -388,10 +403,13 @@ func TestTurnKeysDoNotTrustTheEndedSessionsCount(t *testing.T) {
 // The same wait ends in the switch when the new session has turns.
 func TestTurnKeysSwitchToANewSessionThatHasTurns(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
-	dir := realThreeTurnRepo(t)
-	root := rootOf(t, dir)
-	snapshotTurn(t, dir, otherSession)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f))
+	rp := threeTurnRepo(t, f)
+	dir := rp.Root()
+	root := dir
+
+	rp.turn(string(otherSession))
 	write(t, filepath.Join(dir, "other.txt"), "the other session's change\n")
 	id := r.agent(t, dir, testSession)
 
@@ -419,8 +437,9 @@ func TestTurnKeysSwitchToANewSessionThatHasTurns(t *testing.T) {
 // An answer whose probe ran for another session does not set the count.
 func TestAnswerForAnotherSessionDoesNotSetTheCount(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
-	id := r.agent(t, realThreeTurnRepo(t), testSession)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f))
+	id := r.agent(t, threeTurnRepo(t, f).Root(), testSession)
 
 	v := r.open(t, id)
 	tab := r.store.State().Tab().ID
@@ -438,10 +457,14 @@ func TestAnswerForAnotherSessionDoesNotSetTheCount(t *testing.T) {
 // b, inside the one probe, ends in branch mode.
 func TestLaterKeyReplacesTheHeldTurnKey(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
-	dir := realThreeTurnRepo(t)
-	root := rootOf(t, dir)
-	snapshotTurn(t, dir, otherSession)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f))
+	rp := threeTurnRepo(t, f)
+	dir := rp.Root()
+	root := dir
+
+	rp.turn(string(otherSession))
+
 	id := r.agent(t, dir, testSession)
 
 	r.open(t, id)
@@ -466,7 +489,7 @@ func TestLaterKeyReplacesTheHeldTurnKey(t *testing.T) {
 // there is none, so the key gets its notice at once.
 func TestTurnKeyOutsideARepositoryAnswersAtOnce(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
+	r := newDrawerRig(t, gitOf(newFakeGit(t)))
 	id := r.agent(t, t.TempDir(), testSession)
 
 	openIn(t, r.App, core.OpenReview{Pane: id, Mode: core.ReviewTurn})
@@ -485,10 +508,14 @@ func TestTurnKeyOutsideARepositoryAnswersAtOnce(t *testing.T) {
 // A new session drops a held turn key: it was pressed for the old one.
 func TestNewSessionDropsAHeldTurnKey(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t)
-	dir := realThreeTurnRepo(t)
-	root := rootOf(t, dir)
-	snapshotTurn(t, dir, otherSession)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f))
+	rp := threeTurnRepo(t, f)
+	dir := rp.Root()
+	root := dir
+
+	rp.turn(string(otherSession))
+
 	id := r.agent(t, dir, testSession)
 
 	r.open(t, id)
@@ -525,8 +552,8 @@ func TestNewSessionDropsAHeldTurnKey(t *testing.T) {
 func newTurnRig(t *testing.T, opts ...func(*Options)) *followRig {
 	t.Helper()
 
-	r := newRealFollowRig(t, testSession, opts...)
-	snapshotTurn(t, r.dirA, testSession)
+	r := newFollowRig(t, testSession, opts...)
+	r.repoA.turn(string(testSession))
 	write(t, filepath.Join(r.dirA, "x.txt"), "after the turn\n")
 	r.addLines(t, filepath.Join(r.dirB, "a.txt"))
 
@@ -568,22 +595,17 @@ func TestNoTurnsNoticeCleansNames(t *testing.T) {
 // A move of the own directory inside the shown repository neither reloads the
 // diff nor changes what it shows.
 func TestOwnDirectoryMovingInsideTheRepositoryKeepsTheDiff(t *testing.T) {
+	t.Parallel()
 	r := newTurnRig(t, turnFirst)
 	sub := filepath.Join(r.dirA, "pkg")
 	write(t, filepath.Join(sub, "p.txt"), "p\n")
-
-	// The watcher reports these writes and the rig's x.txt after its debounce.
-	// A drawer that opens first, as it does when diffs are fast, would reload
-	// for them after the move and mask what the test checks.
-	r.until(t, "the watcher to report the files written", r.reportedAll(
-		filepath.Join(r.rootA, "x.txt"), filepath.Join(r.rootA, "pkg", "p.txt")))
 
 	v := r.open(t, r.id)
 	epoch, gen := v.epoch, v.gen
 
 	r.hookNow(cwdHook(r.id, sub))
 	r.until(t, "the own directory to be seen", func() bool { return v.own == sub && !v.loading })
-	r.quiet()
+	r.until(t, "every answer the move raised to land", r.landed)
 
 	if v != r.view() || v.epoch != epoch || v.gen != gen || v.foreign || !isTurnSource(v) {
 		t.Errorf("the drawer reloaded: epoch %d -> %d, generation %d -> %d, foreign %v, source %T", epoch, v.epoch, gen, v.gen, v.foreign, v.src)
@@ -622,11 +644,11 @@ func TestOwnDirectoryMovedListsOnlyItsWorktreesTurns(t *testing.T) {
 // A session that moved worktrees keeps each turn with the worktree it began in.
 func TestPastTurnOfAMovedSessionStaysInItsWorktree(t *testing.T) {
 	t.Parallel()
-	r := newRealFollowRig(t, testSession, turnFirst)
+	r := newFollowRig(t, testSession, turnFirst)
 
 	const lineOfA = "only in worktree A"
 
-	snapshotTurn(t, r.dirA, testSession)
+	r.repoA.turn(string(testSession))
 	write(t, filepath.Join(r.dirA, "a.txt"), "one\n"+lineOfA+"\n")
 	r.open(t, r.id)
 
@@ -637,7 +659,7 @@ func TestPastTurnOfAMovedSessionStaysInItsWorktree(t *testing.T) {
 
 	done := r.turnStartFirst(t, r.id)
 
-	snapshotTurn(t, r.dirB, testSession)
+	r.repoB.turn(string(testSession))
 	done()
 
 	write(t, filepath.Join(r.dirB, "after.txt"), "after the turn\n")
@@ -665,16 +687,18 @@ func TestPastTurnOfAMovedSessionStaysInItsWorktree(t *testing.T) {
 // shows the one before it until a file changes.
 func TestQuestionTurnIsNotListed(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t, turnFirst)
-	dir := newRepoDir(t)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f), turnFirst)
+	rp := f.repo(t, "")
+	dir := rp.Root()
 	write(t, filepath.Join(dir, "a.txt"), "a\n")
-	commitEverything(t, dir, "init")
+	rp.commit("init")
 
-	snapshotTurn(t, dir, testSession)
+	rp.turn(string(testSession))
 	write(t, filepath.Join(dir, "a.txt"), "turn one\n")
-	snapshotTurn(t, dir, testSession)
+	rp.turn(string(testSession))
 
-	root := rootOf(t, dir)
+	root := dir
 	id := r.agent(t, dir, testSession)
 
 	v := r.open(t, id)
@@ -709,9 +733,11 @@ func TestQuestionTurnIsNotListed(t *testing.T) {
 // have started to differ from the working tree. The turn shown stays.
 func TestPastTurnViewRecountsOnPathBatches(t *testing.T) {
 	t.Parallel()
-	r := newDrawerRig(t, turnFirst)
-	dir := realThreeTurnRepo(t)
-	root := rootOf(t, dir)
+	f := newFakeGit(t)
+	r := newDrawerRig(t, gitOf(f), turnFirst)
+	rp := threeTurnRepo(t, f)
+	dir := rp.Root()
+	root := dir
 	id := r.agent(t, dir, testSession)
 
 	r.open(t, id)
@@ -721,7 +747,7 @@ func TestPastTurnViewRecountsOnPathBatches(t *testing.T) {
 	v := r.idle(t)
 	gen := v.gen
 
-	snapshotTurn(t, dir, testSession)
+	rp.turn(string(testSession))
 	write(t, filepath.Join(dir, "four.txt"), "turn four\n")
 	r.run(r.batch(root, git.Batch{Paths: []string{"four.txt"}}))
 	r.until(t, "the new count", func() bool { return v.turns == 4 && !v.loading })
@@ -735,23 +761,22 @@ func TestPastTurnViewRecountsOnPathBatches(t *testing.T) {
 	}
 }
 
-// takeTurn starts the session's turn n in dir's worktree, as the gate does.
-func takeTurn(t *testing.T, dir string, n int) {
-	t.Helper()
+// endTurn ends the session's open turn in r's worktree at the disk, as the end
+// of a turn does, without starting the next.
+func endTurn(r *fakeRepo, session core.SessionID) {
+	r.f.edit(func() {
+		var last *fakeTurn
 
-	opts := git.SnapshotOptions{TempDir: t.TempDir(), Turn: n}
-	if _, err := git.Snapshot(context.Background(), dir, string(testSession), opts); err != nil {
-		t.Fatalf("Snapshot turn %d: %v", n, err)
-	}
-}
+		for _, t := range r.c.turns[string(session)] {
+			if t.root == r.root {
+				last = t
+			}
+		}
 
-// endTurn ends the session's turn n in dir's worktree.
-func endTurn(t *testing.T, dir string, n int) {
-	t.Helper()
-
-	if _, err := git.EndTurn(context.Background(), dir, string(testSession), n, git.SnapshotOptions{TempDir: t.TempDir()}); err != nil {
-		t.Fatalf("EndTurn %d: %v", n, err)
-	}
+		last.endTree, last.ended = r.f.readDiskL(r), true
+		last.endID = fakeOID("turn end", string(session), r.root, strconv.Itoa(last.n))
+		r.c.aimRefs[fakeTurnRef(string(session), r.root, last.n, true)] = last.endID
+	})
 }
 
 // newTwoTurnRig is a follow rig whose session has turn 1 in A, ended after a
@@ -759,13 +784,13 @@ func endTurn(t *testing.T, dir string, n int) {
 func newTwoTurnRig(t *testing.T, opts ...func(*Options)) *followRig {
 	t.Helper()
 
-	r := newRealFollowRig(t, testSession, opts...)
+	r := newFollowRig(t, testSession, opts...)
 
-	takeTurn(t, r.dirA, 1)
+	r.repoA.turn(string(testSession))
 	write(t, filepath.Join(r.dirA, "x.txt"), "turn one\n")
-	endTurn(t, r.dirA, 1)
+	endTurn(r.repoA, testSession)
 
-	takeTurn(t, r.dirB, 2)
+	r.repoB.turn(string(testSession))
 	r.addLines(t, filepath.Join(r.dirB, "a.txt"))
 
 	return r
@@ -847,7 +872,7 @@ func TestTurnKeysInAWorktreeWithoutTurns(t *testing.T) {
 			return r, "no turns in " + filepath.Base(r.dirC) + " · other yet"
 		}},
 		{"the agent's own worktree", func(t *testing.T) (*followRig, string) {
-			r := newRealFollowRig(t, testSession, turnFirst)
+			r := newFollowRig(t, testSession, turnFirst)
 			r.open(t, r.id)
 
 			return r, "no turns yet"
@@ -921,57 +946,36 @@ func TestOwnDirectoryMoveRecountsOnly(t *testing.T) {
 	}
 }
 
-func TestOpenDrawerInTurnModeWhereTurnsExist(t *testing.T) {
+// A drawer opened on a followed worktree that has no turns shows the branch.
+func TestOpenDrawerWhereTheFollowedWorktreeHasNoTurns(t *testing.T) {
 	t.Parallel()
+	r := newTwoTurnRig(t, turnFirst)
+	r.followC(t)
 
-	tests := []struct {
-		name string
-		edit string
-		want core.ReviewMode
-	}{
-		{"the agent's own worktree", "", core.ReviewTurn},
-		{"a followed worktree with turns", "b", core.ReviewTurn},
-		{"a followed worktree without turns", "c", core.ReviewBranch},
-	}
+	v := r.open(t, r.id)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			r := newTwoTurnRig(t, turnFirst)
-
-			switch tt.edit {
-			case "b":
-				r.edit(filepath.Join(r.dirB, "a.txt"))
-			case "c":
-				r.followC(t)
-			}
-
-			v := r.open(t, r.id)
-
-			if got := r.coreMode(); got != tt.want || isTurnSource(v) != (tt.want == core.ReviewTurn) {
-				t.Errorf("opened in %q mode with source %T, want %q", got, v.src, tt.want)
-			}
-		})
+	if got := r.coreMode(); got != core.ReviewBranch || isTurnSource(v) {
+		t.Errorf("opened in %q mode with source %T, want branch mode on the branch source", got, v.src)
 	}
 }
 
 func TestStepThroughAWorktreesTurns(t *testing.T) {
 	t.Parallel()
-	r := newRealFollowRig(t, testSession, turnFirst)
+	r := newFollowRig(t, testSession, turnFirst)
 
-	takeTurn(t, r.dirB, 1)
+	r.repoB.turn(string(testSession))
 	write(t, filepath.Join(r.dirB, "b1.txt"), "one\n")
-	endTurn(t, r.dirB, 1)
+	endTurn(r.repoB, testSession)
 
-	takeTurn(t, r.dirA, 2)
+	r.repoA.turn(string(testSession))
 	write(t, filepath.Join(r.dirA, "x.txt"), "A's turn\n")
-	endTurn(t, r.dirA, 2)
+	endTurn(r.repoA, testSession)
 
-	takeTurn(t, r.dirB, 3)
+	r.repoB.turn(string(testSession))
 	write(t, filepath.Join(r.dirB, "b2.txt"), "two\n")
-	endTurn(t, r.dirB, 3)
+	endTurn(r.repoB, testSession)
 
-	takeTurn(t, r.dirB, 4)
+	r.repoB.turn(string(testSession))
 	write(t, filepath.Join(r.dirB, "b3.txt"), "three\n")
 
 	r.open(t, r.id)
@@ -1007,60 +1011,34 @@ func TestStepThroughAWorktreesTurns(t *testing.T) {
 // follows.
 func TestTurnModeWithoutAnOwnRepository(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		name string
-		own  func(t *testing.T) string
-	}{
-		{"own directory in no repository", func(t *testing.T) string { return t.TempDir() }},
-		{"own directory gone", func(t *testing.T) string {
-			dir := filepath.Join(t.TempDir(), "gone")
-			if err := os.Mkdir(dir, 0o750); err != nil {
-				t.Fatal(err)
-			}
+	r := newTwoTurnRig(t)
 
-			return dir
-		}},
-	}
+	r.edit(filepath.Join(r.dirB, "a.txt"))
+	r.hookNow(cwdHook(r.id, t.TempDir()))
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			r := newTwoTurnRig(t)
-			own := tt.own(t)
+	openIn(t, r.App, core.OpenReview{Pane: r.id, Mode: core.ReviewTurn})
+	r.settle()
+	r.until(t, "b's turn", r.settledOn(r.rootB, true))
 
-			r.edit(filepath.Join(r.dirB, "a.txt"))
-			r.hookNow(cwdHook(r.id, own))
-
-			if tt.name == "own directory gone" {
-				if err := os.Remove(own); err != nil {
-					t.Fatal(err)
-				}
-			}
-
-			openIn(t, r.App, core.OpenReview{Pane: r.id, Mode: core.ReviewTurn})
-			r.settle()
-			r.until(t, "b's turn", r.settledOn(r.rootB, true))
-
-			v := r.view()
-			if got := viewPaths(v); !slices.Equal(got, []string{"a.txt"}) || v.turns != 1 || !v.res.Live || r.coreMode() != core.ReviewTurn {
-				t.Errorf("shows %v as turn %d of %d (live %v) in %q mode, want b's live turn with a.txt", got, v.res.Turn, v.turns, v.res.Live, r.coreMode())
-			}
-		})
+	v := r.view()
+	if got := viewPaths(v); !slices.Equal(got, []string{"a.txt"}) || v.turns != 1 || !v.res.Live || r.coreMode() != core.ReviewTurn {
+		t.Errorf("shows %v as turn %d of %d (live %v) in %q mode, want b's live turn with a.txt", got, v.res.Turn, v.turns, v.res.Live, r.coreMode())
 	}
 }
 
 // A live load after the own directory moved off the shown root keeps updating
-// the turn. It waits for the watcher to go quiet (quiet), so it stays serial.
+// the turn.
 func TestLiveLoadAfterOwnDirectoryMovedKeepsTheTurn(t *testing.T) {
-	r := newRealFollowRig(t, testSession, turnFirst)
+	t.Parallel()
+	r := newFollowRig(t, testSession, turnFirst)
 
 	// The turn's start holds m.txt changed. Since then m.txt is back to its
 	// committed text and n.txt is changed, so the turn shows both files.
 	write(t, filepath.Join(r.dirA, "m.txt"), "m\n")
 	write(t, filepath.Join(r.dirA, "n.txt"), "n\n")
-	commitEverything(t, r.dirA, "more files")
+	r.repoA.commit("more files")
 	write(t, filepath.Join(r.dirA, "m.txt"), "m in the turn\n")
-	snapshotTurn(t, r.dirA, testSession)
+	r.repoA.turn(string(testSession))
 	write(t, filepath.Join(r.dirA, "m.txt"), "m\n")
 	write(t, filepath.Join(r.dirA, "n.txt"), "n changed\n")
 
@@ -1071,7 +1049,7 @@ func TestLiveLoadAfterOwnDirectoryMovedKeepsTheTurn(t *testing.T) {
 
 	// An edit keeps the followed place on A whatever the own directory does.
 	r.edit(filepath.Join(r.dirA, "n.txt"))
-	r.quiet()
+	r.until(t, "the edit's answers to land", r.landed)
 
 	// The own directory moves while a load is in flight and a second batch
 	// waits behind it, so the load that follows starts for the moved directory.

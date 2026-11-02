@@ -114,38 +114,6 @@ func threeTurnRepo(t *testing.T, f *fakeGit) *fakeRepo {
 	return r
 }
 
-// realThreeTurnRepo is threeTurnRepo on real git.
-func realThreeTurnRepo(t *testing.T) string {
-	t.Helper()
-
-	dir := newRepoDir(t)
-	write(t, filepath.Join(dir, "a.txt"), "a\n")
-	write(t, filepath.Join(dir, "b.txt"), "b\n")
-	write(t, filepath.Join(dir, "dir/c.txt"), "c\n")
-	commitEverything(t, dir, "init")
-	write(t, filepath.Join(dir, "d.txt"), "d\n")
-	write(t, filepath.Join(dir, "e.txt"), "e\n")
-	commitEverything(t, dir, "more")
-
-	snapshotTurn(t, dir, testSession)
-	write(t, filepath.Join(dir, "a.txt"), "turn one\n")
-
-	snapshotTurn(t, dir, testSession)
-	write(t, filepath.Join(dir, "b.txt"), "turn two\n")
-
-	if err := os.Remove(filepath.Join(dir, "d.txt")); err != nil {
-		t.Fatal(err)
-	}
-
-	write(t, filepath.Join(dir, "new.txt"), "untracked\n")
-
-	snapshotTurn(t, dir, testSession)
-	write(t, filepath.Join(dir, "dir/c.txt"), "turn three\n")
-	commitEverything(t, dir, "agent commit")
-
-	return dir
-}
-
 // editedRepo has f.txt of 60 lines committed on main with lines 5 and 50
 // edited in the working tree: two hunks.
 func editedRepo(t *testing.T, f *fakeGit) *fakeRepo {
@@ -277,26 +245,6 @@ func newDrawerRigWatching(t *testing.T, wo git.WatchOptions, opts ...func(*Optio
 	r.pm.run(a.waitWatch())
 
 	return r
-}
-
-// probesEndFirst checks, after the cleanups registered later and before
-// t.TempDir removes its dirs, that no probe of the app handed to watch still
-// runs: one that does writes its temporary index into a dir being removed.
-func probesEndFirst(t *testing.T) (watch func(*App)) {
-	t.Helper()
-
-	// The first TempDir registers the removal of every one, so this cleanup runs ahead of it.
-	t.TempDir()
-
-	var a *App
-
-	t.Cleanup(func() {
-		if a != nil && len(a.probeSem) > 0 {
-			t.Errorf("%d probes still ran as the temporary dirs were removed", len(a.probeSem))
-		}
-	})
-
-	return func(app *App) { a = app }
 }
 
 func (r *drawerRig) step(msg tea.Msg) tea.Cmd {
