@@ -26,6 +26,10 @@ type State struct {
 	// dir. It is not saved in state.json (the marks have their own files) and
 	// copies share it, so actions replace the map and its values.
 	Marks map[string]RepoMarks
+
+	// Usage is the account's Claude usage. It is not saved: it comes back from
+	// the agents' status lines.
+	Usage Usage
 }
 
 // InitialState returns the state of a fresh session: one empty tab.

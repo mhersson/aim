@@ -39,12 +39,15 @@ type loadSampler interface {
 	Sample(ctx context.Context) (loadSample, error)
 }
 
-// trayState is the sampled data behind the tray. Only Update changes it; the
-// samplers run in commands and report back by message.
+// trayState is the sampled data behind the tray and the usage popover's open
+// flag. Only Update changes it; the samplers run in commands and report back by
+// message.
 type trayState struct {
 	on    bool // sampling is armed; set by Init
 	clock string
 	load  *loadInfo
+
+	usageOpen bool // the usage popover is open; it shows only while a window does
 }
 
 type (
@@ -126,6 +129,10 @@ func (a *App) clockCmd(wait bool) tea.Cmd {
 
 func (a *App) onClock(msg clockMsg) tea.Cmd {
 	a.tray.clock = msg.text
+
+	if a.tray.usageOpen && !a.usageShows() {
+		a.tray.usageOpen = false
+	}
 
 	return a.clockCmd(true)
 }
@@ -269,6 +276,10 @@ func (a *App) trayModules() []trayModule {
 	// A draft, merged or closed pull request has no module; the card shows it.
 	if pr, ok := a.prOfPane(st, st.Tab().Focus); ok && pr.State == prOpenState && !pr.Draft {
 		mods = append(mods, prModule(pr, icons, ui))
+	}
+
+	if m, ok := usageModule(st.Usage, a.clock.Now(), icons, ui); ok {
+		mods = append(mods, m)
 	}
 
 	if l := a.tray.load; l != nil && len(l.CPU) > 0 {

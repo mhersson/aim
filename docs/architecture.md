@@ -62,6 +62,12 @@ narrows the body, so it is part of the layout. The review drawer is an overlay
 held in `core.Tab.Review`, outside `Arrange`, so opening it never resizes a PTY
 or makes an agent redraw.
 
+**The tray's click.** Row 0 holds the tabs and the tray. `hitTab` places the
+usage module from the same `planBar` plan the bar draws with (`trayModuleAt`),
+so a click lands where the module is drawn. While the usage popover shows with
+no modal above it, it takes every press first: inside its box a press does
+nothing, and anywhere else it closes the popover and goes no further.
+
 ## Claude Code: launch, hooks and the socket
 
 **Launch.** An agent pane runs
@@ -120,6 +126,14 @@ payloads in `internal/harness/testdata`. Two rules cover what hooks miss:
 - One `esc` interrupts a Claude turn, so after an `esc` that hands a pane the
   keyboard, further ones are held back briefly (`handleKey`,
   `internal/ui/input.go`; [Esc and Claude Code](guide/agents.md#esc-and-claude-code)).
+
+The status line also carries the account's usage. `rate_limits` becomes
+`Event.FiveHour` and `SevenDay` (a window counts only with a percent and a reset
+time, `rateWindow`), and `onStatus` dispatches `core.NoteUsage` only when it
+changes `State.Usage`. Claude Code reruns the status line with a session's
+last-known limits, which can be hours old, so per window a reading with the same
+reset only raises the figure, a later reset replaces it, and an earlier or
+already-past one is ignored.
 
 ## Turn snapshots
 
@@ -333,8 +347,8 @@ the followed place back, and one after a session change records nothing.
 | `<user cache dir>/aim/` | index copies, fetched images | as used; swept at start: index copies not refreshed for 14 days, images untouched 30 |
 
 - **Only what cannot come back is saved.** Agent states, actions, reported
-  directories, edits, models, pull request data and a drawer's pin come back
-  from hooks, polls and probes; saving them would restore stale facts.
+  directories, edits, models, Claude usage, pull request data and a drawer's pin
+  come back from hooks, polls and probes; saving them would restore stale facts.
 - **Format.** Version 2, encoded only in `internal/store` (`state.go`,
   `layout.go`); core has no JSON tags. New fields are optional, so the version
   stays 2. A file that does not decode is kept as `state.json.bad`.
@@ -357,7 +371,9 @@ the followed place back, and one after a session change records nothing.
 - AIM has no fixed tick. A tick runs only while something animates: the agent
   tick (125 ms) while an agent works, the rail's pulse while one is blocked and
   the rail shows, the 16 ms slide tick while the drawer slides. A new animation
-  follows the same rule, so an idle AIM costs next to no CPU.
+  follows the same rule, so an idle AIM costs next to no CPU. The usage module
+  and popover have no tick of their own; the clock's minute wake redraws their
+  relative times and drops a window once its reset passes.
 
 ## Why the safety rules
 

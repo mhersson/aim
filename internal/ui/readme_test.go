@@ -14,7 +14,7 @@ const readmePath = "../../README.md"
 // readmeKeyCommands are the commands of the README's Keys table, in order.
 var readmeKeyCommands = []string{
 	"agent.new", "rail.toggle", "review.toggle", "plan.open", "git.push",
-	"pr.open", "pr.list", "pr.merge", "palette.open", "app.quit",
+	"pr.open", "pr.list", "pr.merge", "usage.toggle", "palette.open", "app.quit",
 }
 
 // readmeKeysTable is the README's Keys table, built from the default leader

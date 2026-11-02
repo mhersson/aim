@@ -201,6 +201,7 @@ func keysPage() (string, error) {
 	w("- The drawer's search and worktree list: [search](review.md#search) and [the worktree list](review.md#the-worktree-list).\n")
 	w("- The reading overlays' search and link chooser: [search](reading.md#search) and [links and pictures](reading.md#links-and-pictures).\n")
 	w("- The compose box's fields: [open a pull request](pull-requests.md#open-a-pull-request).\n")
+	w("- The Claude usage details: [Claude usage](agents.md#claude-usage).\n")
 	w("- The mouse: [the mouse](copy-paste-mouse.md#the-mouse).\n")
 
 	return b.String(), nil

@@ -115,6 +115,16 @@ Agents are grouped as Blocked, Working, Idle (and No hooks, for an agent that ha
 3. what the agent is doing now (the tool and its target, or the question a blocked agent asks); an idle agent reads `waiting for a prompt`;
 4. the diff stats against the base branch: lines added, lines removed and the file count.
 
+## Claude usage
+
+With a Claude subscription the tray shows how much of its limits you have used: `5h` for the 5-hour window and `7d` for the weekly one, each with its percent. With icons on, the module starts with a gauge icon. The figures come from the agents' status lines, so they appear after an agent's first reply and are the latest any agent reported; a status line that repeats an older, lower figure for the same window does not pull it down.
+
+A plan with only a weekly limit shows only `7d`. Without limits (API billing, Team, Enterprise, Bedrock and Vertex, or an older Claude Code) nothing shows.
+
+A percent takes the theme's warning colour from 70 % and its error colour, bold, from 90 %, as the context meter does. A window leaves the tray when it resets, until an agent reports it again. On a narrow terminal the module leaves the bar right after the load module.
+
+Click the module or press `ctrl+space u` (command "Claude usage") for the details: each window's bar and percent, when it resets (`resets in 2d 4h (Wed 14:00)`), and how long ago the figures last changed. `esc`, `ctrl+space u` again or a click outside them closes them. While they are open the leader works as usual and every other key and a paste are dropped. With no figures yet, `ctrl+space u` says `no Claude usage yet`. When the module has left the bar, the details open at the right edge.
+
 ## The command palette and themes
 
 Every action is a command, and the palette runs any that is not specific to one view: press `ctrl+space :`, type part of the name, move with `up` and `down` (or `ctrl+n`, `ctrl+p`, `tab`, `shift+tab`), and press `enter` to run it. `esc` closes it. Each row shows the leader key of its command, if it has one. Commands without a key, such as "Layout: BSP", are listed in [Keys](keys.md#commands-without-a-default-key).

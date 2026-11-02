@@ -656,6 +656,7 @@ func TestParseStatus(t *testing.T) {
 			Event{Name: "statusline", Status: true, Session: testSession, Model: "Op[2Jus 4"},
 			false,
 		},
+		{"missing rate_limits", full, status(func(*Event) {}), false},
 		{"invalid JSON", `{"model":`, Event{}, true},
 		{"empty payload", ``, Event{}, true},
 		{"not an object", `[1]`, Event{}, true},
@@ -678,6 +679,87 @@ func TestParseStatus(t *testing.T) {
 
 			if !reflect.DeepEqual(ev, tt.want) {
 				t.Errorf("event = %+v, want %+v", ev, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseStatusRateLimitsFixture(t *testing.T) {
+	t.Parallel()
+
+	payload, err := os.ReadFile(filepath.Join("testdata", "statusline_rate_limits.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ev, err := Claude{}.ParseStatus(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := Event{
+		Name: "statusline", Status: true, Session: testSession, Model: "Opus 4.1",
+		Context: 8, ContextKnown: true, Window: 200000, InputTokens: 15234,
+		FiveHour: &RateWindow{23.5, 1738425600}, SevenDay: &RateWindow{41.2, 1738857600},
+	}
+	if !reflect.DeepEqual(ev, want) {
+		t.Errorf("event = %+v, want %+v", ev, want)
+	}
+}
+
+func TestParseStatusRateLimits(t *testing.T) {
+	t.Parallel()
+
+	const head = `{"session_id":"11111111-2222-4333-8444-555555555555","model":{"display_name":"Opus"},"rate_limits":`
+
+	tests := []struct {
+		name       string
+		limits     string
+		five, week *RateWindow
+	}{
+		{
+			"both",
+			`{"five_hour":{"used_percentage":23.5,"resets_at":1738425600},"seven_day":{"used_percentage":41.2,"resets_at":1738857600}}`,
+			&RateWindow{23.5, 1738425600}, &RateWindow{41.2, 1738857600},
+		},
+		{
+			"weekly only",
+			`{"seven_day":{"used_percentage":41.2,"resets_at":1738857600}}`,
+			nil, &RateWindow{41.2, 1738857600},
+		},
+		{
+			"null window",
+			`{"five_hour":null,"seven_day":{"used_percentage":0,"resets_at":1738857600}}`,
+			nil, &RateWindow{0, 1738857600},
+		},
+		{"null percent", `{"five_hour":{"used_percentage":null,"resets_at":1738425600}}`, nil, nil},
+		{"no reset", `{"five_hour":{"used_percentage":23.5}}`, nil, nil},
+		{"zero reset", `{"five_hour":{"used_percentage":23.5,"resets_at":0}}`, nil, nil},
+		{
+			"fractional reset",
+			`{"five_hour":{"used_percentage":23.5,"resets_at":1738425600.0}}`,
+			&RateWindow{23.5, 1738425600}, nil,
+		},
+		{"huge reset", `{"five_hour":{"used_percentage":23.5,"resets_at":1e30}}`, nil, nil},
+		{"empty", `{}`, nil, nil},
+		{"not an object", `"soon"`, nil, nil},
+		{"string percent", `{"five_hour":{"used_percentage":"23%","resets_at":1738425600}}`, nil, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ev, err := Claude{}.ParseStatus([]byte(head + tt.limits + `}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if ev.Model != "Opus" {
+				t.Errorf("Model = %q, want Opus", ev.Model)
+			}
+
+			if !reflect.DeepEqual(ev.FiveHour, tt.five) || !reflect.DeepEqual(ev.SevenDay, tt.week) {
+				t.Errorf("windows = %+v, %+v, want %+v, %+v", ev.FiveHour, ev.SevenDay, tt.five, tt.week)
 			}
 		})
 	}

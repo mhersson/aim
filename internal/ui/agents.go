@@ -114,15 +114,26 @@ func (a *App) onHook(ev harness.Event) tea.Cmd {
 	return tea.Batch(probes, a.setAgentState(ev.Pane, ev.State))
 }
 
-// onStatus records the model and context a status event reports. It has none of
-// a hook's effects, and an update that changes nothing dispatches nothing: a busy
-// session sends many.
+// onStatus records the model, context and account usage a status event reports.
+// It has none of a hook's effects, and an update that changes nothing dispatches
+// nothing: a busy session sends many.
 func (a *App) onStatus(m core.Pane, ev harness.Event) {
 	// A status carries its session; one from a session the pane has left is stale.
 	if ev.Session == "" || (m.Session != "" && ev.Session != m.Session) {
 		a.log.Debug("status event ignored", "pane", ev.Pane, "session", ev.Session)
 
 		return
+	}
+
+	// A popover whose windows have reset is already hidden; close it before new data can show it again.
+	if a.tray.usageOpen && !a.usageShows() {
+		a.tray.usageOpen = false
+	}
+
+	// Round(0) drops the monotonic reading, which stops during suspend; the age is wall-clock time.
+	note := core.NoteUsage{FiveHour: usageReading(ev.FiveHour), SevenDay: usageReading(ev.SevenDay), At: a.clock.Now().Round(0)}
+	if note.Changes(a.store.State().Usage) {
+		_ = a.dispatch(note)
 	}
 
 	act := core.SetAgentStatus{ID: ev.Pane, Session: ev.Session, Model: ev.Model, Context: ev.Context, ContextKnown: ev.ContextKnown}
@@ -132,6 +143,15 @@ func (a *App) onStatus(m core.Pane, ev harness.Event) {
 
 	// dispatch logs its own failures.
 	_ = a.dispatch(act)
+}
+
+// usageReading converts a status line's window; nil is no reading.
+func usageReading(w *harness.RateWindow) core.UsageWindow {
+	if w == nil {
+		return core.UsageWindow{}
+	}
+
+	return core.UsageWindow{Used: core.FloorPercent(w.Used), ResetsAt: time.Unix(w.ResetsAt, 0)}
 }
 
 // setAgentState records a state. Entering or staying in working restarts the

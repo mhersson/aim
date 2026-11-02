@@ -20,6 +20,7 @@ const (
 	hitContent
 	hitHeader
 	hitTab
+	hitUsage
 )
 
 // hitResult is what lies under a screen cell. local is the cell inside the
@@ -67,9 +68,9 @@ type mouseState struct {
 }
 
 // hit finds what lies under the screen cell (x, y): a pane's content or top
-// border, a tab segment of the workspace bar, or nothing. A pane's side and
-// bottom borders, the rule under the workspace bar and whatever the review
-// drawer covers are nothing.
+// border, a tab segment or the usage module of the workspace bar, or nothing.
+// A pane's side and bottom borders, the rule under the workspace bar and
+// whatever the review drawer covers are nothing.
 func (a *App) hit(x, y int) hitResult {
 	if y == 0 {
 		return a.hitTab(x)
@@ -104,12 +105,17 @@ func (a *App) inRail(x, y int) bool {
 	return r.W > 0 && x >= r.X && x < r.X+r.W && y >= r.Y && y < r.Y+r.H
 }
 
-// hitTab maps a cell of row 0 to the tab segment drawn there; the edge cell
-// after each segment is nothing.
+// hitTab maps a cell of row 0 to the tab segment or the usage module drawn
+// there; the edge cell after each segment is nothing. Both come from the plan
+// the bar draws with.
 func (a *App) hitTab(x int) hitResult {
 	tabs := a.tabInfos()
 	plan := planBar(tabs, a.store.State().Active, a.trayModules(), a.width, a.icons)
 	at := 0
+
+	if mx, mw, ok := trayModuleAt(plan, a.width, a.icons, modUsage); ok && x >= mx && x < mx+mw {
+		return hitResult{area: hitUsage}
+	}
 
 	for _, v := range plan.tabs {
 		w := segWidth(tabs[v.idx], v.level, a.icons)
@@ -123,11 +129,12 @@ func (a *App) hitTab(x int) hitResult {
 	return hitResult{}
 }
 
-// mouseBlocked reports whether modal UI owns the pointer: any modal, or a pending
-// leader (with or without its popup). It also drops any held button, releasing a
-// forwarded one in its guest, since the modal would swallow the release.
+// mouseBlocked reports whether modal UI owns the pointer: any modal, a pending
+// leader (with or without its popup), or the shown usage popover. It also drops
+// any held button, releasing a forwarded one in its guest, since the modal
+// would swallow the release.
 func (a *App) mouseBlocked() bool {
-	if !a.modalOpen() && !a.pending {
+	if !a.modalOpen() && !a.pending && !a.usageShows() {
 		return false
 	}
 
@@ -181,6 +188,14 @@ func (a *App) handleClick(msg tea.MouseClickMsg) tea.Cmd {
 		a.mouse.text = nil
 	}
 
+	if a.usageShows() && !a.modalOpen() && !a.pending {
+		a.releaseForwarded()
+		a.endPress()
+		a.usageClick(msg.Mouse())
+
+		return nil
+	}
+
 	if a.textClick(msg.Mouse()) {
 		return nil
 	}
@@ -230,6 +245,8 @@ func (a *App) handleClick(msg tea.MouseClickMsg) tea.Cmd {
 	}
 
 	switch {
+	case h.area == hitUsage && m.Button == tea.MouseLeft:
+		return a.usageToggle()
 	case h.area == hitTab && m.Button == tea.MouseLeft:
 		return a.act(core.SelectTab{Index: h.tab})
 	case h.area == hitHeader && m.Button == tea.MouseLeft:

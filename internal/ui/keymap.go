@@ -26,6 +26,7 @@ func defaultKeymap() keymap {
 		bindings: []binding{
 			{key: ":", command: "palette.open", group: "App"},
 			{key: "t", command: "theme.pick", group: "App"},
+			{key: "u", command: "usage.toggle", group: "App"},
 			{key: "n", command: "agent.new", group: "Panes"},
 			{key: "a", command: "rail.toggle", group: "Panes"},
 			{key: "d", command: "review.toggle", group: "Panes"},

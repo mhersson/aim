@@ -16,6 +16,7 @@ const (
 	iconGit     = "\uE725"     // nf-dev-git_branch
 	iconLoad    = "\U000F0EE0" // nf-md-cpu_64_bit
 	iconMem     = "\U000F035B" // nf-md-memory
+	iconUsage   = "\U000F04C5" // nf-md-speedometer
 
 	iconPanes     = "\U000F0BCC" // nf-md-view_split_vertical
 	iconSplitDown = "\U000F0BCB" // nf-md-view_split_horizontal

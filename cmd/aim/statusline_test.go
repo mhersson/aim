@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -58,6 +59,31 @@ func TestRunStatuslineDelivers(t *testing.T) {
 
 		if !ev.ContextKnown || ev.Context != 42.7 || ev.Window != 200000 || ev.InputTokens != 84000 {
 			t.Fatalf("event = %+v, want 42.7%% of a 200000 window with 84000 input tokens", ev)
+		}
+	default:
+		t.Fatal("no event delivered")
+	}
+}
+
+func TestRunStatuslineDeliversRateLimits(t *testing.T) {
+	t.Parallel()
+
+	const limits = `,"rate_limits":{"five_hour":{"used_percentage":23.5,"resets_at":1738425600},` +
+		`"seven_day":{"used_percentage":41.2,"resets_at":1738857600}}}`
+
+	path, out := statusServer(t)
+
+	runStatusline(context.Background(), strings.NewReader(strings.TrimSuffix(statusPayload, "}")+limits),
+		env(map[string]string{"AIM_SOCK": path, "AIM_PANE": "p7"}))
+
+	select {
+	case ev := <-out:
+		if want := (&harness.RateWindow{Used: 23.5, ResetsAt: 1738425600}); !reflect.DeepEqual(ev.FiveHour, want) {
+			t.Errorf("FiveHour = %+v, want %+v", ev.FiveHour, want)
+		}
+
+		if want := (&harness.RateWindow{Used: 41.2, ResetsAt: 1738857600}); !reflect.DeepEqual(ev.SevenDay, want) {
+			t.Errorf("SevenDay = %+v, want %+v", ev.SevenDay, want)
 		}
 	default:
 		t.Fatal("no event delivered")

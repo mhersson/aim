@@ -27,6 +27,13 @@ type Harness interface {
 	CustomName(ctx context.Context, transcript string) (string, error)
 }
 
+// RateWindow is one usage window as the agent reports it: Used is the percent
+// as sent and ResetsAt the reset time in Unix seconds.
+type RateWindow struct {
+	Used     float64 `json:"used"`
+	ResetsAt int64   `json:"resets_at"`
+}
+
 // Event is one hook or statusline payload reduced to what the app needs.
 type Event struct {
 	Pane       core.PaneID     `json:"pane"`
@@ -77,6 +84,10 @@ type Event struct {
 	// tokens used so far; 0 when not reported.
 	Window      int `json:"window,omitempty"`
 	InputTokens int `json:"input_tokens,omitempty"`
+	// FiveHour and SevenDay are the account's usage windows from the status
+	// line's rate limits; nil when the payload did not carry that window.
+	FiveHour *RateWindow `json:"five_hour,omitempty"`
+	SevenDay *RateWindow `json:"seven_day,omitempty"`
 
 	// TurnStart marks a prompt submission: the agent starts working once the
 	// hook is answered, so the server holds the answer until Done (as it does

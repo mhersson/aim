@@ -361,7 +361,8 @@ func printable(t string) string {
 }
 
 // cursorView places the cursor on screen: the prompt's, copy mode's block or
-// the focused pane's. It is nil under an overlay, confirm, popup or the toast.
+// the focused pane's. It is nil under an overlay, confirm, popup, the usage
+// popover or the toast.
 func (a *App) cursorView() *tea.Cursor { return a.cursorAt(a.geometry()) }
 
 func (a *App) cursorAt(g geometry) *tea.Cursor {
@@ -392,6 +393,10 @@ func (a *App) cursorBase(g geometry) *tea.Cursor {
 
 	if a.copy != nil {
 		return a.copyCursor(g)
+	}
+
+	if a.usageShows() {
+		return nil
 	}
 
 	st := a.store.State()

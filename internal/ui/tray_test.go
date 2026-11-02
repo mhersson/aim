@@ -454,17 +454,24 @@ func TestBarLinesStayExactWidth(t *testing.T) {
 	}
 }
 
-// As the bar narrows the tray drops load, then PR, then the layout mode, then
-// the clock.
+// As the bar narrows the tray drops load, then usage, then PR, then the layout
+// mode, then the clock.
 func TestTrayDropOrder(t *testing.T) {
 	t.Parallel()
 
-	rank := map[string]int{modLoad: 0, modPR: 1, modLayout: 2, modClock: 3}
+	rank := map[string]int{modLoad: 0, modUsage: 1, modPR: 2, modLayout: 3, modClock: 4}
 
 	for _, icons := range []bool{true, false} {
 		withPR := prTrayApp(t, icons, prInfo("OPEN", checksRunning))
 		if _, ok := findPRModule(withPR); !ok {
 			t.Fatalf("icons=%v: no PR module to order", icons)
+		}
+
+		withPR.clock = &fakeClock{t: t0}
+		seedUsage(t, withPR, usageFive, usageWeek)
+
+		if !slices.Contains(modIDs(withPR.trayModules()), modUsage) {
+			t.Fatalf("icons=%v: no usage module to order", icons)
 		}
 
 		for _, a := range []*App{trayApp(t, icons), withPR} {
@@ -505,19 +512,26 @@ func TestBarGoldens(t *testing.T) {
 		icons bool
 		width int
 		pr    *core.PRInfo
+		usage *[2]core.UsageWindow // seeded when set; width 0 means the widest without load
 	}{
-		{"icons wide", true, 100, nil},
-		{"icons without load", true, 60, nil},
-		{"icons layout and clock", true, 50, nil},
-		{"plain wide", false, 100, nil},
-		{"plain without load", false, 60, nil},
-		{"icons wide with a PR running", true, 100, new(prInfo("OPEN", checksRunning))},
-		{"icons wide with a PR passed", true, 100, new(prInfo("OPEN", checksPassed))},
-		{"icons wide with a PR failed", true, 100, new(prInfo("OPEN", checksFailing))},
-		{"icons without load with a PR", true, 70, new(prInfo("OPEN", checksRunning))},
-		{"plain wide with a PR running", false, 100, new(prInfo("OPEN", checksRunning))},
-		{"plain wide with a PR failed", false, 100, new(prInfo("OPEN", checksFailing))},
-		{"plain without load with a PR", false, 70, new(prInfo("OPEN", checksPassed))},
+		{"icons wide", true, 100, nil, nil},
+		{"icons without load", true, 60, nil, nil},
+		{"icons layout and clock", true, 50, nil, nil},
+		{"plain wide", false, 100, nil, nil},
+		{"plain without load", false, 60, nil, nil},
+		{"icons wide with a PR running", true, 100, new(prInfo("OPEN", checksRunning)), nil},
+		{"icons wide with a PR passed", true, 100, new(prInfo("OPEN", checksPassed)), nil},
+		{"icons wide with a PR failed", true, 100, new(prInfo("OPEN", checksFailing)), nil},
+		{"icons without load with a PR", true, 70, new(prInfo("OPEN", checksRunning)), nil},
+		{"plain wide with a PR running", false, 100, new(prInfo("OPEN", checksRunning)), nil},
+		{"plain wide with a PR failed", false, 100, new(prInfo("OPEN", checksFailing)), nil},
+		{"plain without load with a PR", false, 70, new(prInfo("OPEN", checksPassed)), nil},
+		{"icons wide with usage", true, 100, nil, &[2]core.UsageWindow{usageFive, usageWeek}},
+		{"plain wide with usage", false, 100, nil, &[2]core.UsageWindow{usageFive, usageWeek}},
+		{"icons without load with usage", true, 0, nil, &[2]core.UsageWindow{usageFive, usageWeek}},
+		{"icons hot usage", true, 100, nil, &[2]core.UsageWindow{
+			{Used: 95, ResetsAt: usageFive.ResetsAt}, {Used: 74, ResetsAt: usageWeek.ResetsAt},
+		}},
 	}
 
 	for _, tt := range tests {
@@ -527,9 +541,39 @@ func TestBarGoldens(t *testing.T) {
 				a = prTrayApp(t, tt.icons, *tt.pr)
 			}
 
-			golden.RequireEqual(t, []byte(a.workspaceBar(tt.width)))
+			width := tt.width
+
+			if tt.usage != nil {
+				a.clock = &fakeClock{t: t0}
+				seedUsage(t, a, tt.usage[0], tt.usage[1])
+
+				if width == 0 {
+					width = widestWithoutLoad(t, a)
+				}
+			}
+
+			golden.RequireEqual(t, []byte(a.workspaceBar(width)))
 		})
 	}
+}
+
+// widestWithoutLoad is the widest bar at which the tray has lost the load
+// module and keeps the usage module.
+func widestWithoutLoad(t *testing.T, a *App) int {
+	t.Helper()
+
+	tabs := a.tabInfos()
+
+	for w := 200; w >= 1; w-- {
+		kept := modIDs(planBar(tabs, a.store.State().Active, a.trayModules(), w, a.icons).tray)
+		if !slices.Contains(kept, modLoad) && slices.Contains(kept, modUsage) {
+			return w
+		}
+	}
+
+	t.Fatal("no width drops load and keeps usage")
+
+	return 0
 }
 
 func TestTrayOnlyClockEdge(t *testing.T) {

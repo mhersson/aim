@@ -55,7 +55,7 @@ The mouse works in panes, the agents rail, the review drawer, the tab bar and th
 
 ### Click, hover and the wheel
 
-- A click in a pane's content focuses the pane and clears the selection. A click on its top border only focuses it. A click on a tab in the tab bar switches to it. A pane's side and bottom borders ignore clicks.
+- A click in a pane's content focuses the pane and clears the selection. A click on its top border only focuses it. A click on a tab in the tab bar switches to it, and a click on the Claude usage module in the tray opens its details ([Claude usage](agents.md#claude-usage)). A pane's side and bottom borders ignore clicks.
 - A click in the agents rail selects a card, a double-click jumps to the agent's pane, and a click on its plan mark opens the plan. A click in the drawer gives it the keyboard; a click on a file in the tree jumps to that file.
 - To focus a pane by hovering, set `focus_follows_mouse`. Hovering a pane's content or top border focuses it; hovering the rail or the drawer gives it the keyboard. Nothing moves while a button is held, while a modal is open (see below), while the rail's search is being typed, or while a zoomed drawer or the drawer's search is open.
 - The wheel acts on what is under the pointer without moving focus. Over a pane it scrolls the scrollback three lines a notch; in the alternate screen (an editor or pager) it sends three `up` or `down` key presses a notch; a program that asked for mouse reporting gets the wheel itself. In the rail it moves the selection a card a notch, in the drawer it scrolls three rows, and over the plan, markdown file and conversation boxes and the checks log it scrolls three lines a notch.
@@ -79,6 +79,8 @@ To copy a selection in a pane or the drawer, press `ctrl+space y`. In a plan, ma
 ### When the mouse is ignored
 
 While one of these is open the pointer does nothing, the rail included, apart from the exceptions below: a confirm, a prompt, an overlay such as the command palette, the compose or merge box, the pull request list, the worktree picker, the drawer's worktree list or link chooser, copy mode, or a leader key waiting for its next key.
+
+While the Claude usage details are open, a click anywhere outside them only closes them, and the wheel and hover do nothing.
 
 The exceptions, each with its own rule:
 

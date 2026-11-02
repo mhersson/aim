@@ -17,6 +17,7 @@ import (
 const (
 	modLayout = "layout"
 	modPR     = "pr"
+	modUsage  = "usage"
 	modLoad   = "load"
 	modClock  = "clock"
 )
@@ -120,7 +121,7 @@ func trayWidth(mods []trayModule, icons bool) int {
 }
 
 // planBar decides what the bar shows in width cells. As the width shrinks it
-// gives way in this order: load, PR and the layout mode leave the tray;
+// gives way in this order: load, usage, PR and the layout mode leave the tray;
 // inactive tab names shrink to the icon and then the number, longest names
 // first; the clock leaves; the active name shrinks the same way; finally the
 // segments farthest from the active tab are left out.
@@ -197,7 +198,7 @@ func planBar(tabs []tabInfo, active int, mods []trayModule, width int, icons boo
 		return true
 	}
 
-	stages := []func() bool{drop(modLoad), drop(modPR), drop(modLayout)}
+	stages := []func() bool{drop(modLoad), drop(modUsage), drop(modPR), drop(modLayout)}
 	if icons {
 		stages = append(stages, shrink(levelIcon, false))
 	}
@@ -313,6 +314,32 @@ func renderBar(tabs []tabInfo, active int, mods []trayModule, width int, icons b
 	}
 
 	return left + ground.Render(strings.Repeat(" ", gap)) + right
+}
+
+// trayModuleAt is the first cell and the width of module id on a bar width
+// cells wide, as renderBar draws it. It is false when the bar does not draw the
+// tray or the module. With icons one edge cell precedes every module, without
+// them one divider cell precedes every module but the first.
+func trayModuleAt(p barPlan, width int, icons bool, id string) (x, w int, ok bool) {
+	if p.trayW == 0 || p.tabsW+trayGap+p.trayW > width {
+		return 0, 0, false
+	}
+
+	x = width - p.trayW
+
+	for i, m := range p.tray {
+		if icons || i > 0 {
+			x++
+		}
+
+		if m.id == id {
+			return x, m.width, true
+		}
+
+		x += m.width
+	}
+
+	return 0, 0, false
 }
 
 func renderTabs(p barPlan, tabs []tabInfo, active int, icons bool, ui theme.UI) string {

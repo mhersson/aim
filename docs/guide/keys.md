@@ -108,6 +108,7 @@ Keys pressed after the leader key. Remap them under `[keys.leader]`.
 | --- | --- | --- |
 | `:` | `palette.open` | Open command palette |
 | `t` | `theme.pick` | Pick theme |
+| `u` | `usage.toggle` | Claude usage |
 | `q` | `app.quit` | Quit AIM |
 
 ## Review drawer
@@ -301,4 +302,5 @@ These keys are fixed. Each is described where it is used.
 - The drawer's search and worktree list: [search](review.md#search) and [the worktree list](review.md#the-worktree-list).
 - The reading overlays' search and link chooser: [search](reading.md#search) and [links and pictures](reading.md#links-and-pictures).
 - The compose box's fields: [open a pull request](pull-requests.md#open-a-pull-request).
+- The Claude usage details: [Claude usage](agents.md#claude-usage).
 - The mouse: [the mouse](copy-paste-mouse.md#the-mouse).

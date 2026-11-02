@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"path/filepath"
 	"strings"
 	"unicode"
@@ -432,7 +433,8 @@ func permissionAction(tool, cwd string, input json.RawMessage) string {
 }
 
 // statusPayload holds the only fields read from the statusline JSON. The
-// percentage is a pointer because Claude sends null before its first request.
+// percentage is a pointer because Claude sends null before its first request;
+// rate_limits stays raw so a malformed one drops only the windows.
 type statusPayload struct {
 	SessionID string `json:"session_id"`
 	Model     struct {
@@ -443,6 +445,24 @@ type statusPayload struct {
 		InputTokens int      `json:"total_input_tokens"`
 		Used        *float64 `json:"used_percentage"`
 	} `json:"context_window"`
+	RateLimits json.RawMessage `json:"rate_limits"`
+}
+
+// rateLimitPayload is one rate-limit window; resets_at is read as a number of
+// either form.
+type rateLimitPayload struct {
+	UsedPercentage *float64 `json:"used_percentage"`
+	ResetsAt       *float64 `json:"resets_at"`
+}
+
+// rateWindow is the one place that decides whether a window counts: it needs a
+// percent and a reset above zero and below 2^63. A recorded Ultra payload would change it.
+func rateWindow(w *rateLimitPayload) *RateWindow {
+	if w == nil || w.UsedPercentage == nil || w.ResetsAt == nil || *w.ResetsAt <= 0 || *w.ResetsAt >= math.MaxInt64 {
+		return nil
+	}
+
+	return &RateWindow{Used: *w.UsedPercentage, ResetsAt: int64(math.Floor(*w.ResetsAt))}
 }
 
 // ParseStatus reads one statusline payload as received on stdin. The event is
@@ -463,6 +483,18 @@ func (Claude) ParseStatus(payload []byte) (Event, error) {
 	}
 	if p.ContextWindow.Used != nil {
 		ev.Context, ev.ContextKnown = *p.ContextWindow.Used, true
+	}
+
+	if len(p.RateLimits) > 0 {
+		var limits struct {
+			FiveHour *rateLimitPayload `json:"five_hour"`
+			SevenDay *rateLimitPayload `json:"seven_day"`
+		}
+
+		// A bad rate_limits drops only the windows, not the rest of the status.
+		if json.Unmarshal(p.RateLimits, &limits) == nil {
+			ev.FiveHour, ev.SevenDay = rateWindow(limits.FiveHour), rateWindow(limits.SevenDay)
+		}
 	}
 
 	return ev, nil

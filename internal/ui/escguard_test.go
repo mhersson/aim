@@ -269,6 +269,15 @@ func TestEscGuardCloses(t *testing.T) {
 
 			return a, clk
 		}, func(a *App) bool { return !a.rail.focused }},
+		{"usage popover", func(t *testing.T) (*App, *fakeClock) {
+			t.Helper()
+
+			a, clk := escApp(t)
+			seedUsage(t, a, usageFive, usageWeek)
+			chord(a, 'u')
+
+			return a, clk
+		}, func(a *App) bool { return !a.usageShows() }},
 		{"copy mode", func(t *testing.T) (*App, *fakeClock) {
 			t.Helper()
 

@@ -12,15 +12,15 @@
 │╭────────────────│ Pick theme                                      ctrl+space t │                 │
 ││⠋ web           │ New agent pane                                  ctrl+space n │                 │
 ││  feat/login    │ Agents rail                                     ctrl+space a │                 │
-││  Edit src/login│ Split: shell below                              ctrl+space s │                 │
-││  +120 -14  5 fi│ Split: shell right                              ctrl+space v │                 │
-│╰────────────────│ Focus left                                      ctrl+space h │                 │
-│ ⠋ multiplex     │ Focus down                                      ctrl+space j │                 │
-│   feat/agents-ra│ Focus up                                        ctrl+space k │                 │
-│   Bash go test .│ Focus right                                     ctrl+space l │                 │
+││  Edit src/login│ Claude usage                                    ctrl+space u │                 │
+││  +120 -14  5 fi│ Split: shell below                              ctrl+space s │                 │
+│╰────────────────│ Split: shell right                              ctrl+space v │                 │
+│ ⠋ multiplex     │ Focus left                                      ctrl+space h │                 │
+│   feat/agents-ra│ Focus down                                      ctrl+space j │                 │
+│   Bash go test .│ Focus up                                        ctrl+space k │                 │
 │   +340 -12  9 fi├──────────────────────────────────────────────────────────────┤                 │
 │                 │ up/down move   enter run   esc close                         │                 │
-│ Idle ───────────╰─────────────────────────────────────────────────── 1 of 114 ─╯                 │
+│ Idle ───────────╰─────────────────────────────────────────────────── 1 of 115 ─╯                 │
 │                                          ││                          ││                          │
 │   docs                                1d ││                          ││                          │
 │   main                                   ││                          ││                          │

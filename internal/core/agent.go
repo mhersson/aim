@@ -2,7 +2,6 @@ package core
 
 import (
 	"fmt"
-	"math"
 	"slices"
 	"time"
 )
@@ -153,13 +152,12 @@ func (a SetAgentStatus) Matches(p Pane) bool {
 }
 
 // percent is the floored context clamped to 0-100, 0 when none was reported.
-// The clamp comes before the conversion, which is undefined outside the int range.
 func (a SetAgentStatus) percent() int {
-	if !a.ContextKnown || math.IsNaN(a.Context) {
+	if !a.ContextKnown {
 		return 0
 	}
 
-	return int(min(max(math.Floor(a.Context), 0), 100))
+	return FloorPercent(a.Context)
 }
 
 // SetAgentState records what an agent is doing; AgentUnknown clears the badge.

@@ -96,6 +96,11 @@ func defaultCommands() []command {
 		title: "Agents rail",
 		run:   (*App).railToggle,
 	}, {
+		id:    "usage.toggle",
+		icon:  iconUsage,
+		title: "Claude usage",
+		run:   (*App).usageToggle,
+	}, {
 		id:    "pane.split.down",
 		icon:  iconSplitDown,
 		title: "Split: shell below",
