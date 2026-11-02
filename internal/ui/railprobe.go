@@ -285,13 +285,13 @@ func (a *App) railFire(st core.State, id core.PaneID, k railProbeKind) tea.Cmd {
 
 	ctx, gen := a.probeCtx(k)
 
-	sem := a.probeSem
+	sem, budget := a.probeSem, a.probeBudget
 
 	if k == probeName {
 		h := a.harnessOf(m)
 
 		return func() tea.Msg {
-			ctx, done, err := admit(ctx, sem)
+			ctx, done, err := admit(ctx, sem, budget)
 			if err != nil {
 				return railNameMsg{pane: id, transcript: target, gen: gen, err: err}
 			}
@@ -307,7 +307,7 @@ func (a *App) railFire(st core.State, id core.PaneID, k railProbeKind) tea.Cmd {
 		eng := a.engine
 
 		return func() tea.Msg {
-			ctx, done, err := admit(ctx, sem)
+			ctx, done, err := admit(ctx, sem, budget)
 			if err != nil {
 				return railStatsMsg{pane: id, cwd: cwd, gen: gen, err: err}
 			}
@@ -322,7 +322,7 @@ func (a *App) railFire(st core.State, id core.PaneID, k railProbeKind) tea.Cmd {
 	log, g := a.log, a.git
 
 	return func() tea.Msg {
-		ctx, done, err := admit(ctx, sem)
+		ctx, done, err := admit(ctx, sem, budget)
 		if err != nil {
 			return railHeadMsg{pane: id, cwd: cwd, own: own, err: err}
 		}
@@ -337,14 +337,14 @@ func (a *App) railFire(st core.State, id core.PaneID, k railProbeKind) tea.Cmd {
 // admit waits for a free probe slot, honouring ctx, and returns the probe's
 // context with its timeout (counted from the start of the run, not the wait)
 // and the function that frees the slot.
-func admit(ctx context.Context, sem chan struct{}) (context.Context, func(), error) {
+func admit(ctx context.Context, sem chan struct{}, budget time.Duration) (context.Context, func(), error) {
 	select {
 	case sem <- struct{}{}:
 	case <-ctx.Done():
 		return nil, nil, ctx.Err()
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, railProbeTimeout)
+	ctx, cancel := context.WithTimeout(ctx, budget)
 
 	return ctx, func() {
 		cancel()

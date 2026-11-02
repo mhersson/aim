@@ -102,7 +102,7 @@ type prApp struct {
 func newPRApp(t *testing.T) *prApp {
 	t.Helper()
 
-	p := &prApp{railApp: newRailApp(t, false), src: newFakePRs(), found: map[string]github.PR{}}
+	p := &prApp{railApp: newRealRailApp(t, false), src: newFakePRs(), found: map[string]github.PR{}}
 	p.prs = newPRState(p.src, p.lookup, SystemGit{})
 	p.prs.resolve = newPRResolver(SystemGit{}, textResolver{calls: &p.resolves}).resolve
 
@@ -133,7 +133,7 @@ func (p *prApp) lookedUp() []string {
 func (r *railApp) prRepo(t *testing.T, name, branch, url string) string {
 	t.Helper()
 
-	dir := r.repo(t, name)
+	dir := r.realRepo(t, name)
 	gitIn(t, r.real, dir, "checkout", "-q", "-b", branch)
 
 	if url != "" {
@@ -908,7 +908,7 @@ func TestPollerAndResolverEndWithTheApp(t *testing.T) {
 }
 
 func TestNoSourceMeansNoPRWork(t *testing.T) {
-	r := newRailApp(t, false)
+	r := newRealRailApp(t, false)
 	dir := r.prRepo(t, "proj", "feat", "https://github.com/o/r.git")
 	r.addAgent(t, false, dir)
 	r.churn(t, r.settle())

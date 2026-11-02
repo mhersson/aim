@@ -65,7 +65,7 @@ func probedCwds(msgs []tea.Msg) (heads, stats []string) {
 }
 
 func TestHookRecordsTheAgentCwd(t *testing.T) {
-	r := newRailApp(t, false)
+	r := newRealRailApp(t, false)
 	tr := newAgentTrees(t, r.real)
 	id := r.addAgent(t, false, tr.main)
 	elsewhere := t.TempDir()
@@ -92,7 +92,7 @@ func TestHookRecordsTheAgentCwd(t *testing.T) {
 }
 
 func TestHookCwdOfAPaneThatIsNotAnAgentChangesNothing(t *testing.T) {
-	r := newRailApp(t, false)
+	r := newRealRailApp(t, false)
 	tr := newAgentTrees(t, r.real)
 
 	closed := r.addAgent(t, false, tr.main)
@@ -121,7 +121,7 @@ func TestHookCwdOfAPaneThatIsNotAnAgentChangesNothing(t *testing.T) {
 }
 
 func TestFocusedCwdAndTabNameFollowTheAgent(t *testing.T) {
-	r := newRailApp(t, false)
+	r := newRealRailApp(t, false)
 	tr := newAgentTrees(t, r.real)
 	id := r.addAgent(t, false, tr.main)
 
@@ -157,7 +157,7 @@ func TestFocusedCwdAndTabNameFollowTheAgent(t *testing.T) {
 }
 
 func TestRailFollowsTheAgentCwd(t *testing.T) {
-	r := newRailApp(t, true)
+	r := newRealRailApp(t, true)
 	tr := newAgentTrees(t, r.real)
 	write(t, filepath.Join(tr.linked, "a.txt"), "one\ntwo\n")
 
@@ -185,7 +185,7 @@ func TestRailFollowsTheAgentCwd(t *testing.T) {
 }
 
 func TestRailShowsAnAgentDirectoryOutsideARepository(t *testing.T) {
-	r := newRailApp(t, true)
+	r := newRealRailApp(t, true)
 	tr := newAgentTrees(t, r.real)
 	elsewhere := filepath.Join(t.TempDir(), "scratch")
 
@@ -204,7 +204,7 @@ func TestRailShowsAnAgentDirectoryOutsideARepository(t *testing.T) {
 }
 
 func TestRailCwdChangesAreThrottled(t *testing.T) {
-	r := newRailApp(t, true)
+	r := newRealRailApp(t, true)
 	tr := newAgentTrees(t, r.real)
 	id := r.addAgent(t, false, tr.main)
 	r.openRail()

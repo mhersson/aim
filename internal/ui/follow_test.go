@@ -675,9 +675,9 @@ func (r *railApp) deliverAll(cmd tea.Cmd) []tea.Msg {
 }
 
 func TestHeadProbeTargetIsFollowedAndOwnDirectory(t *testing.T) {
-	r := newRailApp(t, false)
+	r := newRealRailApp(t, false)
 	tr := newAgentTrees(t, r.real)
-	other := r.repo(t, "other")
+	other := r.realRepo(t, "other")
 	id := r.addAgent(t, false, tr.main)
 	r.openRail()
 
@@ -767,7 +767,7 @@ type movedFollow struct {
 func newMovedFollow(t *testing.T) *movedFollow {
 	t.Helper()
 
-	r := newRailApp(t, true)
+	r := newRealRailApp(t, true)
 	tr := newAgentTrees(t, r.real)
 	write(t, filepath.Join(tr.main, "a.txt"), "one\ntwo\n")
 	write(t, filepath.Join(tr.linked, "a.txt"), "one\ntwo\nthree\nfour\n")

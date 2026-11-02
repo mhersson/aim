@@ -884,13 +884,22 @@ type realApp struct {
 func newRealApp(t *testing.T, scripts ...string) *realApp {
 	t.Helper()
 
-	a, err := New(Options{
-		Git:    SystemGit{},
+	return newScriptApp(t, func(o *Options) { o.Git = SystemGit{} }, scripts...)
+}
+
+// newScriptApp is newRealApp with git set by gitOpt.
+func newScriptApp(t *testing.T, gitOpt func(*Options), scripts ...string) *realApp {
+	t.Helper()
+
+	o := Options{
 		Logger: testLogger(),
 		Store:  core.NewStore(core.InitialState(core.Config{Theme: "catppuccin-mocha"})),
 		Getenv: shellGetenv,
 		Cwd:    t.TempDir(),
-	})
+	}
+	gitOpt(&o)
+
+	a, err := New(o)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -1143,7 +1152,7 @@ func (p *pump) step(ctx context.Context, a *App) bool {
 func TestFloodingPaneQuits(t *testing.T) {
 	// The sleep ignores SIGHUP, so only Close's last SIGKILL reaches it, just
 	// before Close returns.
-	r := newRealApp(t, `(trap "" HUP; exec sleep 30) & while :; do echo xxxxxxxxxxxxxxxx; done`, `cat`)
+	r := newScriptApp(t, gitOf(newFakeGit(t)), `(trap "" HUP; exec sleep 30) & while :; do echo xxxxxxxxxxxxxxxx; done`, `cat`)
 	pm := newPump(t)
 
 	_, cmd := r.Update(tea.WindowSizeMsg{Width: 100, Height: 30})

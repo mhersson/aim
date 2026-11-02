@@ -350,7 +350,7 @@ func (l *wtList) selectedRoot() string {
 // countPlaces asks for the changes of every place row, each under one probe
 // slot, so they share the rail's limit. ctx ends them with the list.
 func (a *App) countPlaces(ctx context.Context, l *wtList) tea.Cmd {
-	eng, sem, gen := a.engine, a.probeSem, l.gen
+	eng, sem, budget, gen := a.engine, a.probeSem, a.probeBudget, l.gen
 	if eng == nil {
 		return nil
 	}
@@ -365,7 +365,7 @@ func (a *App) countPlaces(ctx context.Context, l *wtList) tea.Cmd {
 		root := r.root
 
 		cmds = append(cmds, func() tea.Msg {
-			ctx, done, err := admit(ctx, sem)
+			ctx, done, err := admit(ctx, sem, budget)
 			if err != nil {
 				return wtStatsMsg{gen: gen, root: root, err: err}
 			}

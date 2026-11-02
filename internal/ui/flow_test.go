@@ -100,14 +100,16 @@ func TestShellFlow(t *testing.T) {
 	// A login shell reads $HOME/.profile; keep it away from the user's.
 	t.Setenv("HOME", t.TempDir())
 
-	app, err := New(Options{
-		Git:    SystemGit{},
+	o := Options{
 		Logger: testLogger(),
 		Store:  core.NewStore(core.InitialState(core.Config{Theme: "catppuccin-mocha"})),
 		Getenv: shellGetenv,
 		Cwd:    t.TempDir(),
 		Icons:  true,
-	})
+	}
+	gitOf(newFakeGit(t))(&o)
+
+	app, err := New(o)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -183,14 +185,16 @@ func TestTabFlow(t *testing.T) {
 	// A login shell reads $HOME/.profile; keep it away from the user's.
 	t.Setenv("HOME", t.TempDir())
 
-	app, err := New(Options{
-		Git:    SystemGit{},
+	o := Options{
 		Logger: testLogger(),
 		Store:  core.NewStore(core.InitialState(core.Config{Theme: "catppuccin-mocha"})),
 		Getenv: shellGetenv,
 		Cwd:    t.TempDir(),
 		Icons:  true,
-	})
+	}
+	gitOf(newFakeGit(t))(&o)
+
+	app, err := New(o)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

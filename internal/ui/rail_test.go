@@ -25,18 +25,39 @@ func (r *tickRec) tick(d time.Duration, fn func(time.Time) tea.Msg) tea.Cmd {
 	return func() tea.Msg { return msg }
 }
 
-// railApp is a sized app with a recording tick, a fake git first on PATH and a
-// temp dir for the engine.
+// railApp is a sized app with a recording tick and, in the fake rig, a fake git
+// in fake. The real-git rig (newRealRailApp) fills log, slow and real instead.
 type railApp struct {
 	*App
 	ticks *tickRec
 	clk   *fakeClock
-	log   string // the fake git's invocation log
-	slow  string // while this file exists the fake git sleeps
+	fake  *fakeGit
+	log   string // the real rig's fake git invocation log
+	slow  string // while this file exists the real rig's fake git sleeps
 	real  string
 }
 
-func newRailApp(t *testing.T, stats bool) *railApp {
+func newRailApp(t *testing.T, stats bool, opts ...func(*Options)) *railApp {
+	t.Helper()
+
+	f := newFakeGit(t)
+	tmp := ""
+
+	if stats {
+		tmp = t.TempDir()
+	}
+
+	// No watch set: the rail's tests count the probes alone; the watch tests set their own.
+	all := append([]func(*Options){gitOf(f), func(o *Options) { o.Watches, o.GitTempDir = nil, tmp }}, opts...)
+	a, _, clk := kindApp(t, all...)
+	r := &railApp{App: a, clk: clk, ticks: &tickRec{}, fake: f}
+	a.tick = r.ticks.tick
+
+	return r
+}
+
+// newRealRailApp is the rig on the real git, with a logging git first on PATH.
+func newRealRailApp(t *testing.T, stats bool) *railApp {
 	t.Helper()
 
 	realGit, err := exec.LookPath("git")
@@ -66,7 +87,16 @@ func newRailApp(t *testing.T, stats bool) *railApp {
 	return r
 }
 
+// gitCalls counts the git starts: the fake's calls, or the real rig's log lines.
 func (r *railApp) gitCalls() int {
+	if r.fake != nil {
+		n := 0
+
+		r.fake.edit(func() { n = len(r.fake.log) })
+
+		return n
+	}
+
 	b, err := os.ReadFile(r.log)
 	if err != nil {
 		return 0
@@ -163,6 +193,8 @@ func ids(gs []railGroup) [][]core.PaneID {
 }
 
 func TestRailCardsGroupsAndOrder(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
 	dir := t.TempDir()
 
@@ -314,6 +346,8 @@ func TestRailSearchMatchesTheName(t *testing.T) {
 }
 
 func TestRailSearchFiltersCards(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
 	a1 := r.addAgent(t, false, "/w/alpha")
 	a2 := r.addAgent(t, true, "/w/beta")
@@ -342,6 +376,8 @@ func TestRailSearchFiltersCards(t *testing.T) {
 }
 
 func TestRailSelectionFollowsItsAgent(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
 	dir := t.TempDir()
 	a1 := r.addAgent(t, false, dir)
@@ -393,6 +429,8 @@ func TestRailSelectionFollowsItsAgent(t *testing.T) {
 }
 
 func TestRailUnseenMarks(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
 	dir := t.TempDir()
 	a1 := r.addAgent(t, false, dir)
@@ -471,6 +509,8 @@ func TestRailUnseenMarks(t *testing.T) {
 }
 
 func TestRailActiveTimeIsTheLaterOfOutputAndHook(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
 	id := r.addAgent(t, false, t.TempDir())
 	r.panes[id] = &pane{id: id, lastOut: t0.Add(5 * time.Second)}
@@ -493,6 +533,8 @@ func TestRailActiveTimeIsTheLaterOfOutputAndHook(t *testing.T) {
 }
 
 func TestRailForgetsClosedPanes(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
 	id := r.addAgent(t, false, t.TempDir())
 	hook(r.App, harness.Event{Pane: id, Name: "Stop", State: core.AgentIdle})
@@ -510,6 +552,8 @@ func TestRailForgetsClosedPanes(t *testing.T) {
 }
 
 func TestRailUIStateSurvivesUpdates(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
 	r.addAgent(t, false, t.TempDir())
 	openIn(t, r.App, core.SetRail{Open: true})
@@ -524,6 +568,8 @@ func TestRailUIStateSurvivesUpdates(t *testing.T) {
 }
 
 func TestRailSelectionUnderAFilterThatHidesIt(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
 	a1 := r.addAgent(t, true, "/w/alpha")
 	a2 := r.addAgent(t, true, "/w/beta")

@@ -922,7 +922,7 @@ func TestPushUnborn(t *testing.T) {
 
 func TestPushNoRemote(t *testing.T) {
 	r := newPushRig(t)
-	solo := r.repo(t, "solo")
+	solo := r.realRepo(t, "solo")
 	openIn(t, r.App, core.NewTab{Kind: core.KindShell, Cwd: solo})
 
 	r.ask(t)

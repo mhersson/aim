@@ -36,8 +36,45 @@ func gitIn(t *testing.T, bin, dir string, args ...string) {
 	}
 }
 
-// repo makes a repository named name on branch main with one commit and one edit.
-func (r *railApp) repo(t *testing.T, name string) string {
+// repo makes a fake repository named name on branch main with one commit and one edit.
+func (r *railApp) repo(t *testing.T, name string) *fakeRepo {
+	t.Helper()
+
+	rp := r.fake.repo(t, name)
+	write(t, filepath.Join(rp.Root(), "a.txt"), "one\n")
+	rp.commit("init")
+	write(t, filepath.Join(rp.Root(), "a.txt"), "one\ntwo\n")
+
+	return rp
+}
+
+// trees is a fake repository with a linked worktree on branch feat and a
+// subdirectory of that worktree; a.txt and b.txt are committed with one line.
+func (r *railApp) trees(t *testing.T) agentTrees {
+	t.Helper()
+
+	main := r.fake.repo(t, "")
+	write(t, filepath.Join(main.Root(), "a.txt"), "one\n")
+	write(t, filepath.Join(main.Root(), "b.txt"), "one\n")
+	main.commit("init")
+
+	parent, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	linked := main.worktree(t, filepath.Join(parent, "feat-wt"), "feat")
+
+	sub := filepath.Join(linked.Root(), "pkg")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	return agentTrees{main: main.Root(), linked: linked.Root(), sub: sub}
+}
+
+// realRepo makes a repository named name on the real git with one commit and one edit.
+func (r *railApp) realRepo(t *testing.T, name string) string {
 	t.Helper()
 
 	dir := filepath.Join(t.TempDir(), name)
@@ -73,9 +110,19 @@ func idleHook(id core.PaneID) harness.Event {
 	return harness.Event{Pane: id, Name: "Stop", State: core.AgentIdle}
 }
 
+func TestProbeBudgetDefault(t *testing.T) {
+	t.Parallel()
+
+	if got := newTestApp(t).probeBudget; got != railProbeTimeout {
+		t.Errorf("probeBudget = %v, want %v", got, railProbeTimeout)
+	}
+}
+
 func TestRailProbesOnOpen(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, true)
-	dir := r.repo(t, "proj")
+	dir := r.repo(t, "proj").Root()
 	id := r.addAgent(t, false, dir)
 
 	// With the rail closed the head is probed and nothing else.
@@ -105,10 +152,12 @@ func TestRailProbesOnOpen(t *testing.T) {
 }
 
 func TestRailDetachedHead(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
-	dir := r.repo(t, "proj")
-	gitIn(t, r.real, dir, "checkout", "-q", "--detach")
-	id := r.addAgent(t, false, dir)
+	rp := r.repo(t, "proj")
+	rp.detach()
+	id := r.addAgent(t, false, rp.Root())
 	r.openRail()
 
 	c, _ := r.card(id)
@@ -118,8 +167,10 @@ func TestRailDetachedHead(t *testing.T) {
 }
 
 func TestRailProbeIntervals(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, true)
-	id := r.addAgent(t, false, r.repo(t, "proj"))
+	id := r.addAgent(t, false, r.repo(t, "proj").Root())
 	r.openRail()
 
 	r.clk.Advance(time.Second)
@@ -162,8 +213,10 @@ func TestRailProbeIntervals(t *testing.T) {
 }
 
 func TestRailTriggerDuringProbeRunsOneAfter(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
-	id := r.addAgent(t, false, r.repo(t, "proj"))
+	id := r.addAgent(t, false, r.repo(t, "proj").Root())
 	cmd := r.settle()
 	r.clk.Advance(6 * time.Second)
 
@@ -178,9 +231,11 @@ func TestRailTriggerDuringProbeRunsOneAfter(t *testing.T) {
 }
 
 func TestRailDropsStaleResults(t *testing.T) {
+	t.Parallel()
+
 	t.Run("pane closed", func(t *testing.T) {
 		r := newRailApp(t, false)
-		id := r.addAgent(t, false, r.repo(t, "proj"))
+		id := r.addAgent(t, false, r.repo(t, "proj").Root())
 		msgs := flatten(r.settle())
 		openIn(t, r.App, core.ClosePane{ID: id})
 		r.settle()
@@ -193,7 +248,7 @@ func TestRailDropsStaleResults(t *testing.T) {
 
 	t.Run("cwd changed", func(t *testing.T) {
 		r := newRailApp(t, false)
-		first, second := r.repo(t, "first"), r.repo(t, "second")
+		first, second := r.repo(t, "first").Root(), r.repo(t, "second").Root()
 		id := r.addAgent(t, false, first)
 		msgs := flatten(r.settle())
 
@@ -224,7 +279,7 @@ func TestRailDropsStaleResults(t *testing.T) {
 
 	t.Run("rail closed", func(t *testing.T) {
 		r := newRailApp(t, true)
-		id := r.addAgent(t, false, r.repo(t, "proj"))
+		id := r.addAgent(t, false, r.repo(t, "proj").Root())
 		heads, stats := r.settle(), r.railOpened()
 		r.railClosed()
 
@@ -260,8 +315,10 @@ func TestRailDropsStaleResults(t *testing.T) {
 }
 
 func TestRailTriggersNeedAnOpenRail(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, true)
-	id := r.addAgent(t, false, r.repo(t, "proj"))
+	id := r.addAgent(t, false, r.repo(t, "proj").Root())
 	r.deliver(r.settle())
 	r.clk.Advance(time.Minute)
 
@@ -281,24 +338,20 @@ func TestRailTriggersNeedAnOpenRail(t *testing.T) {
 }
 
 func TestRailSlowGitIsCancelledAndKeepsTheLastResult(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
-	dir := r.repo(t, "proj")
-	id := r.addAgent(t, false, dir)
+	id := r.addAgent(t, false, r.repo(t, "proj").Root())
 	r.openRail()
-	write(t, r.slow, "")
+
+	// The slow call waits for its context, which the spent budget has ended.
+	release := r.fake.hold("Open")
+	defer release()
+
+	r.probeBudget = time.Nanosecond
 	r.clk.Advance(6 * time.Second)
 
 	msgs := flatten(hook(r.App, idleHook(id)))
-
-	// The slow git marks its end only if the timeout failed to kill it.
-	if _, err := os.Stat(r.slow + ".started"); err != nil {
-		t.Error("the probe never ran the slow git")
-	}
-
-	if _, err := os.Stat(r.slow + ".finished"); err == nil {
-		t.Error("the probe waited for the slow git to finish")
-	}
-
 	if len(msgs) != 1 {
 		t.Fatalf("msgs = %v", msgs)
 	}
@@ -315,21 +368,32 @@ func TestRailSlowGitIsCancelledAndKeepsTheLastResult(t *testing.T) {
 	}
 }
 
-func TestRailProjectNames(t *testing.T) {
-	r := newRailApp(t, true)
+// commonGit names one repository's common dir as given, as a bare repository's worktree has it.
+type commonGit struct {
+	*fakeGit
+	root, common string
+}
 
+func (g commonGit) Open(ctx context.Context, dir string) (git.Repo, error) {
+	repo, err := g.fakeGit.Open(ctx, dir)
+	if err == nil && repo.Root == g.root {
+		repo.CommonDir = g.common
+	}
+
+	return repo, err
+}
+
+func TestRailProjectNames(t *testing.T) {
+	t.Parallel()
+
+	r := newRailApp(t, true)
 	plain := t.TempDir()
 	gone := filepath.Join(t.TempDir(), "vanished")
 
 	src := r.repo(t, "src")
-	bare := filepath.Join(t.TempDir(), "b.git")
-	gitIn(t, r.real, filepath.Dir(bare), "init", "-q", "--bare", "-b", "main", bare)
-	gitIn(t, r.real, src, "push", "-q", bare, "main")
-	wt := filepath.Join(t.TempDir(), "wt")
-	gitIn(t, r.real, bare, "worktree", "add", "-q", wt, "main")
-
-	wtsrc := filepath.Join(t.TempDir(), "linked")
-	gitIn(t, r.real, src, "worktree", "add", "-q", "-b", "side", wtsrc)
+	wtsrc := src.worktree(t, filepath.Join(t.TempDir(), "linked"), "side").Root()
+	bareWT := r.repo(t, "wt")
+	r.git = commonGit{fakeGit: r.fake, root: bareWT.Root(), common: filepath.Join(t.TempDir(), "b.git")}
 
 	cases := []struct {
 		name, dir, project, branch string
@@ -337,7 +401,7 @@ func TestRailProjectNames(t *testing.T) {
 	}{
 		{"not a repo", plain, filepath.Base(plain), "", false},
 		{"deleted cwd", gone, "vanished", "", false},
-		{"bare repo worktree", wt, "b", "main", true},
+		{"bare repo worktree", bareWT.Root(), "b", "main", true},
 		{"linked worktree", wtsrc, "src", "side", true},
 	}
 
@@ -354,6 +418,8 @@ func TestRailProjectNames(t *testing.T) {
 }
 
 func TestRailIdleShellsCostNothing(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, true)
 
 	if cmd := r.railOpened(); cmd != nil {
@@ -369,8 +435,10 @@ func TestRailIdleShellsCostNothing(t *testing.T) {
 }
 
 func TestRailStatsOffWithoutTempDir(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
-	r.addAgent(t, false, r.repo(t, "proj"))
+	r.addAgent(t, false, r.repo(t, "proj").Root())
 
 	if n := countOf[railStatsMsg](r.deliver(r.railOpened())); n != 0 {
 		t.Errorf("stats probes = %d, want 0", n)
@@ -378,8 +446,10 @@ func TestRailStatsOffWithoutTempDir(t *testing.T) {
 }
 
 func TestRailReopenProbesAgain(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, true)
-	id := r.addAgent(t, false, r.repo(t, "proj"))
+	id := r.addAgent(t, false, r.repo(t, "proj").Root())
 	r.openRail()
 	r.railClosed()
 
@@ -404,8 +474,10 @@ func TestRailReopenProbesAgain(t *testing.T) {
 }
 
 func TestRailAnswerOfAnEarlierOpenIsDropped(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, true)
-	dir := r.repo(t, "proj")
+	dir := r.repo(t, "proj").Root()
 	id := r.addAgent(t, false, dir)
 
 	// Heads are known when the rail opens; a card shows counts only of the place its head names.
@@ -446,8 +518,10 @@ func TestRailAnswerOfAnEarlierOpenIsDropped(t *testing.T) {
 }
 
 func TestRailCardKeepsItsResultUntilTheNewCwdAnswers(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, true)
-	first, second := r.repo(t, "first"), r.repo(t, "second")
+	first, second := r.repo(t, "first").Root(), r.repo(t, "second").Root()
 	id := r.addAgent(t, false, first)
 	r.openRail()
 
@@ -470,8 +544,10 @@ func TestRailCardKeepsItsResultUntilTheNewCwdAnswers(t *testing.T) {
 }
 
 func TestRailFailedProbeOfTheSameCwdKeepsTheResult(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, true)
-	id := r.addAgent(t, false, r.repo(t, "proj"))
+	id := r.addAgent(t, false, r.repo(t, "proj").Root())
 	r.openRail()
 
 	cwd := r.store.State().Panes[id].Cwd
@@ -481,40 +557,6 @@ func TestRailFailedProbeOfTheSameCwdKeepsTheResult(t *testing.T) {
 	if c, _ := r.card(id); c.branch != "main" || !c.statsKnown {
 		t.Errorf("card = %+v, want the previous result", c)
 	}
-}
-
-// gate replaces the fake git with one that logs its start, holds a marker file
-// while it waits and blocks until the block file is removed.
-type gate struct {
-	block, running string
-}
-
-func (r *railApp) gate(t *testing.T) gate {
-	t.Helper()
-
-	dir := t.TempDir()
-	g := gate{block: filepath.Join(dir, "block"), running: filepath.Join(dir, "running")}
-
-	if err := os.Mkdir(g.running, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	write(t, g.block, "")
-
-	script := "#!/bin/sh\necho \"$PWD $*\" >> '" + r.log + "'\ntouch '" + g.running + "'/$$\n" +
-		"while [ -e '" + g.block + "' ]; do sleep 0.02; done\nrm -f '" + g.running + "'/$$\nexec '" + r.real + "' \"$@\"\n"
-
-	if err := os.WriteFile(filepath.Join(filepath.Dir(r.log), "git"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	return g
-}
-
-func (g gate) alive() int {
-	ents, _ := os.ReadDir(g.running)
-
-	return len(ents)
 }
 
 // runAll runs the commands of the batches at once and sends each message on the channel.
@@ -569,83 +611,76 @@ func drain(t *testing.T, ch <-chan tea.Msg, within time.Duration) int {
 func agentsInOneRepo(t *testing.T, r *railApp, n int) {
 	t.Helper()
 
-	dir := r.repo(t, "proj")
+	dir := r.repo(t, "proj").Root()
 	for i := range n {
 		r.addAgent(t, i%2 == 0, dir)
 	}
-
-	_ = os.Remove(r.log)
 }
 
 func TestRailProbesRunFourAtATime(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, true)
 	agentsInOneRepo(t, r, 10)
-	g := r.gate(t)
 
-	// Ten heads and ten stats probes compete for the four places.
-	msgs := runAll(r.settle(), r.railOpened())
+	// The heads are known: the ten stats probes compete for the four places.
+	r.deliver(r.settle())
 
-	deadline := time.Now().Add(5 * time.Second)
-	for g.alive() < railProbeMax && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
+	release := r.fake.hold("Stats")
+	defer release()
+
+	msgs := runAll(r.railOpened())
+
+	eventually(t, "four stats probes running", func() bool { return r.fake.inflight("Stats") == railProbeMax })
+
+	if got := len(r.probeSem); got != railProbeMax {
+		t.Errorf("held slots = %d while the probes are held, want %d", got, railProbeMax)
 	}
 
-	if g.alive() != railProbeMax {
-		t.Fatalf("running probes = %d, want %d", g.alive(), railProbeMax)
+	release()
+
+	if got := drain(t, msgs, 20*time.Second); got != 10 {
+		t.Fatalf("%d of 10 probes finished after the release", got)
 	}
 
-	peak := 0
-
-	for end := time.Now().Add(300 * time.Millisecond); time.Now().Before(end); time.Sleep(5 * time.Millisecond) {
-		peak = max(peak, g.alive())
+	if got := r.fake.count("Stats"); got != 10 {
+		t.Errorf("stats calls = %d, want 10", got)
 	}
 
-	if peak != railProbeMax {
-		t.Errorf("peak concurrent probes = %d while blocked, want %d", peak, railProbeMax)
-	}
-
-	if err := os.Remove(g.block); err != nil {
-		t.Fatal(err)
-	}
-
-	if got := drain(t, msgs, 20*time.Second); got != 20 {
-		t.Fatalf("%d of 20 probes finished after the release", got)
-	}
-
-	if peak = max(peak, g.alive()); peak > railProbeMax {
-		t.Errorf("peak = %d, want at most %d", peak, railProbeMax)
+	if got := r.fake.peak("Stats"); got != railProbeMax {
+		t.Errorf("peak concurrent probes = %d, want %d", got, railProbeMax)
 	}
 }
 
 func TestRailClosingFreesWaitingProbes(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, true)
 	agentsInOneRepo(t, r, 10)
 
 	// The heads are answered first: closing the rail does not cancel them.
 	r.deliver(r.settle())
-	_ = os.Remove(r.log)
 
-	g := r.gate(t)
+	release := r.fake.hold("Stats")
+	defer release()
 
 	msgs := runAll(r.railOpened())
 
-	deadline := time.Now().Add(5 * time.Second)
-	for g.alive() < railProbeMax && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
-
+	eventually(t, "four stats probes running", func() bool { return r.fake.inflight("Stats") == railProbeMax })
 	r.railClosed()
 
 	if got := drain(t, msgs, 5*time.Second); got != 10 {
 		t.Fatalf("%d of 10 probes returned after the rail closed; waiting probes were not cancelled", got)
 	}
 
-	if n := r.gitCalls(); n > railProbeMax {
-		t.Errorf("git started %d times, want the waiting probes never to start it (at most %d)", n, railProbeMax)
+	if n := r.fake.count("Stats"); n != railProbeMax {
+		t.Errorf("stats calls = %d, want only the %d that held a slot", n, railProbeMax)
 	}
 }
 
 func TestRailNonRepoAgentDoesNotRefireItsStatsProbe(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, true)
 	first, second := t.TempDir(), t.TempDir()
 	id := r.addAgent(t, false, first)
@@ -668,9 +703,11 @@ func TestRailNonRepoAgentDoesNotRefireItsStatsProbe(t *testing.T) {
 }
 
 func TestRailStatsProbeRunsWhenAnAgentMovesIntoARepo(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, true)
 	plain := t.TempDir()
-	repo := r.repo(t, "proj")
+	repo := r.repo(t, "proj").Root()
 	id := r.addAgent(t, false, plain)
 	r.openRail()
 	r.clk.Advance(11 * time.Second)
@@ -688,9 +725,11 @@ func TestRailStatsProbeRunsWhenAnAgentMovesIntoARepo(t *testing.T) {
 }
 
 func TestProbeHeadPlace(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
-	tr := newAgentTrees(t, r.real)
-	other := r.repo(t, "other")
+	tr := r.trees(t)
+	other := r.repo(t, "other").Root()
 	scratch := t.TempDir()
 	gone := filepath.Join(t.TempDir(), "gone")
 
@@ -712,7 +751,7 @@ func TestProbeHeadPlace(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := probeHeadOf(context.Background(), SystemGit{}, r.App.log, tt.dir, tt.own)
+			got, err := probeHeadOf(context.Background(), r.fake, r.App.log, tt.dir, tt.own)
 			if err != nil {
 				t.Fatalf("probeHeadOf: %v", err)
 			}
@@ -725,9 +764,11 @@ func TestProbeHeadPlace(t *testing.T) {
 }
 
 func TestRailCardNamesTheOtherRepository(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
-	tr := newAgentTrees(t, r.real)
-	other := r.repo(t, "other")
+	tr := r.trees(t)
+	other := r.repo(t, "other").Root()
 	id := r.addAgent(t, false, tr.main)
 	r.openRail()
 
@@ -752,26 +793,25 @@ func TestRailCardNamesTheOtherRepository(t *testing.T) {
 	}
 }
 
-// reachedGit puts a git first on PATH that names the common dir of a repository
-// under target through link, a symlink to target, as a git that does not
-// canonicalize the paths it prints would when it was reached through the link.
-func reachedGit(t *testing.T, gitBin, target, link string) {
-	t.Helper()
+// linkGit answers as a git that does not canonicalize the paths it prints:
+// the common dir of a repository under target is named through link.
+type linkGit struct {
+	*fakeGit
+	target, link string
+}
 
-	bin := t.TempDir()
-	script := "#!/bin/sh\nout=$('" + gitBin + "' \"$@\") || exit $?\n" +
-		"case \"$*\" in *--git-common-dir*) case \"$(pwd -P)\" in '" + target + "'|'" + target + "'/*)\n" +
-		"out=$(printf '%s\\n' \"$out\" | sed 's#^" + target + "/#" + link + "/#') ;; esac ;; esac\n" +
-		"printf '%s\\n' \"$out\"\n"
-
-	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
+func (g linkGit) Open(ctx context.Context, dir string) (git.Repo, error) {
+	repo, err := g.fakeGit.Open(ctx, dir)
+	if err == nil && (repo.Root == g.target || strings.HasPrefix(repo.Root, g.target+"/")) {
+		repo.CommonDir = g.link + strings.TrimPrefix(repo.CommonDir, g.target)
 	}
 
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return repo, err
 }
 
 func TestCardPlaceThroughSymlink(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name      string
 		asReached bool
@@ -782,8 +822,10 @@ func TestCardPlaceThroughSymlink(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			r := newRailApp(t, false)
-			tr := newAgentTrees(t, r.real)
+			tr := r.trees(t)
 
 			link := filepath.Join(t.TempDir(), "link")
 			if err := os.Symlink(tr.main, link); err != nil {
@@ -791,9 +833,9 @@ func TestCardPlaceThroughSymlink(t *testing.T) {
 			}
 
 			if tt.asReached {
-				reachedGit(t, r.real, tr.main, link)
+				r.git = linkGit{fakeGit: r.fake, target: tr.main, link: link}
 
-				if repo, err := git.Open(context.Background(), link); err != nil || !strings.HasPrefix(repo.CommonDir, link+"/") {
+				if repo, err := r.git.Open(context.Background(), link); err != nil || !strings.HasPrefix(repo.CommonDir, link+"/") {
 					t.Fatalf("Open(%q) = %+v, %v; want a common dir under the link", link, repo, err)
 				}
 			}

@@ -28,7 +28,7 @@ type watchApp struct {
 func newWatchApp(t *testing.T, stats bool) *watchApp {
 	t.Helper()
 
-	r := newRailApp(t, stats)
+	r := newRealRailApp(t, stats)
 	set := git.NewWatchSet(context.Background(), git.WatchOptions{Debounce: 20 * time.Millisecond})
 
 	t.Cleanup(func() { _ = set.Close() })
@@ -84,7 +84,7 @@ func (w *watchApp) held(id core.PaneID) string {
 
 func TestAgentPaneAcquiresItsWorktree(t *testing.T) {
 	w := newWatchApp(t, false)
-	dir := w.repo(t, "proj")
+	dir := w.realRepo(t, "proj")
 	root := rootOf(t, dir)
 	id := w.addAgent(t, false, dir)
 
@@ -98,7 +98,7 @@ func TestAgentPaneAcquiresItsWorktree(t *testing.T) {
 
 func TestThreeAgentsShareOneWatch(t *testing.T) {
 	w := newWatchApp(t, false)
-	dir := w.repo(t, "proj")
+	dir := w.realRepo(t, "proj")
 	root := rootOf(t, dir)
 
 	ids := []core.PaneID{w.addAgent(t, false, dir), w.addAgent(t, false, dir), w.addAgent(t, false, dir)}
@@ -130,7 +130,7 @@ func TestThreeAgentsShareOneWatch(t *testing.T) {
 
 func TestShellDoesNotAcquire(t *testing.T) {
 	w := newWatchApp(t, false)
-	dir := w.repo(t, "proj")
+	dir := w.realRepo(t, "proj")
 	root := rootOf(t, dir)
 
 	openIn(t, w.App, core.OpenPane{Kind: core.KindShell, Cwd: dir, Split: core.SplitVertical, Area: w.bodyArea()})
@@ -147,7 +147,7 @@ func TestShellDoesNotAcquire(t *testing.T) {
 
 func TestCwdToAnotherRepoMovesTheWatch(t *testing.T) {
 	w := newWatchApp(t, false)
-	a, b := w.repo(t, "a"), w.repo(t, "b")
+	a, b := w.realRepo(t, "a"), w.realRepo(t, "b")
 	rootA, rootB := rootOf(t, a), rootOf(t, b)
 	id := w.addAgent(t, false, a)
 
@@ -171,7 +171,7 @@ func TestCwdToAnotherRepoMovesTheWatch(t *testing.T) {
 
 func TestStaleResolutionIsDropped(t *testing.T) {
 	w := newWatchApp(t, false)
-	a, b := w.repo(t, "a"), w.repo(t, "b")
+	a, b := w.realRepo(t, "a"), w.realRepo(t, "b")
 	id := w.addAgent(t, false, b)
 
 	w.pm.run(w.settle())
@@ -187,7 +187,7 @@ func TestStaleResolutionIsDropped(t *testing.T) {
 
 func TestStaleAcquisitionIsReleased(t *testing.T) {
 	w := newWatchApp(t, false)
-	dir := w.repo(t, "proj")
+	dir := w.realRepo(t, "proj")
 	root := rootOf(t, dir)
 
 	repo, err := git.Open(context.Background(), dir)
@@ -247,7 +247,7 @@ func TestHoldsReleaseOnceAndAfterClose(t *testing.T) {
 
 func TestRailSeesABranchSwitch(t *testing.T) {
 	w := newWatchApp(t, true)
-	dir := w.repo(t, "proj")
+	dir := w.realRepo(t, "proj")
 	// A branch with one more file, so switching to it changes the totals.
 	gitIn(t, w.real, dir, "switch", "-q", "-c", "other")
 	write(t, dir+"/b.txt", "b\n")
@@ -288,7 +288,7 @@ func TestWatchAppEndsItsProbesBeforeItsDirsGo(t *testing.T) {
 	w := newWatchApp(t, true)
 	watch(w.App)
 
-	dir := w.repo(t, "proj")
+	dir := w.realRepo(t, "proj")
 	root := rootOf(t, dir)
 	id := w.addAgent(t, false, dir)
 
@@ -299,7 +299,7 @@ func TestWatchAppEndsItsProbesBeforeItsDirsGo(t *testing.T) {
 
 func TestIndexOnlyChangeCostsNoStatsProbe(t *testing.T) {
 	w := newWatchApp(t, true)
-	dir := w.repo(t, "proj")
+	dir := w.realRepo(t, "proj")
 	root := rootOf(t, dir)
 	id := w.addAgent(t, false, dir)
 
@@ -348,7 +348,7 @@ func TestIndexOnlyChangeCostsNoStatsProbe(t *testing.T) {
 
 func TestFailedResolveNotifiesOnceAndRetriesOnAHook(t *testing.T) {
 	w := newWatchApp(t, false)
-	dir := w.repo(t, "proj")
+	dir := w.realRepo(t, "proj")
 	root := rootOf(t, dir)
 
 	w.watches.open = func(context.Context, string) (git.Repo, error) { return git.Repo{}, errors.New("too slow") }
@@ -393,7 +393,7 @@ func TestFailedResolveNotifiesOnceAndRetriesOnAHook(t *testing.T) {
 	w.watches.open = func(context.Context, string) (git.Repo, error) { return git.Repo{}, errors.New("too slow again") }
 	w.notice = ""
 
-	openIn(t, w.App, core.SetPaneCwd{ID: first, Cwd: w.repo(t, "proj")})
+	openIn(t, w.App, core.SetPaneCwd{ID: first, Cwd: w.realRepo(t, "proj")})
 	w.pm.run(w.settle())
 	w.until(t, "the second notice", nil, func() bool { return w.notice != "" })
 
@@ -404,7 +404,7 @@ func TestFailedResolveNotifiesOnceAndRetriesOnAHook(t *testing.T) {
 
 func TestRailStatsFollowAFileWrite(t *testing.T) {
 	w := newWatchApp(t, true)
-	dir := w.repo(t, "proj")
+	dir := w.realRepo(t, "proj")
 	root := rootOf(t, dir)
 	id := w.addAgent(t, false, dir)
 
@@ -430,7 +430,7 @@ func TestRailStatsFollowAFileWrite(t *testing.T) {
 
 func TestFailedWatchNotifiesOnce(t *testing.T) {
 	w := newWatchApp(t, false)
-	dir := w.repo(t, "proj")
+	dir := w.realRepo(t, "proj")
 
 	// A closed set refuses every Acquire.
 	if err := w.set.Close(); err != nil {
@@ -477,7 +477,7 @@ func TestWatchBatchErrorShowsNothing(t *testing.T) {
 
 func TestIdleAppDoesNoProbes(t *testing.T) {
 	w := newWatchApp(t, true)
-	dir := w.repo(t, "proj")
+	dir := w.realRepo(t, "proj")
 	root := rootOf(t, dir)
 	id := w.addAgent(t, false, dir)
 
@@ -513,7 +513,7 @@ func TestIdleAppDoesNoProbes(t *testing.T) {
 // only probes, and once answered they cost nothing while the app idles.
 func TestIdleAppDoesNoProbesWithTheRailClosed(t *testing.T) {
 	w := newWatchApp(t, true)
-	dir, shellDir := w.repo(t, "proj"), w.repo(t, "shell")
+	dir, shellDir := w.realRepo(t, "proj"), w.realRepo(t, "shell")
 	root := rootOf(t, dir)
 	id := w.addAgent(t, false, dir)
 

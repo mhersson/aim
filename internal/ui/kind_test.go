@@ -67,7 +67,7 @@ func kindOf(a *App, id core.PaneID) core.PaneKind { return a.store.State().Panes
 func TestKindFollowsForeground(t *testing.T) {
 	t.Parallel()
 	t.Run("shell becomes agent and back", func(t *testing.T) {
-		a, st, clk := kindApp(t)
+		a, st, clk := kindApp(t, gitOf(newFakeGit(t)))
 
 		st.proc(0).setFg("claude")
 		probeKind(t, a, clk, "p1")
@@ -98,7 +98,7 @@ func TestKindFollowsForeground(t *testing.T) {
 	})
 
 	t.Run("unknown foreground changes nothing", func(t *testing.T) {
-		a, st, clk := kindApp(t)
+		a, st, clk := kindApp(t, gitOf(newFakeGit(t)))
 
 		st.proc(0).setFg("claude")
 		probeKind(t, a, clk, "p1")
@@ -112,7 +112,7 @@ func TestKindFollowsForeground(t *testing.T) {
 	})
 
 	t.Run("launched agent survives the shell at startup", func(t *testing.T) {
-		a, st, clk := kindApp(t)
+		a, st, clk := kindApp(t, gitOf(newFakeGit(t)))
 		chord(a, 'n')
 
 		if st.count() != 2 || kindOf(a, "p2") != core.KindAgent {
@@ -137,7 +137,7 @@ func TestKindFollowsForeground(t *testing.T) {
 	})
 
 	t.Run("launched agent that is seen is demoted when Claude leaves", func(t *testing.T) {
-		a, st, clk := kindApp(t)
+		a, st, clk := kindApp(t, gitOf(newFakeGit(t)))
 		chord(a, 'n')
 
 		st.proc(1).setFg("claude")
@@ -156,7 +156,7 @@ func TestKindFollowsForeground(t *testing.T) {
 	})
 
 	t.Run("demotion clears the session", func(t *testing.T) {
-		a, st, clk := kindApp(t)
+		a, st, clk := kindApp(t, gitOf(newFakeGit(t)))
 		chord(a, 'n')
 
 		if err := a.dispatch(core.SetAgentSession{ID: "p2", Session: "s-1", Transcript: "/t.jsonl"}); err != nil {
@@ -174,7 +174,7 @@ func TestKindFollowsForeground(t *testing.T) {
 	})
 
 	t.Run("a demoted pane closes without a confirm and quit does not ask", func(t *testing.T) {
-		a, st, clk := kindApp(t)
+		a, st, clk := kindApp(t, gitOf(newFakeGit(t)))
 		chord(a, 'n')
 
 		st.proc(1).setFg("claude")
@@ -198,7 +198,7 @@ func TestKindFollowsForeground(t *testing.T) {
 	})
 
 	t.Run("the grace probe leaves the throttle alone", func(t *testing.T) {
-		a, _, clk := kindApp(t)
+		a, _, clk := kindApp(t, gitOf(newFakeGit(t)))
 		chord(a, 'n')
 
 		p := a.panes["p2"]
@@ -219,7 +219,7 @@ func TestKindFollowsForeground(t *testing.T) {
 	})
 
 	t.Run("a harness the saved id does not name falls back to the app's", func(t *testing.T) {
-		a, st, clk := kindApp(t)
+		a, st, clk := kindApp(t, gitOf(newFakeGit(t)))
 
 		if err := a.dispatch(core.SetPaneKind{ID: "p1", Kind: core.KindAgent, Harness: "unknown"}); err != nil {
 			t.Fatal(err)
@@ -239,7 +239,7 @@ func TestKindFollowsForeground(t *testing.T) {
 func TestAgentLaunch(t *testing.T) {
 	t.Parallel()
 	t.Run("hooks and pane environment", func(t *testing.T) {
-		a, st, _ := kindApp(t, func(o *Options) {
+		a, st, _ := kindApp(t, gitOf(newFakeGit(t)), func(o *Options) {
 			o.HookSettings = "/run/1-claude.json"
 			o.HookSock = "/run/1.sock"
 		})
@@ -267,7 +267,7 @@ func TestAgentLaunch(t *testing.T) {
 	})
 
 	t.Run("no settings and no socket", func(t *testing.T) {
-		a, st, _ := kindApp(t)
+		a, st, _ := kindApp(t, gitOf(newFakeGit(t)))
 		chord(a, 'n')
 
 		agent := st.cmds[1]
@@ -287,7 +287,7 @@ func TestAgentLaunch(t *testing.T) {
 	})
 
 	t.Run("resume reaches the argv", func(t *testing.T) {
-		a, st, _ := kindApp(t)
+		a, st, _ := kindApp(t, gitOf(newFakeGit(t)))
 
 		if _, _, err := a.startPane("p9", core.KindAgent, testCwd, 80, 24, "abc-123"); err != nil {
 			t.Fatal(err)
@@ -300,7 +300,7 @@ func TestAgentLaunch(t *testing.T) {
 	})
 
 	t.Run("a resumed agent is demoted only after the grace period", func(t *testing.T) {
-		a, st, clk := kindApp(t)
+		a, st, clk := kindApp(t, gitOf(newFakeGit(t)))
 
 		id := a.store.State().NewPaneID()
 
@@ -328,7 +328,7 @@ func TestAgentLaunch(t *testing.T) {
 	})
 
 	t.Run("opening an agent schedules the grace probe", func(t *testing.T) {
-		a, _, _ := kindApp(t)
+		a, _, _ := kindApp(t, gitOf(newFakeGit(t)))
 
 		var delays []time.Duration
 

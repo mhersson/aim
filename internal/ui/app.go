@@ -171,35 +171,36 @@ type App struct {
 	later        []tea.Cmd             // commands raised outside the update's return path; Update batches them
 	outerFocused bool                  // the outer terminal has focus; true until a BlurMsg
 
-	pictures  *pictures      // Kitty graphics support and the pictures sent
-	loader    *pictureLoader // loads the pictures off the update loop
-	getenv    func(string) string
-	cwd       string
-	recordDir string // empty unless recording
-	icons     bool   // draw Nerd Font glyphs
-	started   bool   // the first size message was handled; it opens the first pane only once
-	restoring bool   // startRestored is running; its dispatches are not saved
-	save      func(core.State)
-	clock     clock           // where the app reads the time; tests inject a fake one
-	sweepRefs bool            // sweep stale refs/aim once per repository; see Options.SweepRefs
-	swept     map[string]bool // repositories whose sweep started, by common dir
-	tray      trayState
-	rail      railState
-	drawer    drawerState
-	picker    pickerState
-	watches   watchState
-	prs       prState
-	edits     editState
-	storeVer  uint64    // counts the dispatches the store accepted
-	marks     markFiles // the reviewed-hunk files; nil keeps marks for the session only
-	git       Git
-	engine    DiffEngine    // nil when the rail's diff stats and the review drawer's diffs are off
-	probeSem  chan struct{} // its capacity bounds the head, stats and name probes running at once
-	clip      *clipboard
-	sel       *paneSelection // a pane's selection; survives tab switches
-	text      *textSelection // the selection of a text view when no pane holds one
-	copy      *copyState     // copy mode; owns every key and ignores the mouse while set
-	mouse     mouseState
+	pictures    *pictures      // Kitty graphics support and the pictures sent
+	loader      *pictureLoader // loads the pictures off the update loop
+	getenv      func(string) string
+	cwd         string
+	recordDir   string // empty unless recording
+	icons       bool   // draw Nerd Font glyphs
+	started     bool   // the first size message was handled; it opens the first pane only once
+	restoring   bool   // startRestored is running; its dispatches are not saved
+	save        func(core.State)
+	clock       clock           // where the app reads the time; tests inject a fake one
+	sweepRefs   bool            // sweep stale refs/aim once per repository; see Options.SweepRefs
+	swept       map[string]bool // repositories whose sweep started, by common dir
+	tray        trayState
+	rail        railState
+	drawer      drawerState
+	picker      pickerState
+	watches     watchState
+	prs         prState
+	edits       editState
+	storeVer    uint64    // counts the dispatches the store accepted
+	marks       markFiles // the reviewed-hunk files; nil keeps marks for the session only
+	git         Git
+	engine      DiffEngine    // nil when the rail's diff stats and the review drawer's diffs are off
+	probeSem    chan struct{} // its capacity bounds the head, stats and name probes running at once
+	probeBudget time.Duration // each probe's time limit, counted from the start of its run
+	clip        *clipboard
+	sel         *paneSelection // a pane's selection; survives tab switches
+	text        *textSelection // the selection of a text view when no pane holds one
+	copy        *copyState     // copy mode; owns every key and ignores the mouse while set
+	mouse       mouseState
 
 	focusFollows, copyOnSelect bool
 	harness                    harness.Harness
@@ -295,6 +296,7 @@ func New(opts Options) (*App, error) {
 		getenv:   getenv, cwd: cwd, recordDir: opts.RecordDir, icons: opts.Icons, clock: realClock{}, start: termStart, sweepRefs: opts.SweepRefs,
 		load:         newSysLoad(opts.Logger),
 		probeSem:     make(chan struct{}, railProbeMax),
+		probeBudget:  railProbeTimeout,
 		edits:        editState{resolve: places.Place},
 		focusFollows: opts.FocusFollowsMouse, copyOnSelect: opts.CopyOnSelect,
 		clip: newClipboard(clipboardConfig{OSC52: !opts.NoOSC52, Native: !opts.NoNativeClipboard}, getenv, runtime.GOOS, opts.Logger),

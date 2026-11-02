@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -17,45 +15,49 @@ import (
 	"github.com/mhersson/aim/internal/harness"
 )
 
-// repoAhead is a repository on main with an upstream and n commits past it.
-func (r *railApp) repoAhead(t *testing.T, name string, n int) string {
+// repoAhead is a fake repository on main with an upstream and n commits past it,
+// and one uncommitted edit.
+func (r *railApp) repoAhead(t *testing.T, name string, n int) *fakeRepo {
 	t.Helper()
 
-	dir := r.repo(t, name)
-	bare := filepath.Join(t.TempDir(), "remote.git")
+	rp := r.fake.repo(t, name)
+	write(t, filepath.Join(rp.Root(), "a.txt"), "one\n")
+	oid := rp.commit("init")
 
-	gitIn(t, r.real, filepath.Dir(bare), "init", "-q", "--bare", "-b", "main", bare)
-	gitIn(t, r.real, dir, "remote", "add", "origin", bare)
-	gitIn(t, r.real, dir, "push", "-q", "-u", "origin", "main")
+	rp.remote("origin", "https://example.invalid/o/r.git").setBranch("main", oid)
+	rp.track("origin", "main", oid)
+	rp.setUpstream("main", "origin")
 
 	for i := range n {
-		gitIn(t, r.real, dir, "commit", "-q", "--allow-empty", "-m", fmt.Sprintf("c%d", i))
+		rp.commit(fmt.Sprintf("c%d", i))
 	}
 
-	_ = os.Remove(r.log)
+	write(t, filepath.Join(rp.Root(), "a.txt"), "one\ntwo\n")
 
-	return dir
+	return rp
 }
 
 // openRail opens the rail as the app does and answers what follows: the head
 // probes an update raises for the agents, then the rail's own probes.
 func (r *railApp) openRail() []tea.Msg { return r.deliver(tea.Batch(r.settle(), r.railOpened())) }
 
-// gitBatch hands the app a watcher batch for the pane's worktree, as the watch
+// gitBatch hands the app a watcher batch for the pane's worktree (dir, a fake root), as the watch
 // set would, and answers the probes it raises. An update that follows drops
 // the pane's watch, since no watch set holds one.
 func (r *railApp) gitBatch(t *testing.T, id core.PaneID, dir string, b git.Batch) []tea.Msg {
 	t.Helper()
 
-	root := rootOf(t, dir)
-	r.watches.panes[id] = &paneWatch{want: root, root: root}
+	r.watches.panes[id] = &paneWatch{want: dir, root: dir}
 
-	return r.deliver(r.onWatch(watchMsg{Root: root, Batch: b}))
+	return r.deliver(r.onWatch(watchMsg{Root: dir, Batch: b}))
 }
 
 func TestHeadProbeRunsWithTheRailClosed(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, true)
-	dir := r.repoAhead(t, "proj", 2)
+	rp := r.repoAhead(t, "proj", 2)
+	dir := rp.Root()
 	id := r.addAgent(t, false, dir)
 
 	if r.railIsOpen() {
@@ -74,7 +76,7 @@ func TestHeadProbeRunsWithTheRailClosed(t *testing.T) {
 	}
 
 	// A watcher batch with a git change probes again at once, inside the interval.
-	gitIn(t, r.real, dir, "commit", "-q", "--allow-empty", "-m", "another")
+	rp.commit("another")
 	r.clk.Advance(time.Second)
 
 	msgs = r.gitBatch(t, id, dir, git.Batch{Git: true})
@@ -87,7 +89,7 @@ func TestHeadProbeRunsWithTheRailClosed(t *testing.T) {
 	}
 
 	// The branch a checkout lands on shows too.
-	gitIn(t, r.real, dir, "checkout", "-q", "-b", "side")
+	rp.branch("side")
 	r.clk.Advance(time.Second)
 	r.gitBatch(t, id, dir, git.Batch{Git: true})
 
@@ -97,9 +99,11 @@ func TestHeadProbeRunsWithTheRailClosed(t *testing.T) {
 }
 
 func TestHeadProbeOutlivesTheRail(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, true)
-	dir := r.repoAhead(t, "proj", 1)
-	id := r.addAgent(t, false, dir)
+	rp := r.repoAhead(t, "proj", 1)
+	id := r.addAgent(t, false, rp.Root())
 	r.openRail()
 
 	if c, _ := r.card(id); c.ahead != 1 {
@@ -108,7 +112,7 @@ func TestHeadProbeOutlivesTheRail(t *testing.T) {
 
 	// A head probe running when the rail closes is not cancelled by it.
 	r.clk.Advance(time.Minute)
-	gitIn(t, r.real, dir, "commit", "-q", "--allow-empty", "-m", "another")
+	rp.commit("another")
 
 	running := r.railFire(r.store.State(), id, probeHead)
 	r.railClosed()
@@ -144,8 +148,10 @@ func TestHeadProbeOutlivesTheRail(t *testing.T) {
 }
 
 func TestHeadProbeEndsWithTheApp(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
-	id := r.addAgent(t, false, r.repo(t, "proj"))
+	id := r.addAgent(t, false, r.repo(t, "proj").Root())
 
 	run := r.railFire(r.store.State(), id, probeHead)
 	r.cancel()
@@ -157,8 +163,10 @@ func TestHeadProbeEndsWithTheApp(t *testing.T) {
 }
 
 func TestStatsAndNameProbesStayOffWithTheRailClosed(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, true)
-	dir := r.repoAhead(t, "proj", 1)
+	dir := r.repoAhead(t, "proj", 1).Root()
 	id := r.addAgent(t, false, dir)
 	transcript := filepath.Join(dir, "t.jsonl")
 	openIn(t, r.App, core.SetAgentSession{ID: id, Session: "s1", Transcript: transcript})
@@ -194,8 +202,10 @@ func TestStatsAndNameProbesStayOffWithTheRailClosed(t *testing.T) {
 }
 
 func TestFocusedShellHeadIsProbed(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, true)
-	first, second := r.repoAhead(t, "first", 1), r.repoAhead(t, "second", 2)
+	first, second := r.repoAhead(t, "first", 1).Root(), r.repoAhead(t, "second", 2).Root()
 
 	openIn(t, r.App, core.NewTab{Kind: core.KindShell, Cwd: first})
 
@@ -265,17 +275,17 @@ func TestFocusedShellHeadIsProbed(t *testing.T) {
 	}
 }
 
-// brokenUpstream points the upstream ref at a missing commit: it still resolves,
-// but rev-list cannot walk it.
-func brokenUpstream(t *testing.T, dir string) {
-	t.Helper()
-	write(t, filepath.Join(dir, ".git", "refs", "remotes", "origin", "main"), strings.Repeat("1", 40)+"\n")
-}
+// brokenUpstream drops the tracking ref its branch's upstream names: the
+// branch still has an upstream, but the commits past it cannot be counted.
+func brokenUpstream(rp *fakeRepo) { rp.track("origin", "main", "") }
 
 func TestHeadProbeKeepsTheBranchWhenTheCountFails(t *testing.T) {
+	t.Parallel()
+
 	t.Run("same cwd", func(t *testing.T) {
 		r := newRailApp(t, false)
-		dir := r.repoAhead(t, "proj", 2)
+		rp := r.repoAhead(t, "proj", 2)
+		dir := rp.Root()
 		id := r.addAgent(t, false, dir)
 		r.deliver(r.settle())
 
@@ -284,8 +294,8 @@ func TestHeadProbeKeepsTheBranchWhenTheCountFails(t *testing.T) {
 		}
 
 		// A checkout onto a branch whose upstream cannot be counted still shows.
-		gitIn(t, r.real, dir, "checkout", "-q", "-b", "feat2", "--track", "origin/main")
-		brokenUpstream(t, dir)
+		rp.branch("feat2")
+		rp.setUpstream("feat2", "origin")
 		r.clk.Advance(time.Second)
 		r.gitBatch(t, id, dir, git.Batch{Git: true})
 
@@ -296,8 +306,9 @@ func TestHeadProbeKeepsTheBranchWhenTheCountFails(t *testing.T) {
 
 	t.Run("new cwd", func(t *testing.T) {
 		r := newRailApp(t, false)
-		first, second := r.repoAhead(t, "first", 2), r.repoAhead(t, "second", 1)
-		brokenUpstream(t, second)
+		first, secondRepo := r.repoAhead(t, "first", 2).Root(), r.repoAhead(t, "second", 1)
+		second := secondRepo.Root()
+		brokenUpstream(secondRepo)
 
 		id := r.addAgent(t, false, first)
 		r.deliver(r.settle())
@@ -313,17 +324,31 @@ func TestHeadProbeKeepsTheBranchWhenTheCountFails(t *testing.T) {
 	})
 }
 
+// countTimeoutGit lets the head probe reach the count, where the spent budget
+// ends it: only Ahead sees the probe's own context.
+type countTimeoutGit struct{ *fakeGit }
+
+func (g countTimeoutGit) Open(ctx context.Context, dir string) (git.Repo, error) {
+	return g.fakeGit.Open(context.WithoutCancel(ctx), dir)
+}
+
+func (g countTimeoutGit) Head(ctx context.Context, r git.Repo) (git.HeadInfo, error) {
+	return g.fakeGit.Head(context.WithoutCancel(ctx), r)
+}
+
 func TestHeadProbeCountTimeoutIsNoAnswer(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
-	dir := r.repoAhead(t, "proj", 1)
-	id := r.addAgent(t, false, dir)
+	id := r.addAgent(t, false, r.repoAhead(t, "proj", 1).Root())
 	r.deliver(r.settle())
 
-	// Only rev-list hangs: the probe's own budget runs out inside the count.
-	script := "#!/bin/sh\ncase \"$*\" in *rev-list*) exec sleep 30;; esac\nexec '" + r.real + "' \"$@\"\n"
-	if err := os.WriteFile(filepath.Join(filepath.Dir(r.log), "git"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	// Only the count runs out of budget: the probe has no answer to give.
+	r.git = countTimeoutGit{r.fake}
+	r.probeBudget = time.Nanosecond
+	release := r.fake.hold("Ahead")
+
+	defer release()
 
 	r.clk.Advance(time.Minute)
 
@@ -335,6 +360,10 @@ func TestHeadProbeCountTimeoutIsNoAnswer(t *testing.T) {
 	hm, ok := msgs[0].(railHeadMsg)
 	if !ok || !errors.Is(hm.err, context.DeadlineExceeded) {
 		t.Fatalf("msg = %+v, want a deadline error", msgs[0])
+	}
+
+	if r.fake.count("Ahead") != 2 {
+		t.Errorf("Ahead calls = %d, want the first probe's and the one that ran out of budget", r.fake.count("Ahead"))
 	}
 
 	r.step(hm)
