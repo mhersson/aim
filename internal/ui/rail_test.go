@@ -1,8 +1,6 @@
 package ui
 
 import (
-	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -25,16 +23,12 @@ func (r *tickRec) tick(d time.Duration, fn func(time.Time) tea.Msg) tea.Cmd {
 	return func() tea.Msg { return msg }
 }
 
-// railApp is a sized app with a recording tick and, in the fake rig, a fake git
-// in fake. The real-git rig (newRealRailApp) fills log, slow and real instead.
+// railApp is a sized app with a recording tick and a fake git in fake.
 type railApp struct {
 	*App
 	ticks *tickRec
 	clk   *fakeClock
 	fake  *fakeGit
-	log   string // the real rig's fake git invocation log
-	slow  string // while this file exists the real rig's fake git sleeps
-	real  string
 }
 
 func newRailApp(t *testing.T, stats bool, opts ...func(*Options)) *railApp {
@@ -56,59 +50,11 @@ func newRailApp(t *testing.T, stats bool, opts ...func(*Options)) *railApp {
 	return r
 }
 
-// newRealRailApp is the rig on the real git, with a logging git first on PATH.
-func newRealRailApp(t *testing.T, stats bool) *railApp {
-	t.Helper()
-
-	realGit, err := exec.LookPath("git")
-	if err != nil {
-		t.Skip("git not installed")
-	}
-
-	bin := t.TempDir()
-	r := &railApp{real: realGit, log: filepath.Join(bin, "log"), slow: filepath.Join(bin, "slow")}
-	script := "#!/bin/sh\necho \"$PWD $*\" >> '" + r.log + "'\n[ -e '" + r.slow + "' ] && { : > '" + r.slow + ".started'; sleep 30; : > '" + r.slow + ".finished'; exit 1; }\nexec '" + realGit + "' \"$@\"\n"
-
-	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-
-	tmp := ""
-	if stats {
-		tmp = t.TempDir()
-	}
-
-	a, _, clk := kindApp(t, func(o *Options) { o.GitTempDir = tmp })
-	r.App, r.clk, r.ticks = a, clk, &tickRec{}
-	a.tick = r.ticks.tick
-
-	return r
-}
-
-// gitCalls counts the git starts: the fake's calls, or the real rig's log lines.
+// gitCalls counts the git calls the fake has logged.
 func (r *railApp) gitCalls() int {
-	if r.fake != nil {
-		n := 0
-
-		r.fake.edit(func() { n = len(r.fake.log) })
-
-		return n
-	}
-
-	b, err := os.ReadFile(r.log)
-	if err != nil {
-		return 0
-	}
-
 	n := 0
 
-	for _, c := range b {
-		if c == '\n' {
-			n++
-		}
-	}
+	r.fake.edit(func() { n = len(r.fake.log) })
 
 	return n
 }

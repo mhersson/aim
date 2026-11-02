@@ -142,12 +142,13 @@ what to do about it. Skim it before your first commit each session.
 
 ## Tests
 
-- In internal/git and internal/ui, `TestMain` sets `GIT_CONFIG_NOSYSTEM`, a
-  fixed identity and `GIT_CONFIG_GLOBAL` to a config file of its own once for
-  the test binary, so their tests need no `t.Setenv` and can call
-  `t.Parallel()`. Packages without such a `TestMain`, like `cmd/aim`,
-  isolate git per test with `isolateGit`, which uses `t.Setenv`. A helper that
-  builds its own `cmd.Env` keeps that `GIT_CONFIG_GLOBAL`.
+- In internal/git, `TestMain` sets `GIT_CONFIG_NOSYSTEM`, a fixed identity and
+  `GIT_CONFIG_GLOBAL` to a config file of its own once for the test binary, so
+  its tests need no `t.Setenv` and can call `t.Parallel()`. Packages without
+  such a `TestMain`, like `cmd/aim`, isolate git per test with `isolateGit`,
+  which uses `t.Setenv`. A helper that builds its own `cmd.Env` keeps that
+  `GIT_CONFIG_GLOBAL`. internal/ui's `TestMain` sets none of it: it puts a
+  failing `git` first on `PATH`, since no test there starts git.
 - `commit`, `merge`, `fetch` and a push's `receive-pack` start
   `git maintenance run --auto`, which detaches by default
   (`maintenance.autoDetach`) and removes `.git/objects/maintenance.lock` after
@@ -161,10 +162,6 @@ what to do about it. Skim it before your first commit each session.
   `PATH` with `t.Setenv`, which rules out `t.Parallel()`. Read the log with
   `wrappedCalls`, which fails when it is empty, so an assertion that a call
   never ran cannot pass because nothing was wrapped.
-- A watcher reports a write about 20 ms after its debounce, so wait for its
-  report before taking a baseline: on Linux the drawer rig's `open` returns
-  sooner, and a late batch then reloads the drawer after the test read its
-  `epoch` or `gen`. The rig's `reportedAll` waits for the paths written.
 - `t.Setenv` and `t.Chdir` panic in a parallel test. That is why tests that
   use them, and tests that count or scan the process's goroutines or open
   descriptors, skip `t.Parallel()`.

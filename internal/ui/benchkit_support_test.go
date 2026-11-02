@@ -426,7 +426,7 @@ func newBenchApp(cfg benchConfig, clk clock) (*App, []core.PaneID, error) {
 	}
 
 	app, err := New(Options{
-		Git:    SystemGit{},
+		Git:    &fakeGit{}, // the bench runs no git cmd
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Store:  core.NewStore(core.InitialState(conf)),
 		Getenv: func(string) string { return "" },

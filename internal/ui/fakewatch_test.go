@@ -2,9 +2,7 @@ package ui
 
 import (
 	"context"
-	"errors"
 	"sync"
-	"testing"
 
 	"github.com/mhersson/aim/internal/git"
 )
@@ -120,70 +118,4 @@ func (w *fakeWatchSet) close() {
 	defer w.mu.Unlock()
 
 	w.closed = true
-}
-
-func TestFakeWatchSet(t *testing.T) {
-	t.Parallel()
-
-	w := newFakeWatchSet()
-	ctx := context.Background()
-	repo := git.Repo{Root: "/r"}
-
-	w.send("/r", git.Batch{Paths: []string{"a.go"}})
-
-	if got := <-w.Batches(); got.Root != "/r" || len(got.Batch.Paths) != 1 {
-		t.Errorf("batch = %+v", got)
-	}
-
-	release, err := w.Acquire(ctx, repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := w.Acquire(ctx, repo); err != nil {
-		t.Fatal(err)
-	}
-
-	release()
-	release()
-
-	if n := w.holds("/r"); n != 1 {
-		t.Errorf("holds = %d, want 1: a release counts once", n)
-	}
-
-	boom := errors.New("boom")
-	w.failAcquire("/r", boom)
-
-	if _, err := w.Acquire(ctx, repo); !errors.Is(err, boom) {
-		t.Errorf("failed Acquire = %v", err)
-	}
-
-	w.failAcquire("/r", nil)
-
-	unhold := w.holdAcquire()
-	done := make(chan error, 1)
-
-	go func() {
-		_, err := w.Acquire(ctx, repo)
-		done <- err
-	}()
-
-	cctx, cancel := context.WithCancel(ctx)
-	cancel()
-
-	if _, err := w.Acquire(cctx, repo); !errors.Is(err, context.Canceled) {
-		t.Errorf("held Acquire with a done context = %v", err)
-	}
-
-	unhold()
-
-	if err := <-done; err != nil {
-		t.Errorf("released Acquire = %v", err)
-	}
-
-	w.close()
-
-	if _, err := w.Acquire(ctx, repo); !errors.Is(err, git.ErrWatchSetClosed) {
-		t.Errorf("Acquire after close = %v", err)
-	}
 }

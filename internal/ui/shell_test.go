@@ -34,7 +34,7 @@ func sized(t *testing.T, a *App, w, h int) {
 func TestNewRejectsUnknownTheme(t *testing.T) {
 	t.Parallel()
 
-	_, err := New(Options{Logger: testLogger(), Git: SystemGit{}, Store: core.NewStore(core.State{Theme: "nope"})})
+	_, err := New(Options{Logger: testLogger(), Git: newFakeGit(t), Store: core.NewStore(core.State{Theme: "nope"})})
 	if !errors.Is(err, theme.ErrUnknownTheme) {
 		t.Errorf("New() error = %v, want one wrapping ErrUnknownTheme", err)
 	}

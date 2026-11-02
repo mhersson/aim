@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -17,24 +16,6 @@ import (
 	"github.com/mhersson/aim/internal/git"
 	"github.com/mhersson/aim/internal/harness"
 )
-
-// gitIn runs the git at bin in dir, with a config that needs nothing from the host.
-func gitIn(t *testing.T, bin, dir string, args ...string) {
-	t.Helper()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Dir = dir
-
-	cmd.Env = append(os.Environ(),
-		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t", gitFileOnly)
-
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
-	}
-}
 
 // repo makes a fake repository named name on branch main with one commit and one edit.
 func (r *railApp) repo(t *testing.T, name string) *fakeRepo {
@@ -710,7 +691,7 @@ func TestProbeHeadPlace(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := probeHeadOf(context.Background(), r.fake, r.App.log, tt.dir, tt.own)
+			got, err := probeHeadOf(context.Background(), r.fake, r.log, tt.dir, tt.own)
 			if err != nil {
 				t.Fatalf("probeHeadOf: %v", err)
 			}

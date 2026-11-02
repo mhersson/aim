@@ -93,7 +93,7 @@ func closeApp(t *testing.T, a *App) {
 func lifeApp(t *testing.T) (*App, *starts) {
 	t.Helper()
 
-	return lifeAppWith(t, func(o *Options) { o.Git = SystemGit{} })
+	return lifeAppWith(t, func(o *Options) { o.Git = newFakeGit(t) })
 }
 
 // lifeAppWith is lifeApp with its options tuned by opts.
@@ -896,7 +896,7 @@ type realApp struct {
 func newRealApp(t *testing.T, scripts ...string) *realApp {
 	t.Helper()
 
-	return newScriptApp(t, func(o *Options) { o.Git = SystemGit{} }, scripts...)
+	return newScriptApp(t, func(o *Options) { o.Git = newFakeGit(t) }, scripts...)
 }
 
 // newScriptApp is newRealApp with git set by gitOpt.
@@ -1486,7 +1486,7 @@ func TestCloseBoundsLoaderWait(t *testing.T) {
 	f := &blockFetcher{started: make(chan struct{}, 1), release: make(chan struct{})}
 
 	a, err := New(Options{
-		Git:      SystemGit{},
+		Git:      newFakeGit(t),
 		Logger:   testLogger(),
 		Store:    core.NewStore(core.InitialState(core.Config{Theme: "catppuccin-mocha"})),
 		Getenv:   testGetenv,

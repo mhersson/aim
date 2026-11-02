@@ -1,10 +1,8 @@
 package ui
 
 import (
-	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -22,30 +20,6 @@ const (
 	testSession  core.SessionID = "11111111-2222-4333-8444-555555555555"
 	otherSession core.SessionID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
 )
-
-// newRepoDir is an empty repository on main in a temp dir without symlinks.
-func newRepoDir(t *testing.T) string {
-	t.Helper()
-
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not installed")
-	}
-
-	dir, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	gitIn(t, "git", dir, "init", "-q", "-b", "main")
-
-	return dir
-}
-
-func commitEverything(t *testing.T, dir, msg string) {
-	t.Helper()
-	gitIn(t, "git", dir, "add", "-A")
-	gitIn(t, "git", dir, "commit", "-q", "-m", msg)
-}
 
 func numberedLines(prefix string, n int) string {
 	var b strings.Builder
@@ -149,35 +123,43 @@ func (h *heldTicks) fire() []tea.Msg {
 
 func (h *heldTicks) scheduled(d time.Duration) bool { return slices.Contains(h.delays, d) }
 
-// drawerRig is an app with a diff engine on a fake git and its watch set, or
-// on real git and a real watch set when the options carry no gitOf. A pump
+// drawerRig is an app with a diff engine on a fake git and its watch set. A pump
 // stands in for the Bubble Tea runtime, so loads run off the test's goroutine.
 type drawerRig struct {
 	*App
 	ticks *heldTicks
 	clk   *fakeClock
 	pm    *pump
-	set   *git.WatchSet // nil on a fake git
-	fake  *fakeGit      // nil on real git
+	fake  *fakeGit      // nil on the bench's real git
 	wait  time.Duration // how long until gives up
-
-	reported map[string]bool // the paths, absolute, that watcher batches fed to step named
 }
 
 // turnFirst makes a new drawer open in turn mode when its pane has turns; the
 // rig's zero [diff] config opens in branch mode.
 func turnFirst(o *Options) { o.Diff.Mode = string(core.ReviewTurn) }
 
+// newDrawerRig is a drawer rig on the fake git opts carry (gitOf), else a fresh one.
 func newDrawerRig(t *testing.T, opts ...func(*Options)) *drawerRig {
 	t.Helper()
 
-	return newDrawerRigWatching(t, git.WatchOptions{Debounce: 20 * time.Millisecond}, opts...)
+	// The options run twice, here and in kindApp, so they must be pure.
+	var probe Options
+
+	for _, f := range opts {
+		f(&probe)
+	}
+
+	if _, ok := probe.Git.(*fakeGit); !ok {
+		opts = append([]func(*Options){gitOf(newFakeGit(t))}, opts...)
+	}
+
+	return startDrawerRig(t, opts...)
 }
 
-func newDrawerRigWatching(t *testing.T, wo git.WatchOptions, opts ...func(*Options)) *drawerRig {
+// startDrawerRig builds the rig over whatever git the options carry.
+func startDrawerRig(t *testing.T, opts ...func(*Options)) *drawerRig {
 	t.Helper()
 
-	// The options run twice, here and in kindApp, so they must be pure.
 	var probe Options
 
 	for _, f := range opts {
@@ -191,18 +173,8 @@ func newDrawerRigWatching(t *testing.T, wo git.WatchOptions, opts ...func(*Optio
 	tmp, cache := t.TempDir(), t.TempDir()
 	set0 := func(o *Options) { o.GitTempDir, o.IndexCache = tmp, cache }
 
-	var set *git.WatchSet
-
-	if fake == nil {
-		set = git.NewWatchSet(context.Background(), wo)
-
-		t.Cleanup(func() { _ = set.Close() })
-
-		set0 = func(o *Options) { o.GitTempDir, o.IndexCache, o.Watches = tmp, cache, set }
-	}
-
 	a, _, clk := kindApp(t, append([]func(*Options){set0}, opts...)...)
-	r := &drawerRig{App: a, ticks: &heldTicks{}, clk: clk, pm: newPump(t), set: set, fake: fake, wait: watchWait, reported: map[string]bool{}}
+	r := &drawerRig{App: a, ticks: &heldTicks{}, clk: clk, pm: newPump(t), fake: fake, wait: watchWait}
 	r.pm.stopWith(t, a)
 	a.tick = r.ticks.tick
 
@@ -213,23 +185,9 @@ func newDrawerRigWatching(t *testing.T, wo git.WatchOptions, opts ...func(*Optio
 }
 
 func (r *drawerRig) step(msg tea.Msg) tea.Cmd {
-	if w, ok := msg.(watchMsg); ok {
-		for _, p := range w.Batch.Paths {
-			r.reported[filepath.Join(w.Root, p)] = true
-		}
-	}
-
 	_, cmd := r.Update(msg)
 
 	return cmd
-}
-
-// reportedAll is a condition: batches fed to step have named every one of
-// paths. A test that must not see a batch later waits until it has reached step.
-func (r *drawerRig) reportedAll(paths ...string) func() bool {
-	return func() bool {
-		return !slices.ContainsFunc(paths, func(p string) bool { return !r.reported[p] })
-	}
 }
 
 func (r *drawerRig) run(cmd tea.Cmd) { r.pm.run(cmd) }
@@ -323,13 +281,7 @@ func (r *drawerRig) held(id core.PaneID) string {
 }
 
 func (r *drawerRig) watched(root string) bool {
-	if r.fake != nil {
-		return r.fake.watches.holds(root) > 0
-	}
-
-	_, ok := r.set.Seq(root)
-
-	return ok
+	return r.fake.watches.holds(root) > 0
 }
 
 // watching waits until the pane's worktree is watched.
@@ -341,17 +293,6 @@ func (r *drawerRig) watching(t *testing.T, id core.PaneID, root string) {
 // batch hands the app a watcher batch as the set would.
 func (r *drawerRig) batch(root string, b git.Batch) tea.Cmd {
 	return r.onWatch(watchMsg{Root: root, Batch: b})
-}
-
-func rootOf(t *testing.T, dir string) string {
-	t.Helper()
-
-	repo, err := git.Open(context.Background(), dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	return repo.Root
 }
 
 // paths are the sorted paths of the diff the view holds.

@@ -95,7 +95,7 @@ func restoreApp(t *testing.T, st core.State, opts ...func(*Options)) *restored {
 
 	r := &restored{st: &starts{}, clk: &fakeClock{t: t0}, saves: &saves{}, ticks: &ticked{}}
 	o := Options{
-		Logger: testLogger(), Git: SystemGit{}, Store: core.NewStore(st), Getenv: testGetenv, Cwd: testCwd, Icons: true,
+		Logger: testLogger(), Git: newFakeGit(t), Store: core.NewStore(st), Getenv: testGetenv, Cwd: testCwd, Icons: true,
 		Save: r.saves.save, HookSettings: "/run/1-claude.json",
 	}
 

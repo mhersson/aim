@@ -912,10 +912,9 @@ func TestDiffSelectionReload(t *testing.T) {
 
 			tt.edit(t, d.dir)
 
-			if tt.hidden {
-				d.fake.watches.send(d.root, git.Batch{Paths: []string{"a.txt"}})
-				d.until(t, "the batch to arrive", d.reportedAll(filepath.Join(d.root, "a.txt")))
+			d.run(d.batch(d.root, git.Batch{Paths: []string{"a.txt"}}))
 
+			if tt.hidden {
 				openIn(t, d.App, core.SelectTab{Index: 0})
 
 				if d.tabID() != first {
@@ -923,8 +922,6 @@ func TestDiffSelectionReload(t *testing.T) {
 				}
 
 				d.settle()
-			} else {
-				d.run(d.batch(d.root, git.Batch{Paths: []string{"a.txt"}}))
 			}
 
 			if tt.reloads {

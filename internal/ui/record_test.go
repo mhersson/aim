@@ -32,7 +32,7 @@ func TestRecordFlag(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "rec")
 
 	app, err := New(Options{
-		Git:    SystemGit{},
+		Git:    newFakeGit(t),
 		Logger: testLogger(), Store: core.NewStore(core.InitialState(core.DefaultConfig())),
 		Cwd: t.TempDir(), RecordDir: dir,
 	})
@@ -272,7 +272,7 @@ func TestRecordDirCollisionSetsNotice(t *testing.T) {
 	}
 
 	app, err := New(Options{
-		Git:    SystemGit{},
+		Git:    newFakeGit(t),
 		Logger: testLogger(), Store: core.NewStore(core.InitialState(core.DefaultConfig())),
 		Cwd: t.TempDir(), RecordDir: dir,
 	})
