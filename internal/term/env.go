@@ -35,6 +35,10 @@ func ShellCommand(env func(string) string, ig Integration, dir string, extraEnv 
 		argv = []string{sh, "--posix", "-l"}
 	}
 
+	if ig.fish(sh) {
+		argv = []string{sh, "-l", "-C", fishInit}
+	}
+
 	return Command{Argv: argv, Dir: dir, Env: ig.env(PaneEnv(os.Environ()), sh, true, extraEnv)}
 }
 

@@ -19,6 +19,7 @@ func TestIntegrationCommands(t *testing.T) {
 		dir         = "/run/1-shell"
 		zshTailText = `; if [ -r "$AIM_SHELL_DIR/zsh/.zshenv" ]; then export ZDOTDIR="$AIM_SHELL_DIR/zsh"; fi; exec "$SHELL" -l`
 		plain       = `; exec "$SHELL" -l`
+		fishTail    = `; exec "$SHELL" -l -C '` + fishInit + `'`
 	)
 
 	tests := []struct {
@@ -34,6 +35,7 @@ func TestIntegrationCommands(t *testing.T) {
 		{"zsh on, ZDOTDIR set", "/bin/zsh", true, "/home/u/zd", []string{"/bin/zsh", "-l"}, zshTailText, "ZDOTDIR=" + dir + "/zsh", "AIM_ZDOTDIR=/home/u/zd"},
 		{"zsh on, ZDOTDIR unset", "/bin/zsh", true, "", []string{"/bin/zsh", "-l"}, zshTailText, "ZDOTDIR=" + dir + "/zsh", ""},
 		{"zsh off", "/bin/zsh", false, "/home/u/zd", []string{"/bin/zsh", "-l"}, plain, "", ""},
+		{"fish", "/usr/bin/fish", false, "", []string{"/usr/bin/fish", "-l", "-C", fishInit}, fishTail, "", ""},
 		{"sh", "/bin/sh", true, "/home/u/zd", []string{"/bin/sh", "-l"}, plain, "", ""},
 	}
 

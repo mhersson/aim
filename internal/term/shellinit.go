@@ -20,6 +20,7 @@ func scripts() []script {
 	return []script{
 		{"shellinit/zshenv", "zsh/.zshenv"},
 		{"shellinit/init.bash", "bash/init.bash"},
+		{"shellinit/init.fish", "fish/init.fish"},
 	}
 }
 
@@ -112,8 +113,19 @@ const zshTail = `; if [ -r "$AIM_SHELL_DIR/zsh/.zshenv" ]; then export ZDOTDIR="
 // one that reads AIM's init.bash.
 const bashTail = `; if [ -r "$AIM_SHELL_DIR/bash/init.bash" ]; then export ENV="$AIM_SHELL_DIR/bash/init.bash"; exec "$SHELL" --posix -l; fi; exec "$SHELL" -l`
 
+// fishInit is what fish's -C runs: it sources AIM's init.fish when it is there.
+const fishInit = `test -n "$AIM_SHELL_DIR"; and test -r "$AIM_SHELL_DIR/fish/init.fish"; and source "$AIM_SHELL_DIR/fish/init.fish"`
+
+// fishTail is the tail for a fish with the integration: the next shell runs
+// init.fish through -C, after the user's conf.d and config.fish.
+const fishTail = `; exec "$SHELL" -l -C '` + fishInit + `'`
+
 // tail is the script's tail that leaves the pane in a login shell.
 func (ig Integration) tail(sh string) string {
+	if ig.fish(sh) {
+		return fishTail
+	}
+
 	if ig.bash(sh) {
 		return bashTail
 	}
@@ -196,4 +208,9 @@ func bashReadsENV(goos, sh string) bool { return goos != "darwin" || sh != "/bin
 // bash is whether sh is a bash that takes the integration through ENV.
 func (ig Integration) bash(sh string) bool {
 	return ig.Dir != "" && filepath.Base(sh) == "bash" && bashReadsENV(runtime.GOOS, sh)
+}
+
+// fish is whether sh is a fish that takes the integration through -C.
+func (ig Integration) fish(sh string) bool {
+	return ig.Dir != "" && filepath.Base(sh) == "fish"
 }
