@@ -921,6 +921,7 @@ func TestOwnDirectoryMoveRecountsOnly(t *testing.T) {
 	r.open(t, r.id)
 	r.edit(filepath.Join(r.dirB, "a.txt"))
 	r.until(t, "the drawer to show b", r.settledOn(r.rootB, false))
+	r.until(t, "b to be watched", r.onRoot(r.rootB))
 
 	v := r.view()
 	epoch, gen := v.epoch, v.gen
