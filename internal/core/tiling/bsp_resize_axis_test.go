@@ -21,16 +21,8 @@ const (
 )
 
 // layoutsNamed picks the resize layouts called names.
-func layoutsNamed(names ...string) []struct {
-	name  string
-	build func() *BSPTree
-	panes []int
-} {
-	var out []struct {
-		name  string
-		build func() *BSPTree
-		panes []int
-	}
+func layoutsNamed(names ...string) []resizeLayout {
+	var out []resizeLayout
 	for _, l := range resizeLayouts {
 		if slices.Contains(names, l.name) {
 			out = append(out, l)
@@ -212,11 +204,13 @@ func withSharedBorders(t *testing.T, shared bool, fn func()) {
 	fn()
 }
 
-var resizeLayouts = []struct {
+type resizeLayout struct {
 	name  string
 	build func() *BSPTree
 	panes []int
-}{
+}
+
+var resizeLayouts = []resizeLayout{
 	{"two_panes", twoPanes, []int{1, 2}},
 	{"tall_left", tallLeft, []int{1, 2, 3}},
 	{"tall_right", tallRight, []int{1, 2, 3}},

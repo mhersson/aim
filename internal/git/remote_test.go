@@ -166,6 +166,20 @@ func TestRemoteReadsRefuseOptionNames(t *testing.T) {
 		}
 	}
 
+	// Positive control: a valid name does start git, so the checks above can see it.
+	t.Run("a valid remote name runs git", func(t *testing.T) {
+		t.Parallel()
+		ctx, log := wrapGit(t, "")
+
+		if _, err := PushURLs(ctx, r, "missing"); !errors.Is(err, ErrNoRemote) {
+			t.Errorf("err = %v, want ErrNoRemote", err)
+		}
+
+		if ran, err := os.ReadFile(log); err != nil || len(ran) == 0 {
+			t.Errorf("a valid remote name did not run git: %v", err)
+		}
+	})
+
 	t.Run("PushURLs/unknown remote", func(t *testing.T) {
 		t.Parallel()
 

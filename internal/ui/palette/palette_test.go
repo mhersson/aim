@@ -350,6 +350,14 @@ func iconItems() []Item {
 func TestFooterWithNoMatches(t *testing.T) {
 	m, _ := typeText(newModel(t), "zzz")
 
+	if _, ok := m.Selected(); ok || len(m.matches) != 0 {
+		t.Errorf("Selected ok = %v, matches = %d, want none", ok, len(m.matches))
+	}
+
+	if !strings.Contains(ansi.Strip(m.View(40)), " 0 of 0 ") {
+		t.Errorf("footer lacks the count 0 of 0:\n%s", ansi.Strip(m.View(40)))
+	}
+
 	if n := len(strings.Split(ansi.Strip(m.View(40)), "\n")); n != 3+1+3 {
 		t.Errorf("no-match view has %d lines, want 7", n)
 	}

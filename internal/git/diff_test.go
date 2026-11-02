@@ -415,7 +415,7 @@ func TestDiffOddPaths(t *testing.T) {
 	// Not in the golden: JSON cannot carry it, and APFS refuses the name.
 	invalid := "inv\xffalid.txt"
 	if !fsAcceptsName(t, invalid) {
-		return
+		return // the skip on a filesystem that refuses the name
 	}
 
 	writeFile(t, dir, invalid, "content of "+strconv.Quote(invalid)+"\n")
@@ -992,7 +992,8 @@ func TestDiffByteCapStopsGit(t *testing.T) {
 		}
 	}
 
-	// 50 KiB holds 3 whole files of 17 KB; the 4th is cut. The 200 KB total
+	// 50 KiB holds 3 whole files of 17 KB; the 4th is cut (its boundary sits
+	// about 400 B above the cap, so a changed body size moves the cut). The 200 KB total
 	// outgrows the pipe buffer plus the cap, so git is blocked when it is killed.
 	if firstCut != 3 {
 		t.Errorf("first truncated file = %d, want 3", firstCut)

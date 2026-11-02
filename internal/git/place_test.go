@@ -137,7 +137,6 @@ func TestRepoName(t *testing.T) {
 		want      string
 	}{
 		{"main checkout", filepath.Join("work", "proj", ".git"), "proj"},
-		{"linked worktree", filepath.Join("work", "proj", ".git"), "proj"},
 		{"bare repository", filepath.Join("srv", "proj.git"), "proj"},
 	}
 

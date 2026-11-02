@@ -412,29 +412,33 @@ func TestWorktreePath(t *testing.T) {
 }
 
 // git's first line of stderr is its progress report; a failure must carry the
-// line that says why.
+// line that says why. A base that is no ref passes AIM's own checks and fails
+// inside git.
 func TestCreateWorktreeFailureNamesGitsReason(t *testing.T) {
 	t.Parallel()
-	_, r := seededRepo(t)
 
-	_, err := CreateWorktree(t.Context(), r, NewWorktree{Branch: "main", Root: RootInside})
-	if err == nil || !strings.Contains(err.Error(), "fatal:") {
-		t.Fatalf("err = %v, want it to carry a fatal: line", err)
+	tests := []struct {
+		name string
+		in   NewWorktree
+	}{
+		{"branch already checked out", NewWorktree{Branch: "main", Root: RootInside}},
+		{"base that is no ref", NewWorktree{Branch: "fix", Base: "nosuchref", Root: RootInside}},
 	}
 
-	if strings.Contains(err.Error(), "Preparing worktree") {
-		t.Errorf("err = %v, want git's reason and not its progress line", err)
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, r := seededRepo(t)
 
-// A base that is no ref passes AIM's own checks and fails inside git.
-func TestCreateWorktreeUnknownBaseNamesGitsReason(t *testing.T) {
-	t.Parallel()
-	_, r := seededRepo(t)
+			_, err := CreateWorktree(t.Context(), r, tt.in)
+			if err == nil || errors.Is(err, ErrNoBase) || !strings.Contains(err.Error(), "fatal:") {
+				t.Fatalf("err = %v, want git's fatal: line and not ErrNoBase", err)
+			}
 
-	_, err := CreateWorktree(t.Context(), r, NewWorktree{Branch: "fix", Base: "nosuchref", Root: RootInside})
-	if err == nil || errors.Is(err, ErrNoBase) || !strings.Contains(err.Error(), "fatal:") {
-		t.Fatalf("err = %v, want git's fatal: line and not ErrNoBase", err)
+			if strings.Contains(err.Error(), "Preparing worktree") {
+				t.Errorf("err = %v, want git's reason and not its progress line", err)
+			}
+		})
 	}
 }
 

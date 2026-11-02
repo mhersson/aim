@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -70,6 +71,12 @@ func stateDoc(version string, layouts ...layoutFn) string {
 	}
 
 	return `{"version":` + version + `,"active":0,"tabs":[` + strings.Join(tabs, ",") + `],"panes":{` + strings.Join(panes, ",") + `}}`
+}
+
+// carriesNumber reports whether s holds n as a whole number, not as a digit
+// inside a longer one.
+func carriesNumber(s, n string) bool {
+	return regexp.MustCompile(`(^|\D)` + regexp.QuoteMeta(n) + `(\D|$)`).MatchString(s)
 }
 
 func TestLoadState(t *testing.T) {
@@ -141,7 +148,7 @@ func TestLoadState(t *testing.T) {
 
 		st, notices := loadState(path, false, testCfg)
 
-		if len(notices) != 1 || !strings.Contains(notices[0], "1") || len(st.Panes) != 2 || st.Tabs[0].Layout.Ratio != 0.5 {
+		if len(notices) != 1 || !carriesNumber(notices[0], "1") || len(st.Panes) != 2 || st.Tabs[0].Layout.Ratio != 0.5 {
 			t.Errorf("state = %+v, notices = %q, want one notice carrying the version and a default layout", st, notices)
 		}
 
@@ -182,7 +189,7 @@ func TestLoadState(t *testing.T) {
 				switch {
 				case tt.count == "" && len(notices) != 0:
 					t.Errorf("notices = %q, want none", notices)
-				case tt.count != "" && (len(notices) != 1 || !strings.Contains(notices[0], tt.count)):
+				case tt.count != "" && (len(notices) != 1 || !carriesNumber(notices[0], tt.count)):
 					t.Errorf("notices = %q, want one carrying %s", notices, tt.count)
 				}
 			})
@@ -237,7 +244,7 @@ func TestCheckResume(t *testing.T) {
 		})
 		out, notices := checkResume(in, exists)
 
-		if len(notices) != 1 || !strings.Contains(notices[0], "2") {
+		if len(notices) != 1 || !carriesNumber(notices[0], "2") {
 			t.Errorf("notices = %q, want one carrying the count 2", notices)
 		}
 

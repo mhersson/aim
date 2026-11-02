@@ -39,7 +39,7 @@ func TestLockMissingDir(t *testing.T) {
 	}
 }
 
-// lockFDCopy dups the descriptor that holds the lock on path, standing for a
+// lockFDCopy copies the descriptor that holds the lock on path, standing for a
 // forked child that has not yet exec'd.
 func lockFDCopy(t *testing.T, path string) int {
 	t.Helper()
@@ -47,13 +47,18 @@ func lockFDCopy(t *testing.T, path string) int {
 	var want unix.Stat_t
 	noErr(t, unix.Stat(path, &want))
 
-	for fd := 3; fd < 1024; fd++ {
+	var lim unix.Rlimit
+	noErr(t, unix.Getrlimit(unix.RLIMIT_NOFILE, &lim))
+
+	// Capped so a huge limit does not make the scan slow.
+	for fd := 3; fd < int(min(lim.Cur, 1<<16)); fd++ {
 		var st unix.Stat_t
 		if unix.Fstat(fd, &st) != nil || st.Dev != want.Dev || st.Ino != want.Ino {
 			continue
 		}
 
-		dup, err := unix.Dup(fd)
+		// Close-on-exec, so a parallel test's fork and exec cannot hand it to a child.
+		dup, err := unix.FcntlInt(uintptr(fd), unix.F_DUPFD_CLOEXEC, 0)
 		noErr(t, err)
 
 		return dup

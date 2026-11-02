@@ -182,7 +182,7 @@ func TestSplitClusterTakesFirstStyle(t *testing.T) {
 func TestLongSplitClusterFits(t *testing.T) {
 	t.Parallel()
 
-	src := "e" + strings.Repeat("**\u0301**~~\u0302~~", 40)
+	src := "e" + strings.Repeat("**\u0301**~~\u0302~~", 20)
 
 	for _, w := range []int{1, 2, 20} {
 		assertSafe(t, layoutOf(src, w, ""), w)

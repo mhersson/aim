@@ -128,8 +128,15 @@ func TestEveryModeLaysOutWithoutOverlap(t *testing.T) {
 			for _, body := range bodies {
 				t.Run(fmt.Sprintf("%s/%d/%dx%d", mode, n, body.W, body.H), func(t *testing.T) {
 					s := openN(t, mode, n, defaultLayout())
+					if got := len(s.Tab().Panes); got != n {
+						t.Fatalf("tab holds %d panes, want %d", got, n)
+					}
 
 					a := checkArrangement(t, s.Tab(), body, s.Layout)
+					if len(a.Rects) > n {
+						t.Errorf("drew %d rects for %d panes", len(a.Rects), n)
+					}
+
 					if fits := n <= 4 && body.W >= 80; fits && mode != ModeScrolling && len(a.Rects) != n {
 						t.Errorf("drew %d of %d panes", len(a.Rects), n)
 					}

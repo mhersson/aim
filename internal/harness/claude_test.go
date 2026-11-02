@@ -119,7 +119,7 @@ func TestParseEventAction(t *testing.T) {
 		wantLen int // wanted rune count when > 0
 	}{
 		{"file_path", "PreToolUse", `"tool_name":"Edit","tool_input":{"file_path":"internal/core/modes.go","command":"x"}`, core.AgentWorking, "Edit internal/core/modes.go", true, 0},
-		{"notebook_path", "PreToolUse", `"tool_name":"NotebookEdit","tool_input":{"notebook_path":"a.ipynb","pattern":"p"}`, core.AgentWorking, "NotebookEdit a.ipynb", true, 0},
+		{"notebook_path", "PreToolUse", `"cwd":"/a/b","tool_name":"NotebookEdit","tool_input":{"notebook_path":"/a/b/nb/a.ipynb","pattern":"p"}`, core.AgentWorking, "NotebookEdit nb/a.ipynb", true, 0},
 		{"command", "PreToolUse", `"tool_name":"Bash","tool_input":{"command":"go test ./...","description":"run"}`, core.AgentWorking, "Bash go test ./...", true, 0},
 		{"pattern", "PreToolUse", `"tool_name":"Grep","tool_input":{"pattern":"foo","url":"u"}`, core.AgentWorking, "Grep foo", true, 0},
 		{"url", "PreToolUse", `"tool_name":"WebFetch","tool_input":{"url":"https://x.dev","query":"q"}`, core.AgentWorking, "WebFetch https://x.dev", true, 0},

@@ -235,7 +235,7 @@ func TestDeleteRefsRunsOneUpdateRefPerChunk(t *testing.T) {
 
 	n, err := deleteRefsIn(ctx, r, refs, 3)
 	if err != nil || n != len(refs) {
-		t.Fatalf("DeleteRefs = %d, %v; want %d", n, err, len(refs))
+		t.Fatalf("deleteRefsIn = %d, %v; want %d", n, err, len(refs))
 	}
 
 	if got := strings.Count(wrappedCalls(t, logPath), "update-ref --stdin"); got != 3 {

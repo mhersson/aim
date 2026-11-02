@@ -74,6 +74,7 @@ func TestSizeLimits(t *testing.T) {
 		{"at limit", 16384, 1, 8, nil},
 		{"8-bit at the byte cap", 10000, 4000, 8, nil},
 		{"8-bit over the byte cap", 10000, 4001, 8, ErrTooBig},
+		{"16-bit at the byte cap", 10000, 2000, 16, nil},
 		{"16-bit just over the byte cap", 10000, 2001, 16, ErrTooBig},
 	}
 	for _, tt := range tests {

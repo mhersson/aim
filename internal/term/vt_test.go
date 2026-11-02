@@ -411,14 +411,12 @@ func TestReplyWriteErrorKeepsDraining(t *testing.T) {
 	waitFor(t, func() bool { return src.unread() == 0 })
 
 	src.shut()
-	waitFor(t, func() bool {
-		select {
-		case <-d.done:
-			return true
-		default:
-			return false
-		}
-	})
+
+	select {
+	case <-d.done:
+	case <-time.After(5 * time.Second): // hang guard
+		t.Fatal("drain did not stop after its source closed")
+	}
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
