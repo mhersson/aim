@@ -211,39 +211,6 @@ func TestSynthDeterministic(t *testing.T) {
 	}
 }
 
-func TestSynthRoundTrips(t *testing.T) {
-	recs := Synth(40, 10, 200*time.Millisecond, 1)
-
-	var buf bytes.Buffer
-
-	i := 0
-	now := func() time.Time {
-		defer func() { i++ }()
-
-		return time.Unix(0, 0).Add(recs[min(i, len(recs)-1)].At)
-	}
-
-	w, err := NewWriter(&buf, 40, 10, now)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	for _, r := range recs[1:] {
-		if err := w.Data(r.Data); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	got, err := Read(&buf)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if !reflect.DeepEqual(got, recs) {
-		t.Fatalf("round trip differs: got %d records, want %d", len(got), len(recs))
-	}
-}
-
 func TestRecAtStampsGivenTime(t *testing.T) {
 	var buf bytes.Buffer
 

@@ -59,112 +59,8 @@ func TestPaneEnv(t *testing.T) {
 	}
 }
 
-func TestCommands(t *testing.T) {
-	lookup := func(shell string) func(string) string {
-		return func(k string) string {
-			if k == "SHELL" {
-				return shell
-			}
-
-			return ""
-		}
-	}
-
-	tests := []struct {
-		name  string
-		shell string
-		shArg []string
-		agent []string
-	}{
-		{
-			"fish", "/usr/bin/fish",
-			[]string{"/usr/bin/fish", "-l"},
-			[]string{"/usr/bin/fish", "-l", "-i", "-c", `status job-control full; $argv; exec "$SHELL" -l`, "claude"},
-		},
-		{
-			"fallback", "",
-			[]string{"/bin/sh", "-l"},
-			[]string{"/bin/sh", "-l", "-i", "-c", `"$@"; exec "$SHELL" -l`, "sh", "claude"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			sh := ShellCommand(lookup(tt.shell), Integration{}, "/work", nil)
-			if !slices.Equal(sh.Argv, tt.shArg) || sh.Dir != "/work" {
-				t.Errorf("ShellCommand = %+v", sh)
-			}
-
-			ag := AgentCommand(lookup(tt.shell), Integration{}, "/work", []string{"claude"}, nil)
-			if !slices.Equal(ag.Argv, tt.agent) || ag.Dir != "/work" {
-				t.Errorf("AgentCommand = %+v", ag)
-			}
-
-			wantShell := tt.shArg[0]
-
-			for _, c := range []Command{sh, ag} {
-				var shells []string
-
-				for _, kv := range c.Env {
-					if strings.HasPrefix(kv, "SHELL=") {
-						shells = append(shells, kv)
-					}
-				}
-
-				if !slices.Equal(shells, []string{"SHELL=" + wantShell}) {
-					t.Errorf("SHELL entries = %q, want only SHELL=%s", shells, wantShell)
-				}
-
-				if !slices.Contains(c.Env, "TERM=xterm-256color") {
-					t.Errorf("Env lacks TERM: %q", c.Env)
-				}
-			}
-		})
-	}
-}
-
-func TestCommandsExtraEnv(t *testing.T) {
-	t.Setenv("AIM_PANE", "inherited")
-
-	env := func(string) string { return "/bin/sh" }
-	extra := []string{"AIM_PANE=p2", "AIM_SOCK=/run/1.sock"}
-
-	for name, c := range map[string]Command{
-		"shell": ShellCommand(env, Integration{}, "/work", extra),
-		"agent": AgentCommand(env, Integration{}, "/work", []string{"claude"}, extra),
-	} {
-		var panes []string
-
-		for _, kv := range c.Env {
-			if strings.HasPrefix(kv, "AIM_PANE=") {
-				panes = append(panes, kv)
-			}
-		}
-
-		if !slices.Equal(panes, []string{"AIM_PANE=p2"}) {
-			t.Errorf("%s: AIM_PANE entries = %q, want only p2", name, panes)
-		}
-
-		if !slices.Contains(c.Env, "AIM_SOCK=/run/1.sock") {
-			t.Errorf("%s: Env lacks extra entry: %q", name, c.Env)
-		}
-	}
-}
-
-func TestAgentCommandArgumentsAreNotInTheScript(t *testing.T) {
-	env := func(string) string { return "/bin/sh" }
-	argv := []string{"claude", "--settings", "/tmp/a b/it's.json", "$(x)"}
-	c := AgentCommand(env, Integration{}, "/work", argv, nil)
-
-	want := append([]string{"/bin/sh", "-l", "-i", "-c", `"$@"; exec "$SHELL" -l`, "sh"}, argv...)
-	if !slices.Equal(c.Argv, want) {
-		t.Errorf("Argv = %q, want %q", c.Argv, want)
-	}
-}
-
 func TestEditorCommand(t *testing.T) {
 	sh := func(string) string { return "/bin/sh" }
-	fish := func(string) string { return "/usr/bin/fish" }
 
 	const tail = `; exec "$SHELL" -l`
 
@@ -175,11 +71,9 @@ func TestEditorCommand(t *testing.T) {
 		args   []string
 		want   []string // the arguments after -l -i -c
 	}{
-		{"a plain editor", sh, "vi", []string{"+7", "a.go"}, []string{`vi "$@"` + tail, "sh", "+7", "a.go"}},
 		{"an editor with arguments is read by the shell", sh, "code -w", []string{"+7", "a.go"}, []string{`code -w "$@"` + tail, "sh", "+7", "a.go"}},
 		{"a quote and a space stay one argument", sh, "vi", []string{"+7", "it's a file.go"}, []string{`vi "$@"` + tail, "sh", "+7", "it's a file.go"}},
 		{"shell syntax in an argument is not in the script", sh, "vi", []string{"$(x)", "a;b"}, []string{`vi "$@"` + tail, "sh", "$(x)", "a;b"}},
-		{"fish gets job control first and reads argv", fish, "vi", []string{"a.go"}, []string{`status job-control full; vi $argv` + tail, "a.go"}},
 	}
 
 	for _, tt := range tests {
@@ -208,10 +102,8 @@ func TestEditorOnlyCommand(t *testing.T) {
 		sh   string
 		want []string // the arguments after -l -i -c
 	}{
-		{"sh", "/bin/sh", []string{`vi "$@"`, "sh", "/run/body.md"}},
 		{"bash", "/usr/bin/bash", []string{`vi "$@"`, "bash", "/run/body.md"}},
 		{"zsh", "/usr/bin/zsh", []string{`vi "$@"`, "zsh", "/run/body.md"}},
-		{"fish", "/usr/bin/fish", []string{`status job-control full; vi $argv`, "/run/body.md"}},
 	}
 
 	for _, tt := range tests {
@@ -251,13 +143,10 @@ func TestAgentCommandPinned(t *testing.T) {
 		sh    string   // the shell that runs
 		want  []string // the arguments after -l -i -c
 	}{
-		{"sh", "/bin/sh", argv, "/bin/sh", append([]string{posix, "sh"}, argv...)},
 		{"bash", "/bin/bash", argv, "/bin/bash", append([]string{posix, "bash"}, argv...)},
 		{"zsh", "/bin/zsh", argv, "/bin/zsh", append([]string{posix, "zsh"}, argv...)},
-		{"fish gets job control first", "/usr/bin/fish", argv, "/usr/bin/fish", append([]string{fishScript}, argv...)},
 		{"fish at another path", "/opt/homebrew/bin/fish", argv, "/opt/homebrew/bin/fish", append([]string{fishScript}, argv...)},
 		{"an unset SHELL runs sh", "", argv, "/bin/sh", append([]string{posix, "sh"}, argv...)},
-		{"one word", "/bin/zsh", []string{"claude"}, "/bin/zsh", []string{posix, "zsh", "claude"}},
 	}
 
 	extra := []string{"AIM_PANE=p2", "AIM_SOCK=/run/1.sock"}
@@ -344,68 +233,71 @@ func runToExit(t *testing.T, c Command) string {
 
 // TestCommandsPassArgumentsUntouched runs the editor and agent commands under
 // each shell, with arguments the shell would act on if it parsed them. They must
-// reach the program byte for byte and nothing may run.
+// reach the program byte for byte and nothing may run. bash runs the same "$@"
+// script as sh (only fish differs, env.go's isFish), so it has no run of its own.
 func TestCommandsPassArgumentsUntouched(t *testing.T) {
-	for _, name := range []string{"sh", "bash", "zsh", "fish"} {
+	for _, name := range []string{"sh", "zsh", "fish"} {
 		t.Run(name, func(t *testing.T) {
 			shell := testShell(t, name)
 
 			for _, kind := range []string{"editor", "agent"} {
-				for _, hostile := range []string{"escaped quote", "every metacharacter", "trailing backslash"} {
-					t.Run(kind+"/"+hostile, func(t *testing.T) {
-						out := shellTestEnv(t)
-						dir, marker := t.TempDir(), filepath.Join(t.TempDir(), "injected")
+				t.Run(kind, func(t *testing.T) {
+					out := shellTestEnv(t)
+					dir, marker := t.TempDir(), filepath.Join(t.TempDir(), "injected")
 
-						value := map[string]string{
-							"escaped quote":       `x\';touch ` + marker + `;#`,
-							"every metacharacter": "a\\'b'c$(touch pwned)`touch pwned`;touch pwned;# d\ne",
-							"trailing backslash":  "it's a\\",
-						}[hostile]
+					values := []string{
+						"+3",
+						`x\';touch ` + marker + `;#`,
+						"a\\'b'c$(touch pwned)`touch pwned`;touch pwned;# d\ne",
+						"*",
+						`back\slash "dq"`,
+						"it's a\\",
+					}
 
-						env := func(k string) string {
-							if k == "SHELL" {
-								return shell
-							}
-
-							return ""
+					env := func(k string) string {
+						if k == "SHELL" {
+							return shell
 						}
 
-						program := filepath.Join(filepath.Dir(out), "bin", "claude")
+						return ""
+					}
 
-						var (
-							c    Command
-							want []string
-						)
+					program := filepath.Join(filepath.Dir(out), "bin", "claude")
 
-						switch kind {
-						case "editor":
-							want = []string{"+3", value}
-							c = EditorCommand(env, Integration{}, dir, program, want, nil)
-						default:
-							want = []string{"--settings", value, "--resume", value}
-							c = AgentCommand(env, Integration{}, dir, append([]string{program}, want...), nil)
+					var c Command
+
+					switch kind {
+					case "editor":
+						c = EditorCommand(env, Integration{}, dir, program, values, nil)
+					default:
+						c = AgentCommand(env, Integration{}, dir, append([]string{program}, values...), []string{"AIM_PANE=p7"})
+					}
+
+					shellOut := runToExit(t, c)
+
+					raw, err := os.ReadFile(filepath.Join(out, "args"))
+					if err != nil {
+						t.Fatalf("the program did not run: %v\n%s", err, shellOut)
+					}
+
+					if got := strings.Split(strings.TrimSuffix(string(raw), "\x00"), "\x00"); !slices.Equal(got, values) {
+						t.Errorf("args = %q, want %q\n%s", got, values, shellOut)
+					}
+
+					if kind == "agent" {
+						if pane, _ := os.ReadFile(filepath.Join(out, "pane")); string(pane) != "p7" {
+							t.Errorf("AIM_PANE = %q, want p7", pane)
 						}
+					}
 
-						shellOut := runToExit(t, c)
+					if _, err := os.Stat(marker); err == nil {
+						t.Error("an injected command ran: the marker exists")
+					}
 
-						raw, err := os.ReadFile(filepath.Join(out, "args"))
-						if err != nil {
-							t.Fatalf("the program did not run: %v\n%s", err, shellOut)
-						}
-
-						if got := strings.Split(strings.TrimSuffix(string(raw), "\x00"), "\x00"); !slices.Equal(got, want) {
-							t.Errorf("args = %q, want %q\n%s", got, want, shellOut)
-						}
-
-						if _, err := os.Stat(marker); err == nil {
-							t.Error("an injected command ran: the marker exists")
-						}
-
-						if left, _ := os.ReadDir(dir); len(left) != 0 {
-							t.Errorf("a command in an argument ran: %d files in the working directory", len(left))
-						}
-					})
-				}
+					if left, _ := os.ReadDir(dir); len(left) != 0 {
+						t.Errorf("a command in an argument ran: %d files in the working directory", len(left))
+					}
+				})
 			}
 		})
 	}

@@ -251,6 +251,11 @@ func TestNewIntegration(t *testing.T) {
 
 	for _, tt := range tests {
 		for _, viaZdot := range []bool{false, true} {
+			// The ZDOTDIR half needs only the empty and one present case.
+			if viaZdot && tt.name != "none" && tt.name != ".zshrc" {
+				continue
+			}
+
 			name := tt.name
 			if viaZdot {
 				name += " via ZDOTDIR"

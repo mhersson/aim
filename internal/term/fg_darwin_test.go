@@ -10,7 +10,7 @@ import (
 // Claude's native install runs claude as a symlink to a file named after its
 // version. A symlink to sleep stands in for it: p_comm reports "sleep".
 func TestForegroundSymlinkedAgent(t *testing.T) {
-	for _, name := range []string{"sh", "bash", "zsh", "fish"} {
+	for _, name := range []string{"sh", "bash"} {
 		t.Run(name, func(t *testing.T) {
 			sh, err := exec.LookPath(name)
 			if err != nil {

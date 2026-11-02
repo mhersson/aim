@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -131,49 +130,6 @@ func shellTestEnv(t *testing.T) (out string) {
 	return out
 }
 
-func TestAgentCommandRunsArgvVerbatim(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("shell invocation is tested on Linux")
-	}
-
-	hostile := "$(touch pwned)"
-	args := []string{"--settings", "/tmp/a b/it's.json", "--resume", hostile, "*", `back\slash "dq"`}
-
-	for _, name := range []string{"sh", "zsh", "fish"} {
-		t.Run(name, func(t *testing.T) {
-			sh, err := exec.LookPath(name)
-			if err != nil {
-				t.Skipf("%s not installed", name)
-			}
-
-			out := shellTestEnv(t)
-			dir := t.TempDir()
-			t.Setenv("SHELL", sh)
-
-			// Absolute path: a login profile may reset PATH.
-			fake := filepath.Join(filepath.Dir(out), "bin", "claude")
-
-			c := AgentCommand(os.Getenv, Integration{}, dir, append([]string{fake}, args...), []string{"AIM_PANE=p7"})
-			startCommand(t, c)
-
-			raw := waitFile(t, filepath.Join(out, "args"))
-
-			got := strings.Split(strings.TrimSuffix(string(raw), "\x00"), "\x00")
-			if !slices.Equal(got, args) {
-				t.Errorf("args = %q, want %q", got, args)
-			}
-
-			if _, err := os.Stat(filepath.Join(dir, "pwned")); err == nil {
-				t.Error("session id was executed: pwned exists")
-			}
-
-			if pane := waitFile(t, filepath.Join(out, "pane")); string(pane) != "p7" {
-				t.Errorf("AIM_PANE = %q, want p7", pane)
-			}
-		})
-	}
-}
-
 func TestAgentCommandLeadsForeground(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("shell invocation is tested on Linux")
@@ -198,23 +154,5 @@ func TestAgentCommandLeadsForeground(t *testing.T) {
 
 			waitForeground(t, p, "claude")
 		})
-	}
-}
-
-func waitFile(t *testing.T, path string) []byte {
-	t.Helper()
-
-	deadline := time.Now().Add(5 * time.Second)
-
-	for {
-		if b, err := os.ReadFile(path); err == nil {
-			return b
-		}
-
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %s", path)
-		}
-
-		time.Sleep(20 * time.Millisecond)
 	}
 }
