@@ -187,6 +187,10 @@ func (f *fakeGit) begin(ctx context.Context, op, root string, args ...string) (f
 		f.mu.Unlock()
 	}
 
+	if err == nil {
+		err = ctx.Err() // exec.Cmd.Start refuses an ended context before git runs
+	}
+
 	if h != nil {
 		select {
 		case <-h.ch:
@@ -830,27 +834,49 @@ func (f *fakeGit) countNotIn(tip string, exclude map[string]bool) int {
 	return n
 }
 
+// changesL counts the entries git status --porcelain --untracked-files=normal
+// reports: each changed tracked path, and each untracked path once, folded
+// into the topmost directory that holds no tracked file.
 func (f *fakeGit) changesL(r *fakeRepo) int {
 	if _, err := os.Stat(r.root); err != nil {
 		return 0
 	}
 
 	head, disk := f.headTree(r), f.readDiskL(r)
-	n := 0
+	entries := map[string]bool{}
 
 	for p, v := range disk {
-		if hv, ok := head[p]; !ok || hv != v {
-			n++
+		if hv, ok := head[p]; ok {
+			if hv != v {
+				entries[p] = true
+			}
+
+			continue
 		}
+
+		entries[untrackedEntry(head, p)] = true
 	}
 
 	for p := range head {
 		if _, ok := disk[p]; !ok {
-			n++
+			entries[p] = true
 		}
 	}
 
-	return n
+	return len(entries)
+}
+
+func untrackedEntry(head fakeTree, p string) string {
+	parts := strings.Split(p, "/")
+
+	for i := 1; i < len(parts); i++ {
+		dir := strings.Join(parts[:i], "/") + "/"
+		if !slices.ContainsFunc(slices.Collect(maps.Keys(head)), func(h string) bool { return strings.HasPrefix(h, dir) }) {
+			return dir
+		}
+	}
+
+	return p
 }
 
 // rootOfL is the deepest registered root that holds dir.
@@ -1058,9 +1084,13 @@ func (f *fakeGit) Ahead(ctx context.Context, gr git.Repo) (int, bool, error) {
 		return 0, false, nil
 	}
 
-	tip, ok := r.c.tracking[remote+"/"+r.cur]
-	if !ok || r.headOID() == "" {
+	if r.headOID() == "" {
 		return 0, false, nil
+	}
+
+	tip, ok := r.c.tracking[remote+"/"+r.cur]
+	if !ok {
+		return 0, false, fmt.Errorf("ahead: upstream %s/%s: no such ref", remote, r.cur)
 	}
 
 	return f.countNotIn(r.headOID(), f.ancestors(tip)), true, nil
@@ -1182,7 +1212,13 @@ func (f *fakeGit) CreateWorktree(ctx context.Context, gr git.Repo, nw git.NewWor
 	}
 
 	oid, ok := r.c.branches[nw.Branch]
-	if !ok {
+	if ok {
+		for _, t := range r.c.trees {
+			if !t.detached && t.cur == nw.Branch {
+				return git.Created{}, fmt.Errorf("create worktree %s: %q is already checked out at %q", target, nw.Branch, t.root)
+			}
+		}
+	} else {
 		base := nw.Base
 		if base == "" {
 			if base, err = f.defaultBranchL(r); err != nil {
@@ -1874,6 +1910,10 @@ func TestFakeWorktrees(t *testing.T) {
 		t.Errorf("second create = %+v, %v, want no new exclude", again, err)
 	}
 
+	if _, err := f.CreateWorktree(ctx, r.Repo(), git.NewWorktree{Branch: "main"}); err == nil || errors.Is(err, git.ErrExists) {
+		t.Errorf("CreateWorktree of a branch checked out in the main checkout = %v, want a plain error", err)
+	}
+
 	errTests := []struct {
 		name string
 		nw   git.NewWorktree
@@ -1895,7 +1935,7 @@ func TestFakeWorktrees(t *testing.T) {
 		}
 	}
 
-	if calls := f.calls("CreateWorktree"); len(calls) != 2+len(errTests) || !slices.Equal(calls[0].Args, []string{"feat/x", "", "inside"}) {
+	if calls := f.calls("CreateWorktree"); len(calls) != 3+len(errTests) || !slices.Equal(calls[0].Args, []string{"feat/x", "", "inside"}) {
 		t.Errorf("call log = %+v", calls)
 	}
 
@@ -1923,6 +1963,20 @@ func TestFakeWorktrees(t *testing.T) {
 
 	if n, err := f.WorktreeChanges(ctx, wantPath); err != nil || n != 1 {
 		t.Errorf("WorktreeChanges = %d, %v, want 1", n, err)
+	}
+
+	write(t, filepath.Join(wantPath, "dir", "one.txt"), "1\n")
+	write(t, filepath.Join(wantPath, "dir", "sub", "two.txt"), "2\n")
+	write(t, filepath.Join(wantPath, "a.txt"), "changed\n")
+
+	if n, err := f.WorktreeChanges(ctx, wantPath); err != nil || n != 3 {
+		t.Errorf("WorktreeChanges = %d, %v, want 3: new.txt, the untracked dir once, a.txt", n, err)
+	}
+
+	write(t, filepath.Join(wantPath, "a.txt"), "a\n")
+
+	if err := os.RemoveAll(filepath.Join(wantPath, "dir")); err != nil {
+		t.Fatal(err)
 	}
 
 	if err := f.RemoveWorktree(ctx, r.Repo(), wantPath); !errors.Is(err, git.ErrWorktreeDirty) {
@@ -2040,6 +2094,15 @@ func TestFakeRemotes(t *testing.T) {
 	if _, ok, _ := f.Ahead(ctx, f.repo(t, "bare").Repo()); ok {
 		t.Error("Ahead without an upstream reported ok")
 	}
+
+	r.setUpstream("other", "origin")
+	r.branch("other")
+
+	if n, ok, err := f.Ahead(ctx, r.Repo()); err == nil {
+		t.Errorf("Ahead with an upstream whose tracking ref is gone = %d, %v, nil, want an error", n, ok)
+	}
+
+	r.switchTo("main")
 
 	refs, err := f.FetchPR(ctx, r.Repo(), "origin", 7, "main")
 	if err != nil || refs != (git.PRRefs{Head: head, Base: base}) {
@@ -2217,6 +2280,13 @@ func TestFakeScripting(t *testing.T) {
 
 	if c := f.calls("Update"); len(c) != 1 || !slices.Equal(c[0].Args, []string{"branch", "", "a.go"}) {
 		t.Errorf("Update calls = %+v", c)
+	}
+
+	dead, stop := context.WithCancel(ctx)
+	stop()
+
+	if _, err := f.Head(dead, r.Repo()); !errors.Is(err, context.Canceled) {
+		t.Errorf("Head with an ended context = %v, want context.Canceled", err)
 	}
 
 	var ran bool
