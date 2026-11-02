@@ -44,8 +44,8 @@ func (a *App) waitEvent() tea.Cmd {
 	}
 }
 
-// onHook applies a hook or status event. An event for a pane that is not an open
-// agent is ignored, so a late or misaddressed event never disturbs the state.
+// onHook applies a hook or status event. An event for a pane that is not open is
+// ignored, and one for a shell pane is held until the probe answers (holdHook).
 func (a *App) onHook(ev harness.Event) tea.Cmd {
 	m, ok := a.store.State().Panes[ev.Pane]
 	if ok && m.Kind != core.KindAgent {
