@@ -90,8 +90,9 @@ nothing, and anywhere else it closes the popover and goes no further.
   `[shell] integration = false`, or when the files were not written, every pane
   gets today's argv and environment.
 - Every pane gets `TERM=xterm-256color` and `COLORTERM=truecolor` and loses an
-  inherited `TMUX`, `TMUX_PANE`, `AIM_PANE`, `AIM_SOCK`, `AIM_SHELL_DIR`,
-  `AIM_ZDOTDIR` and `AIM_ENV` (`term.PaneEnv`).
+  inherited `TMUX`, `TMUX_PANE`, `AIM_PANE`, `AIM_SOCK`, `AIM_TTY`,
+  `AIM_SHELL_DIR`, `AIM_ZDOTDIR` and `AIM_ENV` (`term.PaneEnv`). `term.Start`
+  opens the pty itself and sets `AIM_TTY` to the slave's path.
 
 **A `claude` typed in a pane.** A `claude` typed in a pane's shell gets the
 instance's settings file from two pieces, both from
@@ -109,7 +110,11 @@ instance's settings file from two pieces, both from
   `--settings <file>` in front of the arguments only when `AIM_SOCK` names
   `<dir>/<pid>.sock` and the instance's settings file exists, `CLAUDECODE` is
   empty, the arguments hold no `--settings` before a `--`, and the process
-  leads its terminal's foreground group. It then execs the first other `claude`
+  leads the foreground group of both its `/dev/tty` and the terminal at
+  `AIM_TTY` (`term.OwnsForeground`). The second test is why `AIM_TTY` exists: a
+  `claude` on a pty nested in the pane (an editor's terminal, `tmux`, `script`)
+  leads that pty's group, but the pane's terminal is led by the program that
+  started the pty, so only the pane's own `claude` passes both. It then execs the first other `claude`
   on PATH, skipping entries that are the same file as itself, and hands on the
   PATH without those entries, so Claude and its tools never meet the wrapper.
 - **It fails open.** An error inside it execs the real `claude` unchanged. With

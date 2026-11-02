@@ -101,7 +101,7 @@ func TestPlanShim(t *testing.T) {
 	fs := newShimFS(t)
 	join := func(parts ...string) string { return strings.Join(parts, string(os.PathListSeparator)) }
 	base := func(path string, extra ...string) []string {
-		return append([]string{"A=1", "PATH=" + path, "AIM_SOCK=" + fs.sockPath, "Z=last"}, extra...)
+		return append([]string{"A=1", "PATH=" + path, "AIM_SOCK=" + fs.sockPath, "AIM_TTY=/dev/pts/7", "Z=last"}, extra...)
 	}
 
 	cwd := t.TempDir()
@@ -125,7 +125,15 @@ func TestPlanShim(t *testing.T) {
 			wantPath: fs.fakeClaude, wantArgv: []string{"claude", "--settings", fs.settings, "a"}, wantPATH: fs.f, wantOK: true,
 		},
 		{
-			name: "not the leader", args: []string{"a"}, env: base(join(fs.w, fs.f)),
+			name: "not the pane's terminal or its leader", args: []string{"a"}, env: base(join(fs.w, fs.f)),
+			wantPath: fs.fakeClaude, wantArgv: []string{"claude", "a"}, wantPATH: fs.f, wantOK: true,
+		},
+		{
+			name: "AIM_TTY unset", args: []string{"a"}, env: []string{"A=1", "PATH=" + join(fs.w, fs.f), "AIM_SOCK=" + fs.sockPath, "Z=last"}, leads: true,
+			wantPath: fs.fakeClaude, wantArgv: []string{"claude", "a"}, wantPATH: fs.f, wantOK: true,
+		},
+		{
+			name: "AIM_TTY empty", args: []string{"a"}, env: base(join(fs.w, fs.f), "AIM_TTY="), leads: true,
 			wantPath: fs.fakeClaude, wantArgv: []string{"claude", "a"}, wantPATH: fs.f, wantOK: true,
 		},
 		{
@@ -169,7 +177,7 @@ func TestPlanShim(t *testing.T) {
 				t.Chdir(tt.chdir)
 			}
 
-			plan, ok := planShim(tt.args, tt.env, fs.self, func() bool { return tt.leads })
+			plan, ok := planShim(tt.args, tt.env, fs.self, func(tty string) bool { return tt.leads && tty == "/dev/pts/7" })
 			if ok != tt.wantOK {
 				t.Fatalf("ok = %v, want %v (plan %+v)", ok, tt.wantOK, plan)
 			}
@@ -216,12 +224,12 @@ func TestPlanShimWithoutSelf(t *testing.T) {
 	pathEnv := filepath.Join(shellDir, "bin") + string(os.PathListSeparator) + fs.f
 	env := []string{"PATH=" + pathEnv, "AIM_SHELL_DIR=" + shellDir}
 
-	plan, ok := planShim(nil, env, nil, func() bool { return false })
+	plan, ok := planShim(nil, env, nil, func(string) bool { return false })
 	if !ok || plan.path != fs.fakeClaude {
 		t.Errorf("with AIM_SHELL_DIR: plan %+v, %v; want %s", plan, ok, fs.fakeClaude)
 	}
 
-	if _, ok := planShim(nil, []string{"PATH=" + pathEnv}, nil, func() bool { return false }); ok {
+	if _, ok := planShim(nil, []string{"PATH=" + pathEnv}, nil, func(string) bool { return false }); ok {
 		t.Error("without self and AIM_SHELL_DIR the plan must fail rather than risk exec'ing itself")
 	}
 }
@@ -421,22 +429,37 @@ func TestShimOnAPty(t *testing.T) {
 		t.Skip("needs a pty")
 	}
 
+	// A program on a pty nested in the pane leads that pty's group but is not the pane's own claude.
+	nested := "script -qec 'claude x' /dev/null"
+	if runtime.GOOS == "darwin" {
+		nested = "script -q /dev/null claude x"
+	}
+
+	_, scriptErr := exec.LookPath("script")
+
 	tests := []struct {
 		name  string
 		typed string
 		want  func(settings string) []string
 		out   string
+		skip  string
 	}{
-		{"leader", "claude a 'b c'", func(s string) []string { return []string{"--settings", s, "a", "b c"} }, ""},
-		{"child of the leader", "sh -c 'claude -p x; :'", func(string) []string { return []string{"-p", "x"} }, ""},
-		{"not the leader of a pipeline", "echo hi | claude -p", func(string) []string { return []string{"-p"} }, ""},
-		{"inside claude code", "CLAUDECODE=1 claude y", func(string) []string { return []string{"y"} }, ""},
-		{"own settings", "claude --settings=/u.json z", func(string) []string { return []string{"--settings=/u.json", "z"} }, ""},
-		{"exit status", "FAKE_EXIT=3 claude q; echo rc=$?", func(s string) []string { return []string{"--settings", s, "q"} }, "rc=3"},
+		{"nested plain shell on the pane's tty", "bash --norc --noprofile -i\nclaude n", func(s string) []string { return []string{"--settings", s, "n"} }, "", ""},
+		{"nested pty", nested, func(string) []string { return []string{"x"} }, "", map[bool]string{true: "script is not installed"}[scriptErr != nil]},
+		{"leader", "claude a 'b c'", func(s string) []string { return []string{"--settings", s, "a", "b c"} }, "", ""},
+		{"child of the leader", "sh -c 'claude -p x; :'", func(string) []string { return []string{"-p", "x"} }, "", ""},
+		{"not the leader of a pipeline", "echo hi | claude -p", func(string) []string { return []string{"-p"} }, "", ""},
+		{"inside claude code", "CLAUDECODE=1 claude y", func(string) []string { return []string{"y"} }, "", ""},
+		{"own settings", "claude --settings=/u.json z", func(string) []string { return []string{"--settings=/u.json", "z"} }, "", ""},
+		{"exit status", "FAKE_EXIT=3 claude q; echo rc=$?", func(s string) []string { return []string{"--settings", s, "q"} }, "rc=3", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
+			if tt.skip != "" {
+				t.Skip(tt.skip)
+			}
 
 			r := newShimRig(t, recordingFake)
 			r.typeLine(t, tt.typed)

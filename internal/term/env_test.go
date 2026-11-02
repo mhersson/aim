@@ -34,6 +34,11 @@ func TestPaneEnv(t *testing.T) {
 			[]string{"AIM_OTHER=1", "TERM=xterm-256color", "COLORTERM=truecolor"},
 		},
 		{
+			"pane terminal dropped",
+			[]string{"AIM_TTY=/dev/pts/9", "AIM_KEEP=1"},
+			[]string{"AIM_KEEP=1", "TERM=xterm-256color", "COLORTERM=truecolor"},
+		},
+		{
 			"integration variables dropped",
 			[]string{"AIM_SHELL_DIR=/d", "AIM_ZDOTDIR=/z", "AIM_ENV=/e", "AIM_KEEP=1"},
 			[]string{"AIM_KEEP=1", "TERM=xterm-256color", "COLORTERM=truecolor"},

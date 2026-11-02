@@ -228,6 +228,10 @@ what to do about it. Skim it before your first commit each session.
 - Debian and Ubuntu `/etc/profile` overwrite PATH for a login bash, which is
   why bash gets a `claude` function and AIM's `init.bash` puts `bin` first
   again after the login files.
+- A `claude` on a pty nested in the pane (an nvim terminal, tmux, zellij,
+  screen, `script`) gets no settings: the pane's terminal, named by `AIM_TTY`,
+  is not led by it. `/dev/tty` is a node of its own, so the wrapper compares
+  foreground groups, not device numbers.
 - Apple's `/bin/bash` 3.2 ignores `ENV`, so it gets the wrapper on PATH only
   (plain `-l`, plain tail).
 - `bash --posix` turns on `inherit_errexit`, sets `HISTFILE=~/.sh_history` and

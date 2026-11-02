@@ -26,9 +26,9 @@ type shimPlan struct {
 
 // planShim finds the first claude on PATH that is not the wrapper itself and
 // plans its exec, adding this instance's settings when the claude is a typed
-// one that leads its terminal. With self nil (its file is unknown) the wrapper
+// one that leads the pane's own terminal (own is given AIM_TTY). With self nil (its file is unknown) the wrapper
 // is told apart by AIM_SHELL_DIR/bin instead.
-func planShim(args, environ []string, self os.FileInfo, leads func() bool) (shimPlan, bool) {
+func planShim(args, environ []string, self os.FileInfo, own func(paneTTY string) bool) (shimPlan, bool) {
 	getenv := func(key string) (string, bool) {
 		for _, e := range slices.Backward(environ) {
 			if v, ok := strings.CutPrefix(e, key+"="); ok {
@@ -96,18 +96,23 @@ func planShim(args, environ []string, self os.FileInfo, leads func() bool) (shim
 		env[i] = e
 	}
 
-	argv := append([]string{shimName}, shimArgs(args, getenv, leads)...)
+	argv := append([]string{shimName}, shimArgs(args, getenv, own)...)
 
 	return shimPlan{path: found, argv: argv, env: env}, true
 }
 
 // shimArgs returns args with this instance's settings in front when all the
 // conditions hold; the cheap checks come first and the terminal probe last.
-func shimArgs(args []string, getenv func(string) (string, bool), leads func() bool) []string {
+func shimArgs(args []string, getenv func(string) (string, bool), own func(paneTTY string) bool) []string {
 	sock, _ := getenv("AIM_SOCK")
 
 	settings, ok := settingsForSock(sock)
 	if !ok {
+		return args
+	}
+
+	paneTTY, _ := getenv("AIM_TTY")
+	if paneTTY == "" {
 		return args
 	}
 
@@ -120,7 +125,7 @@ func shimArgs(args []string, getenv func(string) (string, bool), leads func() bo
 	}
 
 	with := harness.Claude{}.WithSettings(args, settings)
-	if len(with) == len(args) || !leads() {
+	if len(with) == len(args) || !own(paneTTY) {
 		return args
 	}
 
@@ -138,13 +143,13 @@ func runShim(args []string, stderr io.Writer) int {
 		}
 	}
 
-	leads := func() bool {
-		ok, err := term.LeadsForeground()
+	own := func(paneTTY string) bool {
+		ok, err := term.OwnsForeground(paneTTY)
 
 		return err == nil && ok
 	}
 
-	plan, ok := planShim(args, os.Environ(), self, leads)
+	plan, ok := planShim(args, os.Environ(), self, own)
 	if !ok {
 		_, _ = fmt.Fprintln(stderr, shimName+": command not found")
 
