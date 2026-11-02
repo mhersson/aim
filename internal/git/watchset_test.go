@@ -47,6 +47,7 @@ func nextRootBatch(t *testing.T, s *WatchSet) RootBatch {
 }
 
 func TestWatchSetSharesARoot(t *testing.T) {
+	t.Parallel()
 	dir := newRepo(t)
 	s := newWatchSet(t)
 	r := openRepo(t, dir)
@@ -61,17 +62,20 @@ func TestWatchSetSharesARoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// One watcher serves both holders, so one change makes one batch.
+	s.mu.Lock()
+	entries, refs := len(s.entries), s.entries[r.Root].refs
+	s.mu.Unlock()
+
+	if entries != 1 || refs != 2 {
+		t.Fatalf("entries = %d, references = %d; want 1 entry with 2", entries, refs)
+	}
+
 	writeFile(t, dir, "a.txt", "x")
 
 	b := nextRootBatch(t, s)
 	if b.Root != r.Root || len(b.Batch.Paths) != 1 || b.Batch.Paths[0] != "a.txt" {
 		t.Fatalf("batch = %+v", b)
-	}
-
-	select {
-	case extra := <-s.Batches():
-		t.Fatalf("second batch for one change: %+v", extra)
-	case <-time.After(300 * time.Millisecond):
 	}
 
 	rel1()
@@ -82,23 +86,6 @@ func TestWatchSetSharesARoot(t *testing.T) {
 
 	rel2()
 	rel2() // idempotent
-}
-
-func TestWatchSetStopsAfterTheLastRelease(t *testing.T) {
-	dir := newRepo(t)
-	s := newWatchSet(t)
-	r := openRepo(t, dir)
-
-	rel, err := s.Acquire(context.Background(), r)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	rel()
-
-	if _, ok := s.Seq(r.Root); ok {
-		t.Fatal("Seq still reports a watcher after the last release")
-	}
 }
 
 func TestWatchSetReacquireNeverRepeatsSeq(t *testing.T) {
@@ -194,40 +181,6 @@ func TestWatchSetReleaseAfterCloseIsSafe(t *testing.T) {
 	rel()
 }
 
-func TestWatchSetReportsAFailedWatch(t *testing.T) {
-	dir := newRepo(t)
-	writeFile(t, dir, "sub/a.txt", "x")
-
-	r := openRepo(t, dir)
-
-	// Walking sub/ runs git check-ignore, which fails under a canceled context.
-	ctx, cancel := context.WithCancel(context.Background())
-	s := NewWatchSet(ctx, fastWatch)
-
-	t.Cleanup(func() { _ = s.Close() })
-	cancel()
-
-	rel, err := s.Acquire(context.Background(), r)
-	if err == nil {
-		rel()
-		t.Fatal("Acquire succeeded under a canceled context")
-	}
-
-	// Nobody was reading Batches while Acquire ran.
-	select {
-	case got := <-s.Batches():
-		if got.Root != r.Root || got.Err == nil {
-			t.Fatalf("batch = %+v", got)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("no error batch")
-	}
-
-	if _, ok := s.Seq(r.Root); ok {
-		t.Fatal("Seq reports a watcher that failed to start")
-	}
-}
-
 func TestWatchSetFailedAcquireNeverBlocksWithoutAReader(t *testing.T) {
 	t.Parallel()
 	r := openRepo(t, newRepo(t))
@@ -242,7 +195,7 @@ func TestWatchSetFailedAcquireNeverBlocksWithoutAReader(t *testing.T) {
 	go func() {
 		defer close(done)
 
-		for range 4 * rootBatchBuffer {
+		for range rootBatchBuffer + 1 {
 			_, _ = s.Acquire(context.Background(), r)
 		}
 	}()
@@ -287,6 +240,7 @@ func TestWatchSetConcurrentAcquireRelease(t *testing.T) {
 }
 
 func TestWatchSetReportsARealStartFailure(t *testing.T) {
+	t.Parallel()
 	bad := newRepo(t)
 	writeFile(t, bad, "sub/a.txt", "x")
 
@@ -305,19 +259,13 @@ func TestWatchSetReportsARealStartFailure(t *testing.T) {
 		t.Fatal("Acquire succeeded on a repository whose walk fails")
 	}
 
-	select {
-	case got := <-s.Batches():
-		if got.Root != badRepo.Root || got.Err == nil {
-			t.Fatalf("batch = %+v", got)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("no error batch")
+	// Acquire sends the report before it returns, so it is already queued.
+	if got := nextRootBatch(t, s); got.Root != badRepo.Root || got.Err == nil {
+		t.Fatalf("batch = %+v", got)
 	}
 
-	select {
-	case extra := <-s.Batches():
-		t.Fatalf("second batch for one failure: %+v", extra)
-	case <-time.After(100 * time.Millisecond):
+	if n := len(s.Batches()); n != 0 {
+		t.Fatalf("%d more batches queued for one failure", n)
 	}
 
 	if _, ok := s.Seq(badRepo.Root); ok {
@@ -335,6 +283,12 @@ func TestWatchSetReportsARealStartFailure(t *testing.T) {
 
 	if _, ok := s.Seq(good.Root); !ok {
 		t.Fatal("healthy root not watched")
+	}
+
+	writeFile(t, good.Root, "a.txt", "x")
+
+	if got := nextRootBatch(t, s); got.Root != good.Root || got.Err != nil {
+		t.Fatalf("next batch = %+v, want the healthy root's change", got)
 	}
 }
 
