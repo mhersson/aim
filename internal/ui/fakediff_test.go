@@ -69,7 +69,8 @@ type diffLine struct {
 	old, nw   int
 }
 
-// buildHunks is git diff --histogram -U3 --inter-hunk-context=0 over two texts.
+// buildHunks is a Myers line diff (linediff) laid out the way git diff -U3
+// --inter-hunk-context=0 lays out hunks; on repeated lines git can pick other edits.
 func buildHunks(oldText, newText string) (hunks []git.Hunk, added, removed int) {
 	ok, oraw := lineKeys(oldText)
 	nk, _ := lineKeys(newText)

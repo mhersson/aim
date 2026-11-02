@@ -324,12 +324,12 @@ func TestMDOpenNotices(t *testing.T) {
 	tests := []struct {
 		name   string
 		mutate func(*mdListMsg)
-		want   string
+		want   noticeWant
 		items  []string // the palette's titles, when it opens
 		ids    []string
 	}{
-		{name: "no files", mutate: func(m *mdListMsg) { m.files = nil }, want: "no markdown files in this worktree"},
-		{name: "a listing error", mutate: func(m *mdListMsg) { m.files, m.err = nil, errors.New("boom") }, want: "markdown files: boom"},
+		{name: "no files", mutate: func(m *mdListMsg) { m.files = nil }, want: exactly(noticeNoMarkdown)},
+		{name: "a listing error", mutate: func(m *mdListMsg) { m.files, m.err = nil, errors.New("boom") }, want: carries("boom")},
 		{
 			name:   "a hostile name",
 			mutate: func(m *mdListMsg) { m.files = []string{"a\x1b[31mb\u200b.md"} },
@@ -354,8 +354,8 @@ func TestMDOpenNotices(t *testing.T) {
 			m.flow(m.step(msg), nil)
 
 			if tt.items == nil {
-				if m.notice != tt.want || m.overlay != nil {
-					t.Errorf("notice = %q, palette open = %v, want %q and none", m.notice, m.overlay != nil, tt.want)
+				if !tt.want.matches(m.notice) || m.overlay != nil {
+					t.Errorf("notice = %q, palette open = %v, want %+v and none", m.notice, m.overlay != nil, tt.want)
 				}
 
 				return

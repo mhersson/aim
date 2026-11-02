@@ -130,8 +130,8 @@ func TestAgentMovingIntoAWorktreeTakesTheRailAndDrawer(t *testing.T) {
 	r.keys(keyRune('t'))
 	r.idle(t)
 
-	if v := r.view(); !isBranchSource(v) || r.notice != "no turns yet" {
-		t.Errorf("t in the worktree gives source %T and notice %q, want the branch and %q", v.src, r.notice, "no turns yet")
+	if v := r.view(); !isBranchSource(v) || r.notice != noticeNoTurnsYet {
+		t.Errorf("t in the worktree gives source %T and notice %q, want the branch and %q", v.src, r.notice, noticeNoTurnsYet)
 	}
 
 	// The worktree's own turn starts, and the agent changes a file after it.
@@ -149,7 +149,7 @@ func TestAgentMovingIntoAWorktreeTakesTheRailAndDrawer(t *testing.T) {
 
 	r.keys(keyRune(','))
 
-	if want := "turn 1 is the first turn"; r.notice != want {
+	if want := noticeFirstTurn; r.notice != want {
 		t.Errorf("notice %q after ',', want %q", r.notice, want)
 	}
 

@@ -207,7 +207,7 @@ func TestEditOpensAnEditorPane(t *testing.T) {
 		e.cursorOn(t, func(f git.FileDiff, row reviewRow) bool { return f.Path == "gone.txt" && row.kind == rowFile })
 		e.keys(keyRune('e'))
 
-		if e.notice != "the file is deleted" || e.st.count() != 0 {
+		if e.notice != noticeFileDeleted || e.st.count() != 0 {
 			t.Errorf("notice = %q, panes started = %d, want the notice and none", e.notice, e.st.count())
 		}
 	})

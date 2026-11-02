@@ -151,7 +151,7 @@ func TestComposeEditorTwice(t *testing.T) {
 
 	r.churn(t, press(r.App, keyLeader, keyRune('g'), keyRune('o')))
 
-	if r.notice != "the PR body is open in an editor" || r.st.count() != 1 {
+	if r.notice != noticeEditorOpen || r.st.count() != 1 {
 		t.Errorf("notice = %q, starts = %d", r.notice, r.st.count())
 	}
 }

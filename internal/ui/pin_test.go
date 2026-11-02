@@ -337,7 +337,7 @@ func TestReopenOnRemovedPinnedWorktree(t *testing.T) {
 		t.Errorf("Pin = %+v, want it kept", pin)
 	}
 
-	if strings.Contains(r.notice, "git repository") {
+	if strings.Contains(r.notice, noticeNotRepo) {
 		t.Errorf("notice = %q", r.notice)
 	}
 

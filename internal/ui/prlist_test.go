@@ -765,6 +765,7 @@ func TestPRListNoCheckout(t *testing.T) {
 		name, repo, want string
 		key              rune
 	}{
+		{"github enter", "github.com/acme/infra", fmt.Sprintf(noticePRNoCheckout, "acme/infra"), '\r'},
 		{"github a", "github.com/acme/infra", fmt.Sprintf(noticePRNoCheckout, "acme/infra"), 'a'},
 		{"github M", "github.com/acme/infra", fmt.Sprintf(noticePRNoCheckout, "acme/infra"), 'M'},
 		{"enterprise enter", "ghe.example.com/acme/infra", fmt.Sprintf(noticePRNoCheckout, "ghe.example.com/acme/infra"), '\r'},

@@ -333,8 +333,8 @@ func TestFailedResolveNotifiesOnceAndRetriesOnAHook(t *testing.T) {
 
 	w.until(t, "the first failure", seen, func() bool { return failures >= 1 && w.notice != "" })
 
-	if want := "watching proj failed: too slow"; w.notice != want {
-		t.Errorf("notice = %q, want %q", w.notice, want)
+	if want := carries("proj", "too slow"); !want.matches(w.notice) {
+		t.Errorf("notice = %q, want %+v", w.notice, want)
 	}
 
 	w.notice = ""
@@ -363,8 +363,8 @@ func TestFailedResolveNotifiesOnceAndRetriesOnAHook(t *testing.T) {
 	w.pm.run(w.settle())
 	w.until(t, "the second notice", nil, func() bool { return w.notice != "" })
 
-	if want := "watching proj failed: too slow again"; w.notice != want {
-		t.Errorf("notice = %q, want %q", w.notice, want)
+	if want := carries("proj", "too slow again"); !want.matches(w.notice) {
+		t.Errorf("notice = %q, want %+v", w.notice, want)
 	}
 }
 
@@ -420,8 +420,8 @@ func TestFailedWatchNotifiesOnce(t *testing.T) {
 	// Update ran after seen, so wait one more step for the notice.
 	w.until(t, "the notice", seen, func() bool { return w.notice != "" })
 
-	if want := "watching proj failed: watch set closed"; w.notice != want {
-		t.Errorf("notice = %q, want %q", w.notice, want)
+	if want := carries("proj", "watch set closed"); !want.matches(w.notice) {
+		t.Errorf("notice = %q, want %+v", w.notice, want)
 	}
 
 	w.notice = ""

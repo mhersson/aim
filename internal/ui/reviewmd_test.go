@@ -281,9 +281,9 @@ func TestReviewMarkdownNotices(t *testing.T) {
 	tests := []struct {
 		name, path, notice string
 	}{
-		{"a Go file", "main.go", "not a markdown file"},
-		{"a binary markdown file", "bin.md", "not a markdown file"},
-		{"a deleted markdown file", "gone.md", "the file is deleted"},
+		{"a Go file", "main.go", noticeNotMD},
+		{"a binary markdown file", "bin.md", noticeNotMD},
+		{"a deleted markdown file", "gone.md", noticeFileDeleted},
 	}
 
 	for _, tc := range tests {

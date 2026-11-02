@@ -357,8 +357,8 @@ func TestComposeCreates(t *testing.T) {
 		t.Error("the box is still open after the PR was created")
 	}
 
-	if r.notice != "opened #12" {
-		t.Errorf("notice = %q, want opened #12", r.notice)
+	if !strings.Contains(r.notice, prNumberText(12)) || r.noticeLevel() != levelSuccess {
+		t.Errorf("notice = %q at level %v, want a success naming %s", r.notice, r.noticeLevel(), prNumberText(12))
 	}
 
 	if refreshed := r.rec.refreshed(); len(refreshed) == 0 || refreshed[len(refreshed)-1].String() != composeRepo {
@@ -394,8 +394,8 @@ func TestComposePushesFirst(t *testing.T) {
 		t.Errorf("creates = %v, want one for feat/x after the push", got)
 	}
 
-	if r.compose != nil || r.notice != "opened #12" {
-		t.Errorf("box %v, notice %q; want it closed with opened #12", r.compose, r.notice)
+	if r.compose != nil || !strings.Contains(r.notice, prNumberText(12)) || r.noticeLevel() != levelSuccess {
+		t.Errorf("box %v, notice %q at level %v; want it closed with a success naming %s", r.compose, r.notice, r.noticeLevel(), prNumberText(12))
 	}
 }
 
@@ -522,7 +522,7 @@ func TestComposeNotices(t *testing.T) {
 	tests := []struct {
 		name  string
 		setup func(t *testing.T, r *composeRig)
-		want  string
+		want  noticeWant
 		// resolved checks the answer the notice came from; nil where no resolve state tells the row apart.
 		resolved func(t *testing.T, m composeResolvedMsg)
 	}{
@@ -535,7 +535,7 @@ func TestComposeNotices(t *testing.T) {
 					Open: []core.PRInfo{{Number: 9, HeadBranch: "feat/x", State: prOpenState}},
 				})
 			},
-			want: "feat/x already has #9",
+			want: carries("feat/x", prNumberText(9)),
 		},
 		{
 			name: "a remote that is not on GitHub",
@@ -543,7 +543,7 @@ func TestComposeNotices(t *testing.T) {
 				t.Helper()
 				r.splitURLs(t, pushRemoteURL)
 			},
-			want: fmt.Sprintf(noticePRNotGitHub, "feat/x"),
+			want: exactly(fmt.Sprintf(noticePRNotGitHub, "feat/x")),
 			resolved: func(t *testing.T, m composeResolvedMsg) {
 				t.Helper()
 
@@ -555,7 +555,7 @@ func TestComposeNotices(t *testing.T) {
 		{
 			name:  "a detached HEAD",
 			setup: func(t *testing.T, r *composeRig) { t.Helper(); r.repo.detach() },
-			want:  noticeComposeDetached,
+			want:  exactly(noticeComposeDetached),
 			resolved: func(t *testing.T, m composeResolvedMsg) {
 				t.Helper()
 
@@ -571,7 +571,7 @@ func TestComposeNotices(t *testing.T) {
 
 				r.actions = nil
 			},
-			want: noticePRsOff,
+			want: exactly(noticePRsOff),
 		},
 	}
 
@@ -603,8 +603,8 @@ func TestComposeNotices(t *testing.T) {
 				t.Errorf("the box opened:\n%s", r.text())
 			}
 
-			if r.notice != tt.want || r.noticeLevel() != levelNotice {
-				t.Errorf("notice = %q at level %v, want %q at the notice level", r.notice, r.noticeLevel(), tt.want)
+			if !tt.want.matches(r.notice) || r.noticeLevel() != levelNotice {
+				t.Errorf("notice = %q at level %v, want %+v at the notice level", r.notice, r.noticeLevel(), tt.want)
 			}
 		})
 	}

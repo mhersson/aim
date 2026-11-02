@@ -152,7 +152,7 @@ Dependency rules:
   nesting) uses the smallest input that still proves the limit.
 - `internal/ui` tests never start git: they use the fake in
   `internal/ui/fakegit_test.go`, and the package's `TestMain` fails the run
-  when one does. Real git is tested in `internal/git`.
+  when one does, outside the `bench` tag. Real git is tested in `internal/git`.
 - New tests call `t.Parallel()` unless they use `t.Setenv`, change the
   process's working directory, or count process-wide resources such as open
   descriptors or goroutines.

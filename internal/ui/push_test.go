@@ -298,8 +298,8 @@ func TestPushConfirmNamesAnUpstreamAlreadySet(t *testing.T) {
 
 	r.churn(t, press(r.App, keyEnter))
 
-	if want := "pushed feat/x to origin: 1 commit"; r.notice != want {
-		t.Errorf("toast = %q, want %q", r.notice, want)
+	if want := carries("feat/x", "origin", commitCount(1)); !want.matches(r.notice) || r.noticeLevel() != levelSuccess {
+		t.Errorf("toast = %q at level %v, want %+v as a success", r.notice, r.noticeLevel(), want)
 	}
 }
 
@@ -315,8 +315,8 @@ func TestPushFirstPush(t *testing.T) {
 		t.Error("the confirm is still open after enter")
 	}
 
-	if want := "pushed feat/x to origin: 2 commits"; r.notice != want || r.noticeLevel() != levelSuccess {
-		t.Errorf("toast = %q at level %v, want %q at the success level", r.notice, r.noticeLevel(), want)
+	if want := carries("feat/x", "origin", commitCount(2)); !want.matches(r.notice) || r.noticeLevel() != levelSuccess {
+		t.Errorf("toast = %q at level %v, want %+v at the success level", r.notice, r.noticeLevel(), want)
 	}
 
 	if got := r.remoteRefs(t); !strings.Contains(got, "refs/heads/feat/x") {
@@ -353,8 +353,8 @@ func TestPushRefreshesTheGitHubRepository(t *testing.T) {
 
 	r.churn(t, press(r.App, keyEnter))
 
-	if want := "pushed feat/x to origin: 2 commits"; r.notice != want {
-		t.Errorf("toast = %q, want %q", r.notice, want)
+	if want := carries("feat/x", "origin", commitCount(2)); !want.matches(r.notice) || r.noticeLevel() != levelSuccess {
+		t.Errorf("toast = %q at level %v, want %+v as a success", r.notice, r.noticeLevel(), want)
 	}
 
 	if got := r.rec.refreshed(); !slices.Equal(got, []github.Repo{prRepo}) {
@@ -479,8 +479,8 @@ func TestPushRefusesAChangedPushURL(t *testing.T) {
 			tt.changed(t, r)
 			r.churn(t, press(r.App, keyEnter))
 
-			if want := "push: feat/x's push URL changed since you asked; nothing pushed"; r.notice != want || r.noticeLevel() != levelNotice {
-				t.Errorf("toast = %q at level %v, want %q at the notice level", r.notice, r.noticeLevel(), want)
+			if want := carries("feat/x"); !want.matches(r.notice) || r.noticeLevel() != levelNotice {
+				t.Errorf("toast = %q at level %v, want %+v at the notice level", r.notice, r.noticeLevel(), want)
 			}
 
 			if got := r.remoteRefs(t); got != "refs/heads/main" {
@@ -569,8 +569,8 @@ func TestPushConfirmTargetIsFrozen(t *testing.T) {
 
 			r.churn(t, press(r.App, keyEnter))
 
-			if want := "pushed feat/x to origin: 2 commits"; r.notice != want {
-				t.Errorf("toast = %q, want %q", r.notice, want)
+			if want := carries("feat/x", "origin", commitCount(2)); !want.matches(r.notice) || r.noticeLevel() != levelSuccess {
+				t.Errorf("toast = %q at level %v, want %+v as a success", r.notice, r.noticeLevel(), want)
 			}
 
 			got := r.remoteRefs(t)
@@ -793,8 +793,8 @@ func TestPushConfirmHeadMoved(t *testing.T) {
 			tt.moved(t, r)
 			r.churn(t, press(r.App, keyEnter))
 
-			if want := "push: feat/x changed since you asked; nothing pushed"; r.notice != want || r.noticeLevel() != levelNotice {
-				t.Errorf("toast = %q at level %v, want %q at the notice level", r.notice, r.noticeLevel(), want)
+			if want := carries("feat/x"); !want.matches(r.notice) || r.noticeLevel() != levelNotice {
+				t.Errorf("toast = %q at level %v, want %+v at the notice level", r.notice, r.noticeLevel(), want)
 			}
 
 			if got := r.remoteRefs(t); got != "refs/heads/main" {
@@ -817,7 +817,7 @@ func TestPushInFlight(t *testing.T) {
 	// The command is held, as a push still running is.
 	held := press(r.App, keyEnter)
 
-	if want := "pushing feat/x to origin…"; r.notice != want || r.noticeLevel() != levelNotice {
+	if want := pushingNotice(pushTarget{branch: "feat/x", remote: "origin"}); r.notice != want || r.noticeLevel() != levelNotice {
 		t.Errorf("toast = %q at level %v, want %q at the notice level", r.notice, r.noticeLevel(), want)
 	}
 
@@ -827,7 +827,7 @@ func TestPushInFlight(t *testing.T) {
 
 	r.ask(t)
 
-	if want := "push: feat/x is already being pushed"; r.notice != want || r.noticeLevel() != levelNotice {
+	if want := fmt.Sprintf(noticePushBusy, "feat/x"); r.notice != want || r.noticeLevel() != levelNotice {
 		t.Errorf("toast = %q at level %v, want %q at the notice level", r.notice, r.noticeLevel(), want)
 	}
 
@@ -841,8 +841,8 @@ func TestPushInFlight(t *testing.T) {
 
 	r.churn(t, held)
 
-	if want := "pushed feat/x to origin: 2 commits"; r.notice != want || r.noticeLevel() != levelSuccess {
-		t.Errorf("toast = %q at level %v, want %q at the success level", r.notice, r.noticeLevel(), want)
+	if want := carries("feat/x", "origin", commitCount(2)); !want.matches(r.notice) || r.noticeLevel() != levelSuccess {
+		t.Errorf("toast = %q at level %v, want %+v at the success level", r.notice, r.noticeLevel(), want)
 	}
 
 	if len(r.pushing) != 0 {
@@ -853,8 +853,8 @@ func TestPushInFlight(t *testing.T) {
 	r.askOpen(t)
 	r.churn(t, press(r.App, keyEnter))
 
-	if want := "pushed feat/x to origin: 1 commit"; r.notice != want {
-		t.Errorf("toast = %q, want %q", r.notice, want)
+	if want := carries("feat/x", "origin", commitCount(1)); !want.matches(r.notice) || r.noticeLevel() != levelSuccess {
+		t.Errorf("toast = %q at level %v, want %+v as a success", r.notice, r.noticeLevel(), want)
 	}
 
 	if n := r.pushCalls(); n != 2 {
@@ -873,7 +873,7 @@ func TestPushInFlightStopsAnotherAnswer(t *testing.T) {
 
 	r.churn(t, press(r.App, keyEnter))
 
-	if want := "push: feat/x is already being pushed"; r.notice != want {
+	if want := fmt.Sprintf(noticePushBusy, "feat/x"); r.notice != want {
 		t.Errorf("toast = %q, want %q", r.notice, want)
 	}
 

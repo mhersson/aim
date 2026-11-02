@@ -18,7 +18,8 @@ import (
 	"github.com/mhersson/aim/internal/github"
 )
 
-const mergedToast = "merged #7 (merge)"
+// mergedToast is the toast a merge leaves; the clean-up check adds to it while it shows.
+const mergedToast = "merged #7 (" + string(github.MergeCommit) + ")"
 
 // cleanupRig is the PR drawer on .worktrees/feat-x, a linked worktree of a
 // repository whose main checkout is on main. The drawer's pane is an idle agent
@@ -128,11 +129,6 @@ func (r *cleanupRig) check(head string) cleanupFoundMsg {
 	return r.cleanupCheck(fromMerge, prRepo, pr, r.root, head)().(cleanupFoundMsg)
 }
 
-// offer is check followed by feeding the answer to the app.
-func (r *cleanupRig) offer(head string) {
-	r.run(r.step(r.check(head)))
-}
-
 func (r *cleanupRig) name() string { return r.nameOf(r.agentID) }
 
 func (r *cleanupRig) nameOf(id core.PaneID) string { return r.cardName(r.store.State(), id) }
@@ -163,20 +159,39 @@ func (r *cleanupRig) done(t *testing.T) {
 // kept is the notice for panes that keep the worktree.
 func kept(panes ...cleanupPane) string { return keptBy(".worktrees/feat-x", panes) }
 
+// noticeWant is what a notice must be: exactly what a named constant or helper
+// builds, or, where the code builds it inline, any text that carries the values
+// the code puts in.
+type noticeWant struct {
+	exact string
+	has   []string
+}
+
+func exactly(s string) noticeWant       { return noticeWant{exact: s} }
+func carries(vals ...string) noticeWant { return noticeWant{has: vals} }
+
+func (w noticeWant) matches(got string) bool {
+	if len(w.has) == 0 {
+		return got == w.exact
+	}
+
+	return !slices.ContainsFunc(w.has, func(v string) bool { return !strings.Contains(got, v) })
+}
+
 func TestCleanupRun(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name    string
 		keys    []string
-		toast   string
+		toast   noticeWant
 		level   toastLevel
 		removed bool
 		branch  bool
 	}{
-		{"both", nil, "removed .worktrees/feat-x; deleted feat/x", levelSuccess, true, false},
-		{"branch off", []string{"b"}, "removed .worktrees/feat-x", levelSuccess, true, true},
-		{"worktree off", []string{"w"}, "nothing to clean up", levelNotice, false, true},
+		{"both", nil, carries(".worktrees/feat-x", "feat/x"), levelSuccess, true, false},
+		{"branch off", []string{"b"}, carries(".worktrees/feat-x"), levelSuccess, true, true},
+		{"worktree off", []string{"w"}, exactly(noticeNothingToClean), levelNotice, false, true},
 	}
 
 	for _, tc := range tests {
@@ -194,8 +209,8 @@ func TestCleanupRun(t *testing.T) {
 			r.keys(keyEnter)
 			r.done(t)
 
-			if r.notice != tc.toast || r.noticeLevel() != tc.level {
-				t.Errorf("toast = %q at level %v, want %q at level %v", r.notice, r.noticeLevel(), tc.toast, tc.level)
+			if !tc.toast.matches(r.notice) || r.noticeLevel() != tc.level {
+				t.Errorf("toast = %q at level %v, want %+v at level %v", r.notice, r.noticeLevel(), tc.toast, tc.level)
 			}
 
 			if r.confirm != nil {
@@ -318,8 +333,8 @@ func TestCleanupInUse(t *testing.T) {
 				r.keys(keyEnter)
 				r.done(t)
 
-				if want := "removed .worktrees/feat-x; deleted feat/x"; r.notice != want || r.noticeLevel() != levelSuccess {
-					t.Errorf("toast = %q at level %v, want %q as a success", r.notice, r.noticeLevel(), want)
+				if want := carries(".worktrees/feat-x", "feat/x"); !want.matches(r.notice) || r.noticeLevel() != levelSuccess {
+					t.Errorf("toast = %q at level %v, want %+v as a success", r.notice, r.noticeLevel(), want)
 				}
 
 				r.assertEnd(t, true, false)
@@ -406,10 +421,11 @@ func TestCleanupGuards(t *testing.T) {
 		name    string
 		setup   func(t *testing.T, r *cleanupRig)
 		head    string
-		toast   func(r *cleanupRig) string // the toast after the check
-		box     []string                   // text the box holds; none means no box
+		toast   func(r *cleanupRig) noticeWant // the toast after the check
+		found   func(f cleanupFound) bool      // the state the check answered, where the toast does not tell it
+		box     []string                       // text the box holds; none means no box
 		after   func(t *testing.T, r *cleanupRig)
-		final   func(r *cleanupRig) string // the notice after enter
+		final   func(r *cleanupRig) noticeWant // the notice after enter
 		level   toastLevel
 		removed bool // the worktree is gone at the end
 		branch  bool // the branch is left at the end
@@ -420,25 +436,21 @@ func TestCleanupGuards(t *testing.T) {
 			setup: func(t *testing.T, r *cleanupRig) {
 				write(t, filepath.Join(r.wt, "a.txt"), "changed\n")
 			},
-			toast: func(*cleanupRig) string {
-				return mergedToast + "; .worktrees/feat-x has 1 uncommitted change, so it stays"
-			},
+			toast:  func(*cleanupRig) noticeWant { return carries(mergedToast, ".worktrees/feat-x") },
+			found:  func(f cleanupFound) bool { return f.managed && !f.locked && f.changes == 1 },
 			branch: true,
 		},
 		{
-			name:  "locked worktree",
-			setup: func(t *testing.T, r *cleanupRig) { r.wtRepo().lock("") },
-			toast: func(*cleanupRig) string {
-				return mergedToast + "; .worktrees/feat-x is locked, so it stays"
-			},
+			name:   "locked worktree",
+			setup:  func(t *testing.T, r *cleanupRig) { r.wtRepo().lock("") },
+			toast:  func(*cleanupRig) noticeWant { return carries(mergedToast, ".worktrees/feat-x") },
+			found:  func(f cleanupFound) bool { return f.managed && f.locked },
 			branch: true,
 		},
 		{
-			name:  "working agent that cd'd in",
-			setup: func(t *testing.T, r *cleanupRig) { working(t, r, r.agentID) },
-			toast: func(r *cleanupRig) string {
-				return mergedToast + "; " + r.name() + " is still working in .worktrees/feat-x"
-			},
+			name:   "working agent that cd'd in",
+			setup:  func(t *testing.T, r *cleanupRig) { working(t, r, r.agentID) },
+			toast:  func(r *cleanupRig) noticeWant { return carries(mergedToast, r.name(), ".worktrees/feat-x") },
 			branch: true,
 		},
 		{
@@ -448,18 +460,18 @@ func TestCleanupGuards(t *testing.T) {
 				openIn(t, r.App, core.SetAgentCwd{ID: id, Cwd: r.main})
 				working(t, r, id)
 			},
-			toast: func(r *cleanupRig) string {
-				return mergedToast + "; " + r.nameOf(r.keepers[0]) + " is still working in .worktrees/feat-x"
+			toast: func(r *cleanupRig) noticeWant {
+				return carries(mergedToast, r.nameOf(r.keepers[0]), ".worktrees/feat-x")
 			},
 			branch: true,
 		},
 		{
 			name:  "branch two commits past the head",
 			setup: func(t *testing.T, r *cleanupRig) { commit(t, r, 2) },
-			toast: func(*cleanupRig) string { return mergedToast },
+			toast: func(*cleanupRig) noticeWant { return exactly(mergedToast) },
 			box:   []string{"[-] delete the local branch  feat/x", "kept feat/x: it has 2 commits the PR did not merge"},
-			final: func(*cleanupRig) string {
-				return "removed .worktrees/feat-x; kept feat/x: it has 2 commits the PR did not merge"
+			final: func(r *cleanupRig) noticeWant {
+				return carries(".worktrees/feat-x", "feat/x", r.confirm.cleanup.keptReason())
 			},
 			level:   levelSuccess,
 			removed: true, branch: true,
@@ -470,21 +482,21 @@ func TestCleanupGuards(t *testing.T) {
 				commit(t, r, 2)
 				r.keeper(t, core.KindShell)
 			},
-			toast: func(*cleanupRig) string { return mergedToast },
+			toast: func(*cleanupRig) noticeWant { return exactly(mergedToast) },
 			box: []string{
 				"[-] remove the worktree  .worktrees/feat-x", "    1 shell is in it",
 				"[-] delete the local branch  feat/x", "kept feat/x: it has 2 commits the PR did not merge",
 			},
-			final:  func(*cleanupRig) string { return noticeNothingToClean },
+			final:  func(*cleanupRig) noticeWant { return exactly(noticeNothingToClean) },
 			branch: true,
 		},
 		{
 			name:  "head unknown here",
 			head:  unknownHead,
-			toast: func(*cleanupRig) string { return mergedToast },
+			toast: func(*cleanupRig) noticeWant { return exactly(mergedToast) },
 			box:   []string{"[-] delete the local branch  feat/x", "kept feat/x: #7's head 1234567 is not in this repository"},
-			final: func(*cleanupRig) string {
-				return "removed .worktrees/feat-x; kept feat/x: #7's head 1234567 is not in this repository"
+			final: func(r *cleanupRig) noticeWant {
+				return carries(".worktrees/feat-x", "feat/x", r.confirm.cleanup.keptReason())
 			},
 			level:   levelSuccess,
 			removed: true, branch: true,
@@ -495,9 +507,8 @@ func TestCleanupGuards(t *testing.T) {
 				moveOut(t, r)
 				r.mainRepo.switchTo("feat/x")
 			},
-			toast: func(r *cleanupRig) string {
-				return mergedToast + "; " + r.main + " is outside AIM's worktrees, so it stays"
-			},
+			toast:  func(r *cleanupRig) noticeWant { return carries(mergedToast, r.main) },
+			found:  func(f cleanupFound) bool { return !f.managed },
 			branch: true,
 		},
 		{
@@ -506,88 +517,87 @@ func TestCleanupGuards(t *testing.T) {
 				moveOut(t, r)
 				r.mainRepo.worktree(t, filepath.Join(filepath.Dir(r.main), "elsewhere"), "elsewhere").switchTo("feat/x")
 			},
-			toast: func(r *cleanupRig) string {
-				return mergedToast + "; " + filepath.Join(filepath.Dir(r.main), "elsewhere") + " is outside AIM's worktrees, so it stays"
+			toast: func(r *cleanupRig) noticeWant {
+				return carries(mergedToast, filepath.Join(filepath.Dir(r.main), "elsewhere"))
 			},
+			found:  func(f cleanupFound) bool { return !f.managed },
 			branch: true,
 		},
 		{
 			name:   "no worktree on the branch",
 			setup:  moveOut,
-			toast:  func(*cleanupRig) string { return mergedToast },
+			toast:  func(*cleanupRig) noticeWant { return exactly(mergedToast) },
 			branch: true,
 		},
 		{
 			name:   "agent starts working after the box opened",
-			toast:  func(*cleanupRig) string { return mergedToast },
+			toast:  func(*cleanupRig) noticeWant { return exactly(mergedToast) },
 			box:    []string{"[x] remove the worktree  .worktrees/feat-x"},
 			after:  func(t *testing.T, r *cleanupRig) { working(t, r, r.agentID) },
-			final:  func(r *cleanupRig) string { return r.name() + " is still working in .worktrees/feat-x" },
+			final:  func(r *cleanupRig) noticeWant { return carries(r.name(), ".worktrees/feat-x") },
 			branch: true,
 		},
 		{
 			name:  "shell opened in it after the box opened",
-			toast: func(*cleanupRig) string { return mergedToast },
+			toast: func(*cleanupRig) noticeWant { return exactly(mergedToast) },
 			box:   []string{"[x] remove the worktree  .worktrees/feat-x"},
 			after: func(t *testing.T, r *cleanupRig) {
 				t.Helper()
 				r.keeper(t, core.KindShell)
 			},
-			final:  func(*cleanupRig) string { return kept(cleanupPane{}) },
+			final:  func(*cleanupRig) noticeWant { return exactly(kept(cleanupPane{})) },
 			branch: true,
 		},
 		{
 			name:  "agent started in it and working after the box opened",
-			toast: func(*cleanupRig) string { return mergedToast },
+			toast: func(*cleanupRig) noticeWant { return exactly(mergedToast) },
 			box:   []string{"[x] remove the worktree  .worktrees/feat-x"},
 			after: func(t *testing.T, r *cleanupRig) {
 				t.Helper()
 				working(t, r, r.keeper(t, core.KindAgent))
 			},
-			final:  func(r *cleanupRig) string { return r.nameOf(r.keepers[0]) + " is still working in .worktrees/feat-x" },
+			final:  func(r *cleanupRig) noticeWant { return carries(r.nameOf(r.keepers[0]), ".worktrees/feat-x") },
 			branch: true,
 		},
 		{
 			name:  "agent left the worktree and started working after the box opened",
-			toast: func(*cleanupRig) string { return mergedToast },
+			toast: func(*cleanupRig) noticeWant { return exactly(mergedToast) },
 			box:   []string{"at "},
 			after: func(t *testing.T, r *cleanupRig) {
 				openIn(t, r.App, core.SetAgentCwd{ID: r.agentID, Cwd: r.main})
 				working(t, r, r.agentID)
 			},
-			final:   func(*cleanupRig) string { return "removed .worktrees/feat-x; deleted feat/x" },
+			final:   func(*cleanupRig) noticeWant { return carries(".worktrees/feat-x", "feat/x") },
 			level:   levelSuccess,
 			removed: true,
 		},
 		{
-			name:  "branch moved after the box opened",
-			toast: func(*cleanupRig) string { return mergedToast },
-			box:   []string{"at "},
-			after: func(t *testing.T, r *cleanupRig) { commit(t, r, 1) },
-			final: func(*cleanupRig) string {
-				return "removed .worktrees/feat-x; kept feat/x: it moved since you asked"
-			},
+			name:    "branch moved after the box opened",
+			toast:   func(*cleanupRig) noticeWant { return exactly(mergedToast) },
+			box:     []string{"at "},
+			after:   func(t *testing.T, r *cleanupRig) { commit(t, r, 1) },
+			final:   func(*cleanupRig) noticeWant { return carries(".worktrees/feat-x", "feat/x", movedReason) },
 			level:   levelSuccess,
 			removed: true, branch: true,
 		},
 		{
 			name:  "worktree switched to another branch after the box opened",
-			toast: func(*cleanupRig) string { return mergedToast },
+			toast: func(*cleanupRig) noticeWant { return exactly(mergedToast) },
 			box:   []string{"at "},
 			after: func(t *testing.T, r *cleanupRig) {
 				r.wtRepo().branch("other")
 				commit(t, r, 1)
 			},
-			final:  func(*cleanupRig) string { return "kept .worktrees/feat-x: it is no longer on feat/x" },
+			final:  func(*cleanupRig) noticeWant { return carries(".worktrees/feat-x", "feat/x") },
 			level:  levelError,
 			branch: true,
 		},
 		{
 			name:    "file modified after the box opened",
-			toast:   func(*cleanupRig) string { return mergedToast },
+			toast:   func(*cleanupRig) noticeWant { return exactly(mergedToast) },
 			box:     []string{"at "},
 			after:   func(t *testing.T, r *cleanupRig) { write(t, filepath.Join(r.wt, "a.txt"), "changed\n") },
-			final:   func(*cleanupRig) string { return "kept .worktrees/feat-x: it has uncommitted changes" },
+			final:   func(*cleanupRig) noticeWant { return carries(".worktrees/feat-x") },
 			level:   levelError,
 			branch:  true,
 			refused: true,
@@ -608,10 +618,15 @@ func TestCleanupGuards(t *testing.T) {
 				head = r.prHead
 			}
 
-			r.offer(head)
+			answer := r.check(head)
+			r.run(r.step(answer))
 
-			if want := tc.toast(r); r.notice != want {
-				t.Errorf("toast = %q, want %q", r.notice, want)
+			if want := tc.toast(r); !want.matches(r.notice) {
+				t.Errorf("toast = %q, want %+v", r.notice, want)
+			}
+
+			if tc.found != nil && !tc.found(answer.found) {
+				t.Errorf("the check answered %+v", answer.found)
 			}
 
 			if len(tc.box) == 0 {
@@ -639,12 +654,14 @@ func TestCleanupGuards(t *testing.T) {
 				tc.after(t, r)
 			}
 
+			want := tc.final(r)
+
 			r.notice = ""
 			r.keys(keyEnter)
 			r.done(t)
 
-			if want := tc.final(r); r.notice != want || (tc.level != levelNotice && r.noticeLevel() != tc.level) {
-				t.Errorf("after enter: toast %q at level %v, want %q at level %v", r.notice, r.noticeLevel(), want, tc.level)
+			if !want.matches(r.notice) || (tc.level != levelNotice && r.noticeLevel() != tc.level) {
+				t.Errorf("after enter: toast %q at level %v, want %+v at level %v", r.notice, r.noticeLevel(), want, tc.level)
 			}
 
 			r.assertSent(t, tc.removed, tc.branch, tc.removed || tc.refused)
@@ -770,14 +787,14 @@ func TestCleanupPrunesRefs(t *testing.T) {
 		toggles             string
 		before              func(*testing.T, *cleanupRig)
 		key                 tea.KeyPressMsg
-		toast               string
+		toast               noticeWant
 		prGone, wtTurnsGone bool
 	}{
-		{"both", "", nil, keyEnter, "removed .worktrees/feat-x; deleted feat/x", true, true},
-		{"worktree off", "w", nil, keyEnter, "nothing to clean up", true, false},
-		{"refused: a shell opened in the worktree", "", openShellThere, keyEnter, kept(cleanupPane{}), true, false},
-		{"removal failed: a change after the box", "", dirtyWorktree, keyEnter, "kept .worktrees/feat-x: it has uncommitted changes", true, false},
-		{"esc", "", nil, keyEsc, "", false, false},
+		{"both", "", nil, keyEnter, carries(".worktrees/feat-x", "feat/x"), true, true},
+		{"worktree off", "w", nil, keyEnter, exactly(noticeNothingToClean), true, false},
+		{"refused: a shell opened in the worktree", "", openShellThere, keyEnter, exactly(kept(cleanupPane{})), true, false},
+		{"removal failed: a change after the box", "", dirtyWorktree, keyEnter, carries(".worktrees/feat-x"), true, false},
+		{"esc", "", nil, keyEsc, noticeWant{}, false, false},
 	}
 
 	for _, tc := range tests {
@@ -818,8 +835,8 @@ func TestCleanupPrunesRefs(t *testing.T) {
 				t.Errorf("PR refs = %d after %d deletions, want 2 and none", got, r.fg.count("DeletePRRefs"))
 			}
 
-			if tc.toast != "" && r.notice != tc.toast {
-				t.Errorf("toast = %q, want %q", r.notice, tc.toast)
+			if tc.key == keyEnter && !tc.toast.matches(r.notice) {
+				t.Errorf("toast = %q, want %+v", r.notice, tc.toast)
 			}
 
 			if got := r.turnRefs(r.wt) == 0; got != tc.wtTurnsGone {
@@ -852,8 +869,8 @@ func TestCleanupSucceedsWhenThePruneFails(t *testing.T) {
 	r.keys(keyEnter)
 	r.done(t)
 
-	if want := "removed .worktrees/feat-x; deleted feat/x"; r.notice != want || r.noticeLevel() != levelSuccess {
-		t.Errorf("toast = %q at level %v, want %q as a success", r.notice, r.noticeLevel(), want)
+	if want := carries(".worktrees/feat-x", "feat/x"); !want.matches(r.notice) || r.noticeLevel() != levelSuccess {
+		t.Errorf("toast = %q at level %v, want %+v as a success", r.notice, r.noticeLevel(), want)
 	}
 
 	if got := r.turnRefs(r.wt); got != 0 {
@@ -872,7 +889,7 @@ func TestCleanupOfferLate(t *testing.T) {
 		name  string
 		run   func(t *testing.T, r *cleanupRig)
 		box   bool
-		toast func(r *cleanupRig) string
+		toast func(r *cleanupRig) noticeWant
 	}{
 		{
 			name: "palette opened",
@@ -882,7 +899,7 @@ func TestCleanupOfferLate(t *testing.T) {
 				r.openCommandPalette()
 				r.run(r.step(held))
 			},
-			toast: func(*cleanupRig) string { return mergedToast },
+			toast: func(*cleanupRig) noticeWant { return exactly(mergedToast) },
 		},
 		{
 			name: "a key cleared the toast",
@@ -893,7 +910,7 @@ func TestCleanupOfferLate(t *testing.T) {
 				r.run(r.step(held))
 			},
 			box:   true,
-			toast: func(*cleanupRig) string { return "" },
+			toast: func(*cleanupRig) noticeWant { return exactly("") },
 		},
 		{
 			name: "the agent started working",
@@ -903,9 +920,7 @@ func TestCleanupOfferLate(t *testing.T) {
 				openIn(t, r.App, core.SetAgentState{ID: r.agentID, State: core.AgentWorking})
 				r.run(r.step(held))
 			},
-			toast: func(r *cleanupRig) string {
-				return mergedToast + "; " + r.name() + " is still working in .worktrees/feat-x"
-			},
+			toast: func(r *cleanupRig) noticeWant { return carries(mergedToast, r.name(), ".worktrees/feat-x") },
 		},
 		{
 			name: "a second merge started",
@@ -922,7 +937,7 @@ func TestCleanupOfferLate(t *testing.T) {
 				r.run(r.step(second))
 			},
 			box:   true,
-			toast: func(*cleanupRig) string { return mergedToast },
+			toast: func(*cleanupRig) noticeWant { return exactly(mergedToast) },
 		},
 	}
 
@@ -937,8 +952,8 @@ func TestCleanupOfferLate(t *testing.T) {
 				t.Errorf("cleanup box open = %v, want %v", got, tc.box)
 			}
 
-			if want := tc.toast(r); r.notice != want {
-				t.Errorf("toast = %q, want %q", r.notice, want)
+			if want := tc.toast(r); !want.matches(r.notice) {
+				t.Errorf("toast = %q, want %+v", r.notice, want)
 			}
 		})
 	}
@@ -1183,8 +1198,8 @@ func TestCleanupCommand(t *testing.T) {
 	r.keys(keyEnter)
 	r.done(t)
 
-	if want := "removed .worktrees/feat-x; deleted feat/x"; r.notice != want {
-		t.Errorf("toast = %q, want %q", r.notice, want)
+	if want := carries(".worktrees/feat-x", "feat/x"); !want.matches(r.notice) || r.noticeLevel() != levelSuccess {
+		t.Errorf("toast = %q at level %v, want %+v as a success", r.notice, r.noticeLevel(), want)
 	}
 
 	r.assertEnd(t, true, false)
@@ -1201,31 +1216,31 @@ func TestCleanupCommandNotices(t *testing.T) {
 		{
 			name:  "no pull request source",
 			setup: func(_ *testing.T, r *cleanupRig) { r.prs.src = nil },
-			want:  func(*cleanupRig) string { return "pull requests are off" },
+			want:  func(*cleanupRig) string { return noticePRsOff },
 		},
 		{
 			name: "outside a repository",
 			setup: func(t *testing.T, r *cleanupRig) {
 				openIn(t, r.App, core.SetAgentCwd{ID: r.agentID, Cwd: t.TempDir()})
 			},
-			want: func(*cleanupRig) string { return "not a git repository" },
+			want: func(*cleanupRig) string { return noticeNotRepo },
 		},
 		{
 			name:  "detached head",
 			setup: func(t *testing.T, r *cleanupRig) { r.wtRepo().detach() },
-			want:  func(*cleanupRig) string { return "clean up: HEAD is detached" },
+			want:  func(*cleanupRig) string { return noticeCleanupDetached },
 		},
 		{
 			name:  "no pull request",
 			setup: func(t *testing.T, r *cleanupRig) { r.wtRepo().branch("nopr") },
-			want:  func(*cleanupRig) string { return "no pull request for nopr" },
+			want:  func(*cleanupRig) string { return fmt.Sprintf(noticePRNone, "nopr") },
 		},
 		{
 			name: "pull request open",
 			setup: func(t *testing.T, r *cleanupRig) {
 				openIn(t, r.App, core.SetRepoPRs{Repo: prRepoKey, DefaultBranch: "main", Open: []core.PRInfo{{Number: 7, HeadBranch: "feat/x", State: prOpenState}}})
 			},
-			want: func(*cleanupRig) string { return "#7 is not merged" },
+			want: func(*cleanupRig) string { return fmt.Sprintf(noticeCleanupNotMerged, prNumberText(7)) },
 		},
 		{
 			name: "pull request from another repository",
@@ -1235,7 +1250,7 @@ func TestCleanupCommandNotices(t *testing.T) {
 				r.merged(t, "fork-branch", 7, func(p *core.PRInfo) { p.CrossRepo = true; p.HeadBranch = "feat/x" })
 				r.know("feat/x", github.PR{Number: 7, HeadBranch: "feat/x", BaseBranch: "main", State: prMergedState})
 			},
-			want: func(*cleanupRig) string { return "#7's branch is in another repository" },
+			want: func(*cleanupRig) string { return fmt.Sprintf(noticeCleanupFork, prNumberText(7)) },
 		},
 		{
 			name: "default branch",
@@ -1243,7 +1258,7 @@ func TestCleanupCommandNotices(t *testing.T) {
 				r.merged(t, "main", 9, nil)
 				openIn(t, r.App, core.FocusPane{ID: r.other})
 			},
-			want: func(*cleanupRig) string { return "main is the default branch, so it stays" },
+			want: func(*cleanupRig) string { return fmt.Sprintf(noticeCleanupDefault, "main") },
 		},
 	}
 

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -115,7 +116,7 @@ func TestNoTurnsYetNotices(t *testing.T) {
 		r.notice = ""
 		r.run(press())
 
-		if want := "no turns yet"; r.notice != want {
+		if want := noticeNoTurnsYet; r.notice != want {
 			t.Errorf("%s: notice = %q, want %q", key, r.notice, want)
 		}
 
@@ -138,7 +139,7 @@ func TestNoTurnsYetNotices(t *testing.T) {
 	r.notice = ""
 	r.run(r.setReviewMode(core.ReviewTurn))
 
-	if want := "no turns: this pane has no agent session"; r.notice != want {
+	if want := noticeNoTurns; r.notice != want {
 		t.Errorf("t without a session: notice = %q, want %q", r.notice, want)
 	}
 }
@@ -391,7 +392,7 @@ func TestTurnKeysDoNotTrustTheEndedSessionsCount(t *testing.T) {
 	r.run(r.setReviewMode(core.ReviewTurn))
 	r.until(t, "the notice", func() bool { return r.notice != "" })
 
-	if want := "no turns yet"; r.notice != want {
+	if want := noticeNoTurnsYet; r.notice != want {
 		t.Errorf("notice = %q, want %q", r.notice, want)
 	}
 
@@ -500,7 +501,7 @@ func TestTurnKeyOutsideARepositoryAnswersAtOnce(t *testing.T) {
 
 	cmd := r.setReviewMode(core.ReviewTurn)
 
-	if want := "no turns yet"; r.notice != want || cmd != nil || r.view().after != nil {
+	if want := noticeNoTurnsYet; r.notice != want || cmd != nil || r.view().after != nil {
 		t.Errorf("notice %q command %v held key %v, want the notice at once and nothing held", r.notice, cmd != nil, r.view().after != nil)
 	}
 }
@@ -579,7 +580,7 @@ func TestNoTurnsNoticeCleansNames(t *testing.T) {
 		t.Fatalf("turnsGate() = %v, %v, want the key stopped", ok, cmd != nil)
 	}
 
-	if want := "no turns in myrepo · feat/x yet"; r.notice != want {
+	if want := fmt.Sprintf(noticeNoTurnsIn, "myrepo", "feat/x"); r.notice != want {
 		t.Errorf("notice = %q, want %q", r.notice, want)
 	}
 
@@ -587,7 +588,7 @@ func TestNoTurnsNoticeCleansNames(t *testing.T) {
 	r.notice = ""
 	r.turnsGate(tab, v, "", nil)
 
-	if want := "no turns: this pane has no agent session"; r.notice != want {
+	if want := noticeNoTurns; r.notice != want {
 		t.Errorf("notice = %q, want %q", r.notice, want)
 	}
 }
@@ -636,8 +637,8 @@ func TestOwnDirectoryMovedListsOnlyItsWorktreesTurns(t *testing.T) {
 	r.run(r.stepReviewTurn(-1))
 	r.idle(t)
 
-	if r.notice != "no turns yet" {
-		t.Errorf("notice %q, want %q", r.notice, "no turns yet")
+	if r.notice != noticeNoTurnsYet {
+		t.Errorf("notice %q, want %q", r.notice, noticeNoTurnsYet)
 	}
 }
 
@@ -674,7 +675,7 @@ func TestPastTurnOfAMovedSessionStaysInItsWorktree(t *testing.T) {
 	r.run(r.stepReviewTurn(-1))
 	r.idle(t)
 
-	if want := "turn 1 is the first turn"; r.notice != want {
+	if want := noticeFirstTurn; r.notice != want {
 		t.Errorf("notice %q, want %q", r.notice, want)
 	}
 
@@ -933,11 +934,11 @@ func TestOwnDirectoryMoveRecountsOnly(t *testing.T) {
 		return r.notice
 	}
 
-	if got := notice(r.dirB); got != "no turns yet" {
-		t.Errorf("b as the own worktree: notice %q, want %q", got, "no turns yet")
+	if got := notice(r.dirB); got != noticeNoTurnsYet {
+		t.Errorf("b as the own worktree: notice %q, want %q", got, noticeNoTurnsYet)
 	}
 
-	if got, want := notice(r.dirA), "no turns in "+filepath.Base(r.dirA)+" · b yet"; got != want {
+	if got, want := notice(r.dirA), fmt.Sprintf(noticeNoTurnsIn, filepath.Base(r.dirA), "b"); got != want {
 		t.Errorf("b as another worktree: notice %q, want %q", got, want)
 	}
 

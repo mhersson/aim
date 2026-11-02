@@ -248,8 +248,8 @@ func TestRefSweepFiltersAtTheAnswer(t *testing.T) {
 	}
 }
 
-// A moved PR ref fails its delete; the unheld turn refs go regardless. That the
-// PR's head and base fail together is git.DeleteRefs's chunk, tested in internal/git.
+// A moved PR ref fails its delete and keeps the PR's base with it, one
+// transaction; the unheld turn refs go regardless, in a call of their own.
 func TestRefSweepTurnsGoWhenAPRRefMoved(t *testing.T) {
 	t.Parallel()
 
@@ -263,6 +263,10 @@ func TestRefSweepTurnsGoWhenAPRRefMoved(t *testing.T) {
 
 	if got := s.refs()["refs/aim/pr/8/head"]; got != s.other {
 		t.Errorf("moved head = %s, want it kept at %s", got, s.other)
+	}
+
+	if !s.has("refs/aim/pr/8/base") {
+		t.Error("base of the moved pull request is gone, want it kept with its head")
 	}
 
 	if got := s.deleted(t)["refs/aim/pr/8/head"]; got != s.first {

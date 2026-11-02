@@ -582,8 +582,8 @@ func TestMarkdownPageKeys(t *testing.T) {
 		m.notice = ""
 		m.press(keyEnter)
 
-		if m.notice != "not found: zzz" {
-			t.Errorf("notice = %q, want not found: zzz", m.notice)
+		if want := noticeNotFound + "zzz"; m.notice != want {
+			t.Errorf("notice = %q, want %q", m.notice, want)
 		}
 	})
 

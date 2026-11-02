@@ -21,6 +21,28 @@ import (
 	"github.com/mhersson/aim/internal/term"
 )
 
+// quiet feeds messages until nothing arrives for d and no load is pending.
+func (r *drawerRig) quiet(t *testing.T, d time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(r.wait)
+
+	for {
+		select {
+		case m := <-r.pm.msgs:
+			r.run(r.step(m))
+		case <-time.After(d):
+			if v := r.view(); !v.loading && v.queued == nil {
+				return
+			}
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatal("the drawer never went quiet")
+		}
+	}
+}
+
 // scrollHunks is how many hunks the long diff has; each is 40 lines of which 20
 // are changed, so the file is 10,000 lines with half of them changed.
 const scrollHunks = 250

@@ -510,8 +510,8 @@ func TestNewWorktreeCreatesAndOpens(t *testing.T) {
 		t.Errorf("second start = %+v, want claude in %s", c, want)
 	}
 
-	if a.notice != "created .worktrees/feat-x" {
-		t.Errorf("notice = %q, want %q", a.notice, "created .worktrees/feat-x")
+	if !strings.Contains(a.notice, ".worktrees/feat-x") || a.noticeLevel() != levelNotice {
+		t.Errorf("notice = %q at level %v, want a notice naming .worktrees/feat-x", a.notice, a.noticeLevel())
 	}
 
 	if got := f.calls("CreateWorktree"); len(got) != 1 || !slices.Equal(got[0].Args, []string{"feat/x", "main", "inside"}) {

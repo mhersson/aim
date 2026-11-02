@@ -375,25 +375,3 @@ func (r *drawerRig) settled(t *testing.T) {
 		return v != nil && !v.loading && v.queued == nil
 	})
 }
-
-// quiet feeds messages until nothing arrives for d and no load is pending.
-func (r *drawerRig) quiet(t *testing.T, d time.Duration) {
-	t.Helper()
-
-	deadline := time.Now().Add(r.wait)
-
-	for {
-		select {
-		case m := <-r.pm.msgs:
-			r.run(r.step(m))
-		case <-time.After(d):
-			if v := r.view(); !v.loading && v.queued == nil {
-				return
-			}
-		}
-
-		if time.Now().After(deadline) {
-			t.Fatal("the drawer never went quiet")
-		}
-	}
-}

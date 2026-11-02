@@ -300,7 +300,7 @@ func TestChecksUnreadable(t *testing.T) {
 		}
 	}
 
-	for _, not := range []string{noticeChecksLoading, "no checks on"} {
+	for _, not := range []string{noticeChecksLoading, strings.TrimSpace(fmt.Sprintf(noticeChecksNone, ""))} {
 		if strings.Contains(text, not) {
 			t.Errorf("the overlay shows %q for unreadable checks:\n%s", not, text)
 		}

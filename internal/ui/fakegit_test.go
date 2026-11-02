@@ -1677,20 +1677,42 @@ func (f *fakeGit) DeleteRefs(ctx context.Context, gr git.Repo, refs []git.Ref) (
 		errs []error
 	)
 
-	for _, ref := range refs {
-		if cur, ok := r.c.aimRefs[ref.Name]; !ok || cur != ref.OID {
-			errs = append(errs, fmt.Errorf("delete aim refs: %s is not at %s", ref.Name, ref.OID))
-
-			continue
+	for len(refs) > 0 {
+		end := min(fakeDeleteChunk, len(refs))
+		for end < len(refs) && path.Dir(refs[end].Name) == path.Dir(refs[end-1].Name) {
+			end++
 		}
 
-		delete(r.c.aimRefs, ref.Name)
-		f.dropTurnRefL(r.c, ref.Name)
+		if err := f.deleteChunkL(r, refs[:end]); err != nil {
+			errs = append(errs, err)
+		} else {
+			n += end
+		}
 
-		n++
+		refs = refs[end:]
 	}
 
 	return n, errors.Join(errs...)
+}
+
+// fakeDeleteChunk is internal/git's deleteChunk: refs go in one transaction per
+// chunk, so a ref that moved fails every ref of its chunk.
+const fakeDeleteChunk = 500
+
+// deleteChunkL deletes refs only when every one still holds its listed value.
+func (f *fakeGit) deleteChunkL(r *fakeRepo, refs []git.Ref) error {
+	for _, ref := range refs {
+		if cur, ok := r.c.aimRefs[ref.Name]; !ok || cur != ref.OID {
+			return fmt.Errorf("delete aim refs: %s is not at %s", ref.Name, ref.OID)
+		}
+	}
+
+	for _, ref := range refs {
+		delete(r.c.aimRefs, ref.Name)
+		f.dropTurnRefL(r.c, ref.Name)
+	}
+
+	return nil
 }
 
 // dropTurnRefL applies the deletion of a turn ref to the turns: a start takes
