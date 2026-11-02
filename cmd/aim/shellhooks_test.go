@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -42,6 +43,8 @@ func newTypedRig(t *testing.T, startupFiles map[string]string) *typedRig {
 
 	t.Setenv("HOME", r.home)
 	t.Setenv("OUT_DIR", r.out)
+	// Ubuntu's /etc/zsh/zshrc runs compinit, which can prompt and eat typed input.
+	t.Setenv("skip_global_compinit", "1")
 
 	for _, k := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR"} {
 		d := filepath.Join(tmp, k)
@@ -274,6 +277,11 @@ func TestTypedClaudeGetsAIMSettings(t *testing.T) {
 			path, err := exec.LookPath(sh.name)
 			if err != nil {
 				t.Skipf("%s is not installed", sh.name)
+			}
+
+			// Apple's /bin/bash gets no ENV route (bashReadsENV), so its .bashrc PATH line wins.
+			if sh.name == "bash" && runtime.GOOS == "darwin" && path == "/bin/bash" {
+				t.Skip("this bash does not read ENV")
 			}
 
 			r := newTypedRig(t, sh.files)
