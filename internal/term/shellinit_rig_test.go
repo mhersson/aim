@@ -42,6 +42,8 @@ func newShellRig(t *testing.T) *shellRig {
 
 	t.Setenv("HOME", r.Home)
 	t.Setenv("OUT_DIR", r.Out)
+	// Ubuntu's /etc/zsh/zshrc runs compinit, which can prompt and eat typed input.
+	t.Setenv("skip_global_compinit", "1")
 
 	for _, k := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR"} {
 		d := filepath.Join(tmp, k)

@@ -245,6 +245,8 @@ what to do about it. Skim it before your first commit each session.
   `XDG_DATA_DIRS` would run after the user's `conf.d` had seen AIM's value.
 - A fish variable whose name ends in `PATH` is split on colons, so AIM's is
   `AIM_SHELL_DIR`.
+- Ubuntu's `/etc/zsh/zshrc` runs `compinit`, which can prompt and eat typed
+  input; the zsh tests set `skip_global_compinit=1`.
 
 ## Git and worktrees
 

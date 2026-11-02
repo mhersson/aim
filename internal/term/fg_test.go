@@ -109,6 +109,8 @@ func shellTestEnv(t *testing.T) (out string) {
 		"XDG_STATE_HOME":  filepath.Join(root, "xdg-state"),
 		"OUT_DIR":         out,
 		"AIM_PANE":        "inherited",
+		// Ubuntu's /etc/zsh/zshrc runs compinit, which can prompt and block the shell.
+		"skip_global_compinit": "1",
 	} {
 		if strings.HasPrefix(k, "XDG_") || k == "HOME" || k == "ZDOTDIR" {
 			if err := os.MkdirAll(v, 0o755); err != nil {

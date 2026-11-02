@@ -188,8 +188,9 @@ func TestZshIntegration(t *testing.T) {
 		plain := r.start(t, ShellCommand(zshEnv, Integration{}, r.Home, nil))
 		plain.typeLine(t, dump("plain"))
 
-		with := slices.DeleteFunc(strings.Split(r.await(t, "with"), "\n"), func(l string) bool { return l == "claude" })
-		without := strings.Split(r.await(t, "plain"), "\n")
+		// A plain shell defines no function, so its list is one empty line; drop empty lines on both sides.
+		with := slices.DeleteFunc(strings.Split(r.await(t, "with"), "\n"), func(l string) bool { return l == "claude" || l == "" })
+		without := slices.DeleteFunc(strings.Split(r.await(t, "plain"), "\n"), func(l string) bool { return l == "" })
 
 		if !slices.Equal(with, without) {
 			t.Errorf("state differs from a plain zsh -l:\nwith:  %q\nplain: %q", with, without)
