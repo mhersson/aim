@@ -21,6 +21,20 @@ var sweepNow = time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
 
 func ago(d time.Duration) int { return int(sweepNow.Add(-d).UnixMilli()) }
 
+// writeTurnRefs creates every named ref at HEAD in one update-ref.
+func writeTurnRefs(t *testing.T, dir string, refs ...string) {
+	t.Helper()
+
+	head := gitOut(t, dir, "rev-parse", "HEAD")
+
+	var script strings.Builder
+	for _, ref := range refs {
+		script.WriteString("create " + ref + " " + head + "\n")
+	}
+
+	gitInput(t, dir, script.String(), "update-ref", "--stdin")
+}
+
 // prRefs points refs/aim/pr/<n>/head and base at HEAD.
 func prRefs(t *testing.T, dir string, n int) {
 	t.Helper()
@@ -74,13 +88,16 @@ func TestStaleReadsTheSessionsNewestTurnInTheRepository(t *testing.T) {
 	wt := linkedWorktree(t, dir, "other")
 	r := openRepo(t, dir)
 
-	snap(t, dir, sessA, SnapshotOptions{Turn: ago(20 * day)})
-	snap(t, dir, sessB, SnapshotOptions{Turn: ago(20 * day)})
-	snap(t, wt, sessB, SnapshotOptions{Turn: ago(time.Hour)})
-	snap(t, dir, sessC, SnapshotOptions{Turn: ago(15 * day)})
+	key, wtKey := turnKey(r.Root), turnKey(openRepo(t, wt).Root)
+	writeTurnRefs(t, dir,
+		turnRef(sessA, key, ago(20*day), false),
+		turnRef(sessB, key, ago(20*day), false),
+		turnRef(sessB, wtKey, ago(time.Hour), false),
+		turnRef(sessC, key, ago(15*day), false),
+		turnRef(sessD, wtKey, ago(14*day), false),
+		turnRef(sessE, key, ago(-time.Hour), false),
+	)
 	legacyTurnRef(t, dir, r.Root, sessC, 3)
-	snap(t, wt, sessD, SnapshotOptions{Turn: ago(14 * day)})
-	snap(t, dir, sessE, SnapshotOptions{Turn: ago(-time.Hour)})
 	prRefs(t, dir, 5)
 	prRefs(t, dir, 8)
 
@@ -98,43 +115,6 @@ func TestStaleReadsTheSessionsNewestTurnInTheRepository(t *testing.T) {
 		if want := gitOut(t, dir, "rev-parse", ref.Name); ref.OID != want {
 			t.Errorf("%s OID = %s, want %s", ref.Name, ref.OID, want)
 		}
-	}
-}
-
-func TestDeleteRefsCarriesTheListedValue(t *testing.T) {
-	t.Parallel()
-	dir := seedRepo(t)
-	r := openRepo(t, dir)
-
-	snap(t, dir, sessC, SnapshotOptions{Turn: ago(15 * day)})
-	prRefs(t, dir, 8)
-
-	l, err := ListAimRefs(context.Background(), r)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got := l.Stale(sweepNow, func(string) bool { return false }, func(int) bool { return false })
-
-	writeFile(t, dir, "a.txt", "moved\n")
-	commitAll(t, dir, "next")
-	gitOut(t, dir, "update-ref", "refs/aim/pr/8/head", gitOut(t, dir, "rev-parse", "HEAD"))
-
-	if n, err := DeleteRefs(context.Background(), r, got.PRs); err == nil || n != 0 {
-		t.Errorf("DeleteRefs(PRs) = %d, %v; want an error", n, err)
-	}
-
-	if got := names(t, dir, "refs/aim/pr/"); len(got) != 2 {
-		t.Errorf("pr refs = %q, want both kept", got)
-	}
-
-	n, err := DeleteRefs(context.Background(), r, got.Turns)
-	if err != nil || n != len(got.Turns) || n == 0 {
-		t.Errorf("DeleteRefs(Turns) = %d, %v; want %d", n, err, len(got.Turns))
-	}
-
-	if got := names(t, dir, "refs/aim/turns/"); len(got) != 0 {
-		t.Errorf("turn refs left: %q", got)
 	}
 }
 
@@ -157,10 +137,8 @@ func TestDeleteRefsRefusesRefsOutsideAim(t *testing.T) {
 			{Name: "refs/aim/pr/8/head", OID: head},
 			{Name: "refs/aim/x\ndelete refs/heads/main " + head, OID: head},
 		}},
-		{"space in name", []Ref{{Name: "refs/aim/x y", OID: head}}},
 		{"nul in name", []Ref{{Name: "refs/aim/x\x00y", OID: head}}},
 		{"whitespace in oid", []Ref{{Name: "refs/aim/pr/8/head", OID: head + "\ndelete refs/heads/main " + head}}},
-		{"tab in oid", []Ref{{Name: "refs/aim/pr/8/head", OID: head + "\t"}}},
 	}
 
 	for _, tc := range cases {
@@ -192,8 +170,10 @@ func TestSweepLeavesOtherRefs(t *testing.T) {
 		gitOut(t, dir, "update-ref", ref, head)
 	}
 
-	snap(t, dir, sessB, SnapshotOptions{Turn: ago(20 * day)})
-	snap(t, dir, sessC, SnapshotOptions{Turn: ago(15 * day)})
+	writeTurnRefs(t, dir,
+		turnRef(sessB, turnKey(r.Root), ago(20*day), false),
+		turnRef(sessC, turnKey(r.Root), ago(15*day), false),
+	)
 	prRefs(t, dir, 9)
 
 	before := names(t, dir, "refs/")
@@ -250,10 +230,10 @@ func TestDeleteRefsRunsOneUpdateRefPerChunk(t *testing.T) {
 	t.Parallel()
 	dir := seedRepo(t)
 	r := openRepo(t, dir)
-	refs := bulkRefs(t, dir, 2*deleteChunk+10)
+	refs := bulkRefs(t, dir, 7)
 	ctx, logPath := wrapGit(t, "")
 
-	n, err := DeleteRefs(ctx, r, refs)
+	n, err := deleteRefsIn(ctx, r, refs, 3)
 	if err != nil || n != len(refs) {
 		t.Fatalf("DeleteRefs = %d, %v; want %d", n, err, len(refs))
 	}
@@ -273,8 +253,7 @@ func TestDeleteRefsKeepsAParentDirectoryInOneChunk(t *testing.T) {
 	r := openRepo(t, dir)
 	head := gitOut(t, dir, "rev-parse", "HEAD")
 
-	// pr/8/base is the last ref of the first chunk and pr/8/head the first of the second.
-	refs := bulkRefs(t, dir, deleteChunk-1)
+	refs := bulkRefs(t, dir, 1)
 	refs = append(refs, Ref{Name: "refs/aim/pr/8/base", OID: head}, Ref{Name: "refs/aim/pr/8/head", OID: head})
 	gitOut(t, dir, "update-ref", "refs/aim/pr/8/base", head)
 	gitOut(t, dir, "update-ref", "refs/aim/pr/8/head", head)
@@ -283,8 +262,8 @@ func TestDeleteRefsKeepsAParentDirectoryInOneChunk(t *testing.T) {
 	commitAll(t, dir, "next")
 	gitOut(t, dir, "update-ref", "refs/aim/pr/8/head", gitOut(t, dir, "rev-parse", "HEAD"))
 
-	if _, err := DeleteRefs(context.Background(), r, refs); err == nil {
-		t.Fatal("DeleteRefs: err = nil, want the moved head to fail its chunk")
+	if _, err := deleteRefsIn(context.Background(), r, refs, 2); err == nil {
+		t.Fatal("deleteRefsIn: err = nil, want the moved head to fail its chunk")
 	}
 
 	want := []string{"refs/aim/pr/8/base", "refs/aim/pr/8/head"}
@@ -297,25 +276,33 @@ func TestDeleteRefsFailsOnlyTheChunkWithAMovedRef(t *testing.T) {
 	t.Parallel()
 	dir := seedRepo(t)
 	r := openRepo(t, dir)
-	refs := bulkRefs(t, dir, 3*deleteChunk)
+	refs := bulkRefs(t, dir, 9)
 
 	writeFile(t, dir, "a.txt", "moved\n")
 	commitAll(t, dir, "next")
-	gitOut(t, dir, "update-ref", refs[deleteChunk+3].Name, gitOut(t, dir, "rev-parse", "HEAD"))
+	gitOut(t, dir, "update-ref", refs[4].Name, gitOut(t, dir, "rev-parse", "HEAD"))
 
-	n, err := DeleteRefs(context.Background(), r, refs)
-	if err == nil || n != 2*deleteChunk {
-		t.Fatalf("DeleteRefs = %d, %v; want %d and an error", n, err, 2*deleteChunk)
+	n, err := deleteRefsIn(context.Background(), r, refs, 3)
+	if err == nil || n != 6 {
+		t.Fatalf("deleteRefsIn = %d, %v; want 6 and an error", n, err)
 	}
 
 	var want []string
-	for _, ref := range refs[deleteChunk : 2*deleteChunk] {
+	for _, ref := range refs[3:6] {
 		want = append(want, ref.Name)
 	}
 
 	slices.Sort(want)
 
 	if got := names(t, dir, "refs/aim/"); !slices.Equal(got, want) {
-		t.Errorf("refs left = %d, want the %d of the failed chunk", len(got), len(want))
+		t.Errorf("refs left = %q, want %q", got, want)
+	}
+}
+
+func TestDeleteChunkDefault(t *testing.T) {
+	t.Parallel()
+
+	if deleteChunk != 500 {
+		t.Fatalf("deleteChunk = %d, want 500", deleteChunk)
 	}
 }

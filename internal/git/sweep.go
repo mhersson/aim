@@ -137,6 +137,11 @@ func hasSpace(s string) bool {
 // value is empty, or either holds whitespace or NUL. A failed chunk does not
 // stop the next; it returns the refs deleted and the chunks' errors joined.
 func DeleteRefs(ctx context.Context, r Repo, refs []Ref) (int, error) {
+	return deleteRefsIn(ctx, r, refs, deleteChunk)
+}
+
+// deleteRefsIn is DeleteRefs with the chunk size a parameter; chunk is at least 1.
+func deleteRefsIn(ctx context.Context, r Repo, refs []Ref, chunk int) (int, error) {
 	for _, ref := range refs {
 		if !strings.HasPrefix(ref.Name, refPrefix) || ref.OID == "" || hasSpace(ref.Name) || hasSpace(ref.OID) {
 			return 0, fmt.Errorf("delete %q: %w", ref.Name, ErrNotAimRef)
@@ -149,7 +154,7 @@ func DeleteRefs(ctx context.Context, r Repo, refs []Ref) (int, error) {
 	)
 
 	for len(refs) > 0 {
-		end := min(deleteChunk, len(refs))
+		end := min(chunk, len(refs))
 		for end < len(refs) && path.Dir(refs[end].Name) == path.Dir(refs[end-1].Name) {
 			end++
 		}
