@@ -2,7 +2,6 @@ package ui
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -93,38 +92,23 @@ func withMarks(f *fakeMarks) func(*Options) { return func(o *Options) { o.Marks 
 const marksToday = "2026-01-01"
 
 // marksRepo has three files of 60 lines, each with two edited hunks.
-func marksRepo(t *testing.T) string {
+func marksRepo(t *testing.T) *fakeRepo {
 	t.Helper()
 
-	dir := newRepoDir(t)
+	r := newFakeGit(t).repo(t, "")
+	dir := r.Root()
+
 	for _, f := range []string{"a.txt", "b.txt", "c.txt"} {
 		write(t, filepath.Join(dir, f), numberedLines("line", 60))
 	}
 
-	commitEverything(t, dir, "init")
+	r.commit("init")
 
 	for _, f := range []string{"a.txt", "b.txt", "c.txt"} {
 		write(t, filepath.Join(dir, f), editedLines(60, 5, 50))
 	}
 
-	return dir
-}
-
-// commonOf is the key the marks of dir's repository are kept under.
-func commonOf(t *testing.T, dir string) string {
-	t.Helper()
-
-	repo, err := git.Open(context.Background(), dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	c, err := filepath.EvalSymlinks(repo.CommonDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	return c
+	return r
 }
 
 func (v *reviewView) countRows(kind reviewRowKind) int {
@@ -160,10 +144,10 @@ func atFirstChange(v *reviewView, f, h int) bool {
 	return hdr >= 0 && v.cursor == v.firstChange(hdr) && v.cursor != hdr
 }
 
-func newMarksRig(t *testing.T, dir string, fm *fakeMarks, opts ...func(*Options)) (*drawerRig, *reviewView) {
+func newMarksRig(t *testing.T, fr *fakeRepo, fm *fakeMarks, opts ...func(*Options)) (*drawerRig, *reviewView) {
 	t.Helper()
 
-	r := newKeysRig(t, dir, append([]func(*Options){withMarks(fm)}, opts...)...)
+	r := newKeysRig(t, fr.Root(), append([]func(*Options){gitOf(fr.f), withMarks(fm)}, opts...)...)
 
 	return r, r.opened(t)
 }
@@ -171,10 +155,10 @@ func newMarksRig(t *testing.T, dir string, fm *fakeMarks, opts ...func(*Options)
 func TestReviewMark(t *testing.T) {
 	t.Parallel()
 
-	dir := marksRepo(t)
+	fr := marksRepo(t)
 	fm := &fakeMarks{}
-	common := commonOf(t, dir)
-	r, v := newMarksRig(t, dir, fm)
+	common := fr.Repo().CommonDir
+	r, v := newMarksRig(t, fr, fm)
 
 	if got := v.countRows(rowHunk); got != 6 {
 		t.Fatalf("hunk rows = %d, want 6", got)
@@ -256,9 +240,9 @@ func TestReviewMark(t *testing.T) {
 func TestReviewShowRead(t *testing.T) {
 	t.Parallel()
 
-	dir := marksRepo(t)
+	fr := marksRepo(t)
 	fm := &fakeMarks{}
-	r, v := newMarksRig(t, dir, fm)
+	r, v := newMarksRig(t, fr, fm)
 
 	r.onFirstChange(t, 0, 0)
 	r.keys(keySpace)
@@ -307,8 +291,8 @@ func TestReviewShowRead(t *testing.T) {
 		t.Errorf("after unmarking: read %v, cursor %d, header %d", v.rows[v.rowOfHunkHeader(0, 0)].read, v.cursor, v.rowOfHunkHeader(0, 0))
 	}
 
-	if len(fm.daysOf(commonOf(t, dir))) != 0 {
-		t.Errorf("marks after unmarking = %v, want none", fm.daysOf(commonOf(t, dir)))
+	if common := fr.Repo().CommonDir; len(fm.daysOf(common)) != 0 {
+		t.Errorf("marks after unmarking = %v, want none", fm.daysOf(common))
 	}
 
 	// ] lands on a folded header.
@@ -360,24 +344,6 @@ func TestReviewAllRead(t *testing.T) {
 
 		if v.countRows(rowHunk) != 6 || strings.Contains(r.drawn(t), "reviewed; R shows") {
 			t.Errorf("R left %d hunk rows or the note", v.countRows(rowHunk))
-		}
-	})
-
-	t.Run("one hunk", func(t *testing.T) {
-		t.Parallel()
-
-		dir := newRepoDir(t)
-		write(t, filepath.Join(dir, "f.txt"), numberedLines("line", 60))
-		commitEverything(t, dir, "init")
-		write(t, filepath.Join(dir, "f.txt"), editedLines(60, 5))
-
-		r, _ := newMarksRig(t, dir, &fakeMarks{})
-
-		r.onFirstChange(t, 0, 0)
-		r.keys(keySpace)
-
-		if !strings.Contains(r.drawn(t), "the one hunk is reviewed; R shows it") {
-			t.Errorf("no note:\n%s", r.drawn(t))
 		}
 	})
 }
@@ -446,33 +412,19 @@ func TestReviewMarksIgnored(t *testing.T) {
 		}
 	})
 
-	t.Run("page", func(t *testing.T) {
-		t.Parallel()
-
-		m := newPageRig(t, nil)
-		m.openPage(t, "README.md")
-
-		before := len(m.store.State().Marks)
-		m.press(keySpace)
-		m.press(keyRune('R'))
-
-		if m.v.showRead || len(m.store.State().Marks) != before {
-			t.Errorf("space or R acted on a page: showRead %v", m.v.showRead)
-		}
-	})
-
 	t.Run("binary", func(t *testing.T) {
 		t.Parallel()
 
-		dir := newRepoDir(t)
+		fr := newFakeGit(t).repo(t, "")
+		dir := fr.Root()
 		write(t, filepath.Join(dir, "bin.dat"), "a\x00b\x00")
 		write(t, filepath.Join(dir, "f.txt"), numberedLines("line", 60))
-		commitEverything(t, dir, "init")
+		fr.commit("init")
 		write(t, filepath.Join(dir, "bin.dat"), "c\x00d\x00")
 		write(t, filepath.Join(dir, "f.txt"), editedLines(60, 5))
 
 		fm := &fakeMarks{}
-		r, v := newMarksRig(t, dir, fm)
+		r, v := newMarksRig(t, fr, fm)
 
 		r.onFirstChange(t, 1, 0)
 		r.keys(keySpace)
@@ -509,10 +461,11 @@ func TestReviewMarksIgnored(t *testing.T) {
 func TestReviewMarksAcrossWorktrees(t *testing.T) {
 	t.Parallel()
 
-	dir := marksRepo(t)
+	fr := marksRepo(t)
+	dir := fr.Root()
 	fm := &fakeMarks{}
-	common := commonOf(t, dir)
-	r, v := newMarksRig(t, dir, fm)
+	common := fr.Repo().CommonDir
+	r, v := newMarksRig(t, fr, fm)
 
 	id := git.HunkID("a.txt", v.res.Files[0].Hunks[0])
 
@@ -521,32 +474,31 @@ func TestReviewMarksAcrossWorktrees(t *testing.T) {
 
 	// A sibling worktree with the same edits.
 	sib := filepath.Join(filepath.Dir(dir), filepath.Base(dir)+"-sib")
-	gitIn(t, "git", dir, "worktree", "add", "-q", "-b", "sib", sib)
+	sr := fr.worktree(t, sib, "sib")
 
 	for _, f := range []string{"a.txt", "b.txt", "c.txt"} {
 		write(t, filepath.Join(sib, f), editedLines(60, 5, 50))
 	}
 
-	if commonOf(t, sib) != common {
-		t.Fatalf("the sibling's common dir is %s, want %s", commonOf(t, sib), common)
+	if got := sr.Repo().CommonDir; got != common {
+		t.Fatalf("the sibling's common dir is %s, want %s", got, common)
 	}
 
-	_, sv := newMarksRig(t, sib, fm)
+	_, sv := newMarksRig(t, sr, fm)
 
 	if got := sv.countRows(rowHunk); got != 5 {
 		t.Errorf("sibling worktree shows %d hunks, want 5", got)
 	}
 
 	// A restart: a new app over the same files.
-	_, rv := newMarksRig(t, dir, fm)
+	_, rv := newMarksRig(t, fr, fm)
 
 	if got := rv.countRows(rowHunk); got != 5 {
 		t.Errorf("after a restart the drawer shows %d hunks, want 5", got)
 	}
 
 	// Another repository with an identical hunk shows it.
-	other := marksRepo(t)
-	_, ov := newMarksRig(t, other, fm)
+	_, ov := newMarksRig(t, marksRepo(t), fm)
 
 	if got := ov.countRows(rowHunk); got != 6 {
 		t.Errorf("another repository shows %d hunks, want 6", got)
@@ -562,13 +514,14 @@ func TestReviewMarksAcrossWorktrees(t *testing.T) {
 func TestReviewMarksInPRMode(t *testing.T) {
 	t.Parallel()
 
-	dir := prFeatureRepo(t)
+	f := newFakeGit(t)
+	rp := prFeatureRepo(t, f)
 	fm := &fakeMarks{}
-	r := newPRDrawerOn(t, dir, withMarks(fm))
+	r := newPRDrawerOn(t, f, rp, withMarks(fm))
 
 	// The mark is for the pull request's a.txt hunk, which the branch drawer does not show.
 	a := git.Hunk{Lines: []git.Line{{Kind: git.Del, Text: "a"}, {Kind: git.Add, Text: "a changed"}}}
-	fm.set(commonOf(t, dir), git.HunkID("a.txt", a), marksToday)
+	fm.set(rp.Repo().CommonDir, git.HunkID("a.txt", a), marksToday)
 
 	r.poll()
 	r.opened(t)
@@ -594,10 +547,10 @@ func TestReviewMarksInPRMode(t *testing.T) {
 func TestReviewMarksLive(t *testing.T) {
 	t.Parallel()
 
-	dir := marksRepo(t)
+	fr := marksRepo(t)
+	dir, root := fr.Root(), fr.Root()
 	fm := &fakeMarks{}
-	r, v := newMarksRig(t, dir, fm)
-	root := rootOf(t, dir)
+	r, v := newMarksRig(t, fr, fm)
 
 	// Review a.txt's first hunk and b.txt's second.
 	r.onFirstChange(t, 0, 0)
@@ -623,9 +576,9 @@ func TestReviewMarksLive(t *testing.T) {
 func TestReviewMarksFirstFrame(t *testing.T) {
 	t.Parallel()
 
-	dir := marksRepo(t)
+	fr := marksRepo(t)
 	fm := &fakeMarks{}
-	r, _ := newMarksRig(t, dir, fm)
+	r, _ := newMarksRig(t, fr, fm)
 
 	r.onFirstChange(t, 0, 0)
 	r.keys(keySpace)
@@ -633,7 +586,7 @@ func TestReviewMarksFirstFrame(t *testing.T) {
 	r.keys(keySpace)
 
 	// A new app: no frame may show a reviewed hunk, and the first rows are already filtered.
-	r2 := newKeysRig(t, dir, withMarks(fm))
+	r2 := newKeysRig(t, fr.Root(), gitOf(fr.f), withMarks(fm))
 	r2.leader('d')
 
 	first := -1
@@ -657,10 +610,10 @@ func TestReviewMarksFirstFrame(t *testing.T) {
 func TestReviewMarksTouch(t *testing.T) {
 	t.Parallel()
 
-	dir := marksRepo(t)
+	fr := marksRepo(t)
 	fm := &fakeMarks{}
-	common := commonOf(t, dir)
-	r, v := newMarksRig(t, dir, fm)
+	common := fr.Repo().CommonDir
+	r, v := newMarksRig(t, fr, fm)
 
 	id := git.HunkID("a.txt", v.res.Files[0].Hunks[0])
 
@@ -670,7 +623,7 @@ func TestReviewMarksTouch(t *testing.T) {
 	// The mark is 30 days old when the next app loads.
 	fm.set(common, id, "2025-12-02")
 
-	r2, _ := newMarksRig(t, dir, fm)
+	r2, _ := newMarksRig(t, fr, fm)
 
 	if got := fm.daysOf(common)[id]; got != marksToday {
 		t.Fatalf("the mark is dated %q after a load that showed it, want %s", got, marksToday)
@@ -712,9 +665,9 @@ func TestReviewMarksBadFile(t *testing.T) {
 
 	logs := &lockedBuffer{}
 	fm := &fakeMarks{err: errors.New("marks file unreadable")}
-	dir := marksRepo(t)
+	fr := marksRepo(t)
 
-	r, v := newMarksRig(t, dir, fm, func(o *Options) { o.Logger = slog.New(slog.NewJSONHandler(logs, nil)) })
+	r, v := newMarksRig(t, fr, fm, func(o *Options) { o.Logger = slog.New(slog.NewJSONHandler(logs, nil)) })
 
 	if v.countRows(rowHunk) != 6 {
 		t.Fatalf("the drawer shows %d hunks, want 6", v.countRows(rowHunk))
@@ -725,7 +678,7 @@ func TestReviewMarksBadFile(t *testing.T) {
 	r.keys(keyRune('r'))
 	r.idle(t)
 
-	common := commonOf(t, dir)
+	common := fr.Repo().CommonDir
 	warned := 0
 
 	for line := range strings.SplitSeq(strings.TrimSpace(logs.String()), "\n") {

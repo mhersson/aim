@@ -80,6 +80,7 @@ type wtPlaceAt struct {
 // wtFinder finds the worktree of a directory once, whoever asks.
 type wtFinder struct {
 	ctx   context.Context //nolint:containedctx // one build's context
+	git   Git
 	found map[string]wtPlaceAt
 	real  map[string]string
 }
@@ -97,11 +98,11 @@ func (f *wtFinder) at(dir string) wtPlaceAt {
 
 	var p wtPlaceAt
 
-	if repo, err := git.Open(f.ctx, dir); err == nil {
+	if repo, err := f.git.Open(f.ctx, dir); err == nil {
 		p = wtPlaceAt{repo: repo, ok: true, row: wtRow{kind: wtPlace, root: repo.Root, repo: repo.Name()}}
 
 		// A head that cannot be read leaves the branch out and the place listed.
-		if h, err := git.Head(f.ctx, repo); err == nil {
+		if h, err := f.git.Head(f.ctx, repo); err == nil {
 			p.row.branch = headLabel(h)
 		}
 	}
@@ -140,8 +141,8 @@ func headLabel(h git.HeadInfo) string {
 // edit first, with its own directory and a pinned place that no edit names added
 // at the end; then the other worktrees of its own repository. A place that is
 // gone, or in no repository, is left out. It fails only when ctx ends.
-func listPlaces(ctx context.Context, in wtInput) (rows []wtRow, now string, err error) {
-	f := &wtFinder{ctx: ctx, found: map[string]wtPlaceAt{}, real: map[string]string{}}
+func listPlaces(ctx context.Context, g Git, in wtInput) (rows []wtRow, now string, err error) {
+	f := &wtFinder{ctx: ctx, git: g, found: map[string]wtPlaceAt{}, real: map[string]string{}}
 	rows = []wtRow{{kind: wtFollow}, {kind: wtHead, text: "Touched by " + in.agent}}
 	listed := map[string]bool{}
 	own := f.at(in.own)
@@ -201,7 +202,7 @@ func listPlaces(ctx context.Context, in wtInput) (rows []wtRow, now string, err 
 // hold, by the paths git reports, resolved so that a path through a symlink is
 // the root git finds for the worktree. A failed listing leaves them out.
 func (f *wtFinder) others(own wtPlaceAt, listed map[string]bool) []wtRow {
-	wts, err := git.ListWorktrees(f.ctx, own.repo)
+	wts, err := f.git.ListWorktrees(f.ctx, own.repo)
 	if err != nil {
 		return nil
 	}
@@ -264,13 +265,13 @@ func (a *App) openWorktrees() tea.Cmd {
 
 	a.drawer.listGen++
 
-	id, gen, parent := tab.ID, a.drawer.listGen, a.ctx
+	id, gen, parent, g := tab.ID, a.drawer.listGen, a.ctx, a.git
 
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parent, reviewOpenTimeout)
 		defer cancel()
 
-		rows, now, err := listPlaces(ctx, in)
+		rows, now, err := listPlaces(ctx, g, in)
 
 		// The rows name worktrees as git does, so the selection compares strings on the loop.
 		pin := ""
@@ -349,7 +350,7 @@ func (l *wtList) selectedRoot() string {
 // countPlaces asks for the changes of every place row, each under one probe
 // slot, so they share the rail's limit. ctx ends them with the list.
 func (a *App) countPlaces(ctx context.Context, l *wtList) tea.Cmd {
-	eng, sem, gen := a.engine, a.probeSem, l.gen
+	eng, sem, budget, gen := a.engine, a.probeSem, a.probeBudget, l.gen
 	if eng == nil {
 		return nil
 	}
@@ -364,7 +365,7 @@ func (a *App) countPlaces(ctx context.Context, l *wtList) tea.Cmd {
 		root := r.root
 
 		cmds = append(cmds, func() tea.Msg {
-			ctx, done, err := admit(ctx, sem)
+			ctx, done, err := admit(ctx, sem, budget)
 			if err != nil {
 				return wtStatsMsg{gen: gen, root: root, err: err}
 			}

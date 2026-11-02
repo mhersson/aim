@@ -1,8 +1,8 @@
 package ui
 
 import (
-	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -41,6 +41,7 @@ func (r *followRig) showing(root string) func() bool {
 }
 
 func TestPinnedDrawerStaysPut(t *testing.T) {
+	t.Parallel()
 	r := newFollowRig(t, "")
 	r.addLines(t, filepath.Join(r.dirB, "a.txt"))
 	r.addLines(t, filepath.Join(r.dirC, "c.txt"))
@@ -54,7 +55,7 @@ func TestPinnedDrawerStaysPut(t *testing.T) {
 	r.edit(filepath.Join(r.dirC, "c.txt"))
 	r.until(t, "the rail to follow the edit", r.cardOn("other", -1))
 	r.until(t, "the agent's watch to move to C", func() bool { return r.held(r.id) == r.rootC })
-	r.quiet()
+	r.until(t, "the edit's probes to land", r.landed)
 
 	v := r.view()
 	if v.root != r.rootB || !slices.Equal(viewPaths(v), []string{"a.txt"}) || v.branch != "b" {
@@ -143,6 +144,7 @@ func TestPinEndsOnAnotherPane(t *testing.T) {
 }
 
 func TestPinSurvivesNewSession(t *testing.T) {
+	t.Parallel()
 	r := newFollowRig(t, testSession)
 	r.addLines(t, filepath.Join(r.dirB, "a.txt"))
 	r.addLines(t, filepath.Join(r.dirC, "c.txt"))
@@ -160,7 +162,7 @@ func TestPinSurvivesNewSession(t *testing.T) {
 	r.hookNow(harness.Event{Pane: r.id, Name: "SessionStart", Start: true, Session: otherSession, Cwd: r.dirA})
 	r.until(t, "the rail to return to A", r.cardOn("main", -1))
 	r.until(t, "the agent's watch to return to A", func() bool { return r.held(r.id) == r.rootA })
-	r.quiet()
+	r.until(t, "the session start's probes to land", r.landed)
 
 	if p := r.pane(); len(p.Edits) != 0 || p.FollowDir() != r.dirA {
 		t.Errorf("pane = %d edits, FollowDir %q, want none and %q", len(p.Edits), p.FollowDir(), r.dirA)
@@ -198,6 +200,7 @@ func TestPinnedDrawerWatchesItsRoot(t *testing.T) {
 	}
 
 	r.addLines(t, filepath.Join(r.dirB, "a.txt"))
+	r.fake.watches.send(r.rootB, git.Batch{Paths: []string{"a.txt"}})
 	r.until(t, "the pinned drawer to show b's change", r.viewHolds(func(v *reviewView) bool {
 		return v.root == r.rootB && slices.Equal(viewPaths(v), []string{"a.txt"})
 	}))
@@ -208,17 +211,11 @@ func TestPinnedDrawerWatchesItsRoot(t *testing.T) {
 }
 
 func TestPinnedHookRefreshUsesItsRoot(t *testing.T) {
+	t.Parallel()
 	r := newFollowRig(t, "")
 
 	// The watch of b cannot start.
-	inner := r.watches.open
-	r.watches.open = func(ctx context.Context, dir string) (git.Repo, error) {
-		if dir == r.rootB {
-			return git.Repo{}, errors.New("no watch for b")
-		}
-
-		return inner(ctx, dir)
-	}
+	r.fake.watches.failAcquire(r.rootB, errors.New("no watch for b"))
 
 	r.open(t, r.id)
 	r.pinTo(t, r.rootB)
@@ -229,11 +226,22 @@ func TestPinnedHookRefreshUsesItsRoot(t *testing.T) {
 		t.Fatal("b's watch is held although it failed")
 	}
 
+	// No watcher reports the write, so nothing reaches the app that could reload the drawer.
 	r.addLines(t, filepath.Join(r.dirB, "a.txt"))
-	r.quiet()
+	r.until(t, "the drawer to be idle", r.landed)
 
 	if got := viewPaths(r.view()); len(got) != 0 {
 		t.Fatalf("drawer shows %v with no watch on b and no hook", got)
+	}
+
+	// A's watch reports a batch, and it does not stand in for b's.
+	r.until(t, "the agent's watch on A", func() bool { return r.held(r.id) == r.rootA })
+	heads := r.fake.count("Head")
+	r.fake.watches.send(r.rootA, git.Batch{Git: true, Paths: []string{"a.txt"}})
+	r.until(t, "the batch for A to land", func() bool { return r.fake.count("Head") > heads && r.landed() })
+
+	if got := viewPaths(r.view()); len(got) != 0 {
+		t.Fatalf("drawer shows %v after a batch for A with no watch on b", got)
 	}
 
 	// The agent's own watch on A is held, and does not stand in for b's.
@@ -244,6 +252,7 @@ func TestPinnedHookRefreshUsesItsRoot(t *testing.T) {
 }
 
 func TestPinnedWorktreeRemoved(t *testing.T) {
+	t.Parallel()
 	r := newFollowRig(t, "")
 	home := filepath.Dir(r.dirA)
 	r.getenv = func(string) string { return home }
@@ -252,15 +261,21 @@ func TestPinnedWorktreeRemoved(t *testing.T) {
 	r.open(t, r.id)
 	r.pinTo(t, r.rootB)
 	r.until(t, "the drawer to show b", r.showing(r.rootB))
+	r.until(t, "the pin's watch", func() bool { return r.pinHeld(r.rootB) })
 
-	gitIn(t, "git", r.dirA, "worktree", "remove", "--force", r.dirB)
+	if err := os.RemoveAll(r.dirB); err != nil {
+		t.Fatal(err)
+	}
+
+	// The watcher reports the files that went.
+	r.fake.watches.send(r.rootB, git.Batch{Paths: []string{"a.txt"}})
 	r.hookNow(idleHook(r.id))
 	r.until(t, "the drawer to find the worktree gone", r.viewHolds(func(v *reviewView) bool {
 		var gone errWorktreeRemoved
 
 		return v.loaded && !v.loading && errors.As(v.err, &gone) && gone.root == r.rootB
 	}))
-	r.quiet()
+	r.until(t, "the hook's probes to land", r.landed)
 
 	if pin := r.store.State().Tab().Pin; pin == nil || pin.Root != r.rootB {
 		t.Errorf("Pin = %+v, want it kept on the removed worktree", pin)
@@ -281,7 +296,7 @@ func TestPinnedWorktreeRemoved(t *testing.T) {
 
 	// It never moves on by itself, and picking again does.
 	r.hookNow(idleHook(r.id))
-	r.quiet()
+	r.until(t, "the hook's probes to land", r.landed)
 
 	if v := r.view(); v.root != r.rootB {
 		t.Errorf("drawer moved to %q", v.root)
@@ -308,7 +323,9 @@ func TestReopenOnRemovedPinnedWorktree(t *testing.T) {
 	r.settle()
 	r.until(t, "the pin's watch to go", func() bool { return r.watches.pins[r.tabID()] == nil })
 
-	gitIn(t, "git", r.dirA, "worktree", "remove", "--force", r.dirB)
+	if err := os.RemoveAll(r.dirB); err != nil {
+		t.Fatal(err)
+	}
 
 	r.run(r.openReview(r.id, true))
 	r.until(t, "the drawer to open", func() bool { return r.store.State().Tab().Review != nil })
@@ -320,7 +337,7 @@ func TestReopenOnRemovedPinnedWorktree(t *testing.T) {
 		t.Errorf("Pin = %+v, want it kept", pin)
 	}
 
-	if strings.Contains(r.notice, "git repository") {
+	if strings.Contains(r.notice, noticeNotRepo) {
 		t.Errorf("notice = %q", r.notice)
 	}
 
@@ -340,11 +357,11 @@ func TestPinRetargetWhileAcquiring(t *testing.T) {
 	r := newFollowRig(t, "")
 	r.open(t, r.id)
 
-	var acquired []pinAcquiredMsg
+	acquired := map[string]pinAcquiredMsg{}
 
 	feed := func(m any) {
 		if a, ok := m.(pinAcquiredMsg); ok {
-			acquired = append(acquired, a)
+			acquired[a.root] = a
 
 			return
 		}
@@ -372,20 +389,23 @@ func TestPinRetargetWhileAcquiring(t *testing.T) {
 		}
 	}
 
-	r.pinTo(t, r.rootB)
-	hold(func() bool { return len(acquired) == 1 })
+	// b's acquisition is still running when the pin moves to C.
+	release := r.fake.watches.holdAcquire()
+	t.Cleanup(release)
 
-	// b's reference exists but its answer has not reached the app: pin C.
-	r.pinTo(t, r.rootC)
-	hold(func() bool { return len(acquired) == 2 })
+	for _, root := range []string{r.rootB, r.rootC} {
+		r.pinTo(t, root)
 
-	if first, second := acquired[0], acquired[1]; first.root != r.rootB || second.root != r.rootC {
-		t.Fatalf("answers for %q then %q, want b then C", first.root, second.root)
+		v := r.view()
+		r.epochRoot[v.epoch] = v.root
 	}
 
+	release()
+	hold(func() bool { return len(acquired) == 2 })
+
 	// The answer for b comes last, after the pin moved to C.
-	r.feed(t, acquired[1])
-	r.feed(t, acquired[0])
+	r.feed(t, acquired[r.rootC])
+	r.feed(t, acquired[r.rootB])
 
 	r.until(t, "b's reference to be released", func() bool { return !r.watched(r.rootB) })
 

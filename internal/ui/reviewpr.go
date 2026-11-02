@@ -118,8 +118,8 @@ type prFetchedMsg struct {
 
 // localPRPlace reads the root, branch and push remote of the worktree at dir.
 // The repository is left empty.
-func localPRPlace(ctx context.Context, dir string) (prPlace, error) {
-	r, err := git.Open(ctx, dir)
+func localPRPlace(ctx context.Context, g Git, dir string) (prPlace, error) {
+	r, err := g.Open(ctx, dir)
 	if err != nil {
 		if errors.Is(err, git.ErrNotRepo) {
 			return prPlace{}, errPRNoRepo
@@ -128,7 +128,7 @@ func localPRPlace(ctx context.Context, dir string) (prPlace, error) {
 		return prPlace{}, fmt.Errorf("pull request: %w", err)
 	}
 
-	h, err := git.Head(ctx, r)
+	h, err := g.Head(ctx, r)
 	if err != nil {
 		return prPlace{}, fmt.Errorf("pull request: %w", err)
 	}
@@ -138,7 +138,7 @@ func localPRPlace(ctx context.Context, dir string) (prPlace, error) {
 		return place, errPRDetached
 	}
 
-	place.remote, err = git.PushRemote(ctx, r, h.Branch)
+	place.remote, err = g.PushRemote(ctx, r, h.Branch)
 
 	switch {
 	case errors.Is(err, git.ErrNoRemote):
@@ -152,8 +152,8 @@ func localPRPlace(ctx context.Context, dir string) (prPlace, error) {
 
 // resolvePRPlace finds the worktree at dir, its branch, push remote and the
 // GitHub repository the remote is.
-func resolvePRPlace(ctx context.Context, resolve func(ctx context.Context, cwd, branch string) (github.Repo, error), dir string) (prPlace, error) {
-	place, err := localPRPlace(ctx, dir)
+func resolvePRPlace(ctx context.Context, g Git, resolve func(ctx context.Context, cwd, branch string) (github.Repo, error), dir string) (prPlace, error) {
+	place, err := localPRPlace(ctx, g, dir)
 	if err != nil {
 		return place, err
 	}
@@ -328,6 +328,7 @@ func (a *App) askPR(tab core.TabID, want *prWant, base string, then prThen) tea.
 
 	var (
 		resolve, lookup, appCtx = a.prs.resolve, a.prs.lookup, a.ctx
+		g                       = a.git
 		number                  int
 	)
 
@@ -342,7 +343,7 @@ func (a *App) askPR(tab core.TabID, want *prWant, base string, then prThen) tea.
 		msg := prPlaceMsg{prAsk: ask, number: number}
 
 		if want != nil {
-			msg.place, msg.err = localPRPlace(ctx, dir)
+			msg.place, msg.err = localPRPlace(ctx, g, dir)
 			if repo, ok := repoOfKey(want.repo); ok && msg.err == nil {
 				msg.place.repo = repo
 			}
@@ -350,7 +351,7 @@ func (a *App) askPR(tab core.TabID, want *prWant, base string, then prThen) tea.
 			return msg
 		}
 
-		if msg.place, msg.err = resolvePRPlace(ctx, resolve, dir); msg.err != nil {
+		if msg.place, msg.err = resolvePRPlace(ctx, g, resolve, dir); msg.err != nil {
 			return msg
 		}
 
@@ -475,15 +476,15 @@ func (a *App) onPRPlace(msg prPlaceMsg) tea.Cmd {
 
 		out := prFetchedMsg{prAsk: ask, place: place, number: number}
 
-		r, err := git.Open(ctx, place.root)
+		r, err := a.git.Open(ctx, place.root)
 		if err == nil {
-			_, err = git.FetchPR(ctx, r, place.remote, number, base)
+			_, err = a.git.FetchPR(ctx, r, place.remote, number, base)
 		}
 
 		if err == nil {
 			var uerr error
 
-			out.unpushed, uerr = git.Unpushed(ctx, r, place.remote)
+			out.unpushed, uerr = a.git.Unpushed(ctx, r, place.remote)
 			if uerr != nil {
 				log.Debug("unpushed count dropped", "err", uerr)
 			}

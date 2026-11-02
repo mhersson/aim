@@ -87,7 +87,7 @@ func (a *App) mdOpenCommand() tea.Cmd {
 		ctx, cancel := context.WithTimeout(parent, reviewOpenTimeout)
 		defer cancel()
 
-		repo, err := git.Open(ctx, dir)
+		repo, err := a.git.Open(ctx, dir)
 		if err != nil {
 			msg.err = err
 			if !usableDir(dir) {

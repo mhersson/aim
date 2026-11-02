@@ -285,13 +285,13 @@ func (a *App) railFire(st core.State, id core.PaneID, k railProbeKind) tea.Cmd {
 
 	ctx, gen := a.probeCtx(k)
 
-	sem := a.probeSem
+	sem, budget := a.probeSem, a.probeBudget
 
 	if k == probeName {
 		h := a.harnessOf(m)
 
 		return func() tea.Msg {
-			ctx, done, err := admit(ctx, sem)
+			ctx, done, err := admit(ctx, sem, budget)
 			if err != nil {
 				return railNameMsg{pane: id, transcript: target, gen: gen, err: err}
 			}
@@ -307,7 +307,7 @@ func (a *App) railFire(st core.State, id core.PaneID, k railProbeKind) tea.Cmd {
 		eng := a.engine
 
 		return func() tea.Msg {
-			ctx, done, err := admit(ctx, sem)
+			ctx, done, err := admit(ctx, sem, budget)
 			if err != nil {
 				return railStatsMsg{pane: id, cwd: cwd, gen: gen, err: err}
 			}
@@ -319,16 +319,16 @@ func (a *App) railFire(st core.State, id core.PaneID, k railProbeKind) tea.Cmd {
 		}
 	}
 
-	log := a.log
+	log, g := a.log, a.git
 
 	return func() tea.Msg {
-		ctx, done, err := admit(ctx, sem)
+		ctx, done, err := admit(ctx, sem, budget)
 		if err != nil {
 			return railHeadMsg{pane: id, cwd: cwd, own: own, err: err}
 		}
 		defer done()
 
-		res, err := probeHeadOf(ctx, log, cwd, own)
+		res, err := probeHeadOf(ctx, g, log, cwd, own)
 
 		return railHeadMsg{pane: id, cwd: cwd, own: own, res: res, err: err}
 	}
@@ -337,14 +337,14 @@ func (a *App) railFire(st core.State, id core.PaneID, k railProbeKind) tea.Cmd {
 // admit waits for a free probe slot, honouring ctx, and returns the probe's
 // context with its timeout (counted from the start of the run, not the wait)
 // and the function that frees the slot.
-func admit(ctx context.Context, sem chan struct{}) (context.Context, func(), error) {
+func admit(ctx context.Context, sem chan struct{}, budget time.Duration) (context.Context, func(), error) {
 	select {
 	case sem <- struct{}{}:
 	case <-ctx.Done():
 		return nil, nil, ctx.Err()
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, railProbeTimeout)
+	ctx, cancel := context.WithTimeout(ctx, budget)
 
 	return ctx, func() {
 		cancel()
@@ -523,7 +523,7 @@ func (a *App) onRailStats(msg railStatsMsg) tea.Cmd {
 // keeps its agent's project. When dir is in another repository than own, or own
 // is in none, place names dir's repository. A dir outside a repository, or gone,
 // reports no branch, and gone says it does not exist.
-func probeHeadOf(ctx context.Context, log *slog.Logger, dir, own string) (railProbe, error) {
+func probeHeadOf(ctx context.Context, g Git, log *slog.Logger, dir, own string) (railProbe, error) {
 	res := railProbe{project: filepath.Base(own), known: true, headCwd: dir, gone: !usableDir(dir)}
 
 	var (
@@ -534,7 +534,7 @@ func probeHeadOf(ctx context.Context, log *slog.Logger, dir, own string) (railPr
 	if !res.gone {
 		var err error
 
-		switch r, err = git.Open(ctx, dir); {
+		switch r, err = g.Open(ctx, dir); {
 		case errors.Is(err, git.ErrNotRepo):
 		case err != nil:
 			return railProbe{}, err
@@ -552,7 +552,7 @@ func probeHeadOf(ctx context.Context, log *slog.Logger, dir, own string) (railPr
 			res.project, ownCommon = r.Name(), r.CommonDir
 		}
 	case usableDir(own):
-		switch o, err := git.Open(ctx, own); {
+		switch o, err := g.Open(ctx, own); {
 		case err == nil:
 			res.project, ownCommon = o.Name(), o.CommonDir
 		case !errors.Is(err, git.ErrNotRepo):
@@ -570,7 +570,7 @@ func probeHeadOf(ctx context.Context, log *slog.Logger, dir, own string) (railPr
 
 	res.repo = true
 
-	h, err := git.Head(ctx, r)
+	h, err := g.Head(ctx, r)
 	if err != nil {
 		return railProbe{}, err
 	}
@@ -584,7 +584,7 @@ func probeHeadOf(ctx context.Context, log *slog.Logger, dir, own string) (railPr
 	// lesser datum: when it fails the branch still shows, with no count, unless
 	// the probe's own budget ran out.
 	if h.Branch != "" && h.OID != "" {
-		n, _, aerr := git.Ahead(ctx, r)
+		n, _, aerr := g.Ahead(ctx, r)
 
 		switch {
 		case aerr == nil:

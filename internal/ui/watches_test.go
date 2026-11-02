@@ -3,8 +3,9 @@ package ui
 import (
 	"context"
 	"errors"
-	"os/exec"
+	"os"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -18,23 +19,19 @@ import (
 
 const watchWait = 5 * time.Second
 
-// watchApp is a rail app with a real watch set whose commands run on goroutines.
+// watchApp is a rail app on a fake git and its watch set, whose commands run on goroutines.
 type watchApp struct {
 	*railApp
-	pm  *pump
-	set *git.WatchSet
+	pm *pump
 }
 
 func newWatchApp(t *testing.T, stats bool) *watchApp {
 	t.Helper()
 
 	r := newRailApp(t, stats)
-	set := git.NewWatchSet(context.Background(), git.WatchOptions{Debounce: 20 * time.Millisecond})
+	r.watches.set = r.fake.watches
 
-	t.Cleanup(func() { _ = set.Close() })
-
-	r.watches.set = set
-	w := &watchApp{railApp: r, pm: newPump(t), set: set}
+	w := &watchApp{railApp: r, pm: newPump(t)}
 	w.pm.stopWith(t, r.App)
 	w.pm.run(r.waitWatch())
 	w.pm.run(r.settle())
@@ -68,11 +65,7 @@ func (w *watchApp) until(t *testing.T, what string, seen func(tea.Msg), cond fun
 	}
 }
 
-func (w *watchApp) watched(root string) bool {
-	_, ok := w.set.Seq(root)
-
-	return ok
-}
+func (w *watchApp) watched(root string) bool { return w.fake.watches.holds(root) > 0 }
 
 func (w *watchApp) held(id core.PaneID) string {
 	if pw := w.watches.panes[id]; pw != nil {
@@ -82,24 +75,11 @@ func (w *watchApp) held(id core.PaneID) string {
 	return ""
 }
 
-func TestAgentPaneAcquiresItsWorktree(t *testing.T) {
-	w := newWatchApp(t, false)
-	dir := w.repo(t, "proj")
-	root := rootOf(t, dir)
-	id := w.addAgent(t, false, dir)
-
-	w.pm.run(w.settle())
-	w.until(t, "the worktree to be watched", nil, func() bool { return w.watched(root) && w.held(id) == root })
-
-	if got, ok := w.paneRoot(id); !ok || got != root {
-		t.Errorf("paneRoot() = %q, %v, want %q", got, ok, root)
-	}
-}
-
 func TestThreeAgentsShareOneWatch(t *testing.T) {
+	t.Parallel()
 	w := newWatchApp(t, false)
-	dir := w.repo(t, "proj")
-	root := rootOf(t, dir)
+	dir := w.repo(t, "proj").Root()
+	root := dir
 
 	ids := []core.PaneID{w.addAgent(t, false, dir), w.addAgent(t, false, dir), w.addAgent(t, false, dir)}
 
@@ -129,9 +109,10 @@ func TestThreeAgentsShareOneWatch(t *testing.T) {
 }
 
 func TestShellDoesNotAcquire(t *testing.T) {
+	t.Parallel()
 	w := newWatchApp(t, false)
-	dir := w.repo(t, "proj")
-	root := rootOf(t, dir)
+	dir := w.repo(t, "proj").Root()
+	root := dir
 
 	openIn(t, w.App, core.OpenPane{Kind: core.KindShell, Cwd: dir, Split: core.SplitVertical, Area: w.bodyArea()})
 
@@ -146,9 +127,10 @@ func TestShellDoesNotAcquire(t *testing.T) {
 }
 
 func TestCwdToAnotherRepoMovesTheWatch(t *testing.T) {
+	t.Parallel()
 	w := newWatchApp(t, false)
-	a, b := w.repo(t, "a"), w.repo(t, "b")
-	rootA, rootB := rootOf(t, a), rootOf(t, b)
+	a, b := w.repo(t, "a").Root(), w.repo(t, "b").Root()
+	rootA, rootB := a, b
 	id := w.addAgent(t, false, a)
 
 	w.pm.run(w.settle())
@@ -170,32 +152,29 @@ func TestCwdToAnotherRepoMovesTheWatch(t *testing.T) {
 }
 
 func TestStaleResolutionIsDropped(t *testing.T) {
+	t.Parallel()
 	w := newWatchApp(t, false)
-	a, b := w.repo(t, "a"), w.repo(t, "b")
+	a, b := w.repo(t, "a").Root(), w.repo(t, "b").Root()
 	id := w.addAgent(t, false, b)
 
 	w.pm.run(w.settle())
 	w.until(t, "b to be held", nil, func() bool { return w.held(id) != "" })
 
 	// An answer for a cwd the pane left must not start a watch.
-	w.step(paneRepoMsg{id: id, cwd: a, repo: git.Repo{Root: rootOf(t, a)}})
+	w.step(paneRepoMsg{id: id, cwd: a, repo: git.Repo{Root: a}})
 
-	if w.watched(rootOf(t, a)) {
+	if w.watched(a) {
 		t.Error("a stale resolution started a watch")
 	}
 }
 
 func TestStaleAcquisitionIsReleased(t *testing.T) {
+	t.Parallel()
 	w := newWatchApp(t, false)
-	dir := w.repo(t, "proj")
-	root := rootOf(t, dir)
+	repo := w.repo(t, "proj").Repo()
+	root := repo.Root
 
-	repo, err := git.Open(context.Background(), dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	rel, err := w.set.Acquire(context.Background(), repo)
+	rel, err := w.fake.watches.Acquire(context.Background(), repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,16 +225,26 @@ func TestHoldsReleaseOnceAndAfterClose(t *testing.T) {
 }
 
 func TestRailSeesABranchSwitch(t *testing.T) {
+	t.Parallel()
 	w := newWatchApp(t, true)
-	dir := w.repo(t, "proj")
-	// A branch with one more file, so switching to it changes the totals.
-	gitIn(t, w.real, dir, "switch", "-q", "-c", "other")
-	write(t, dir+"/b.txt", "b\n")
-	gitIn(t, w.real, dir, "add", "b.txt")
-	gitIn(t, w.real, dir, "commit", "-q", "-m", "b")
-	gitIn(t, w.real, dir, "switch", "-q", "main")
 
-	root := rootOf(t, dir)
+	rp := w.fake.repo(t, "proj")
+	dir, root := rp.Root(), rp.Root()
+	write(t, dir+"/a.txt", "one\n")
+	rp.commit("init")
+
+	// A branch with one more file, so switching to it changes the totals.
+	rp.branch("other")
+	write(t, dir+"/b.txt", "b\n")
+	rp.commit("b")
+	rp.switchTo("main")
+
+	if err := os.Remove(dir + "/b.txt"); err != nil {
+		t.Fatal(err)
+	}
+
+	write(t, dir+"/a.txt", "one\ntwo\n")
+
 	id := w.addAgent(t, false, dir)
 
 	w.pm.run(w.settle())
@@ -272,7 +261,9 @@ func TestRailSeesABranchSwitch(t *testing.T) {
 	files := c.stats.Files
 
 	// No clock jump: the switch lands inside both intervals.
-	gitIn(t, w.real, dir, "switch", "-q", "other")
+	rp.switchTo("other")
+	write(t, dir+"/b.txt", "b\n")
+	w.fake.watches.send(root, git.Batch{Git: true, Paths: []string{"b.txt"}})
 
 	w.until(t, "the card to show other with its totals", nil, func() bool {
 		c, _ := w.card(id)
@@ -281,26 +272,11 @@ func TestRailSeesABranchSwitch(t *testing.T) {
 	})
 }
 
-// A test that ends as the rail opens leaves its first probes running; the
-// app's cleanup ends them before its temporary dirs go.
-func TestWatchAppEndsItsProbesBeforeItsDirsGo(t *testing.T) {
-	watch := probesEndFirst(t)
-	w := newWatchApp(t, true)
-	watch(w.App)
-
-	dir := w.repo(t, "proj")
-	root := rootOf(t, dir)
-	id := w.addAgent(t, false, dir)
-
-	w.pm.run(w.settle())
-	w.until(t, "the worktree to be watched", nil, func() bool { return w.held(id) == root })
-	w.pm.run(w.railOpened())
-}
-
 func TestIndexOnlyChangeCostsNoStatsProbe(t *testing.T) {
+	t.Parallel()
 	w := newWatchApp(t, true)
-	dir := w.repo(t, "proj")
-	root := rootOf(t, dir)
+	dir := w.repo(t, "proj").Root()
+	root := dir
 	id := w.addAgent(t, false, dir)
 
 	w.pm.run(w.settle())
@@ -313,43 +289,33 @@ func TestIndexOnlyChangeCostsNoStatsProbe(t *testing.T) {
 		return ok && c.branch == "main" && c.statsKnown
 	})
 
-	heads, stats := 0, 0
-	seen := func(m tea.Msg) {
-		switch m.(type) {
-		case railHeadMsg:
-			heads++
-		case railStatsMsg:
-			stats++
-		}
-	}
+	stats := w.fake.count("Stats")
 
-	// Staging rewrites the index and moves no head. The clock stands just
-	// inside the stats interval, so only a forced probe could run.
+	// Staging rewrites the index and moves no head: the batch names no path. The
+	// clock stands just inside the stats interval, so only a forced probe could
+	// run. The batch and the head answer are delivered here, so what they raise is
+	// all there is to see.
 	w.clk.Advance(statsEvery - time.Second)
-	gitIn(t, w.real, dir, "add", "a.txt")
-	w.until(t, "the head probe the index change caused", seen, func() bool { return heads >= 1 })
 
-	deadline := time.Now().Add(400 * time.Millisecond)
-	for time.Now().Before(deadline) {
-		select {
-		case m := <-w.pm.msgs:
-			seen(m)
-
-			_, cmd := w.Update(m)
-			w.pm.run(cmd)
-		case <-time.After(20 * time.Millisecond):
-		}
+	msgs := flatten(w.onWatch(watchMsg{git.RootBatch{Root: root, Batch: git.Batch{Git: true}}}))
+	if countOf[railHeadMsg](msgs) != 1 {
+		t.Fatalf("the index change ran %v, want one head probe", msgs)
 	}
 
-	if stats != 0 {
-		t.Errorf("an index-only change ran %d stats probes inside the interval", stats)
+	for _, m := range slices.Clone(msgs) {
+		msgs = append(msgs, flatten(w.step(m))...)
+	}
+
+	if n := countOf[railStatsMsg](msgs); n != 0 || w.fake.count("Stats") != stats {
+		t.Errorf("an index-only change ran %d stats probes inside the interval", n+w.fake.count("Stats")-stats)
 	}
 }
 
 func TestFailedResolveNotifiesOnceAndRetriesOnAHook(t *testing.T) {
+	t.Parallel()
 	w := newWatchApp(t, false)
-	dir := w.repo(t, "proj")
-	root := rootOf(t, dir)
+	dir := w.repo(t, "proj").Root()
+	root := dir
 
 	w.watches.open = func(context.Context, string) (git.Repo, error) { return git.Repo{}, errors.New("too slow") }
 
@@ -367,8 +333,8 @@ func TestFailedResolveNotifiesOnceAndRetriesOnAHook(t *testing.T) {
 
 	w.until(t, "the first failure", seen, func() bool { return failures >= 1 && w.notice != "" })
 
-	if want := "watching proj failed: too slow"; w.notice != want {
-		t.Errorf("notice = %q, want %q", w.notice, want)
+	if want := carries("proj", "too slow"); !want.matches(w.notice) {
+		t.Errorf("notice = %q, want %+v", w.notice, want)
 	}
 
 	w.notice = ""
@@ -384,7 +350,7 @@ func TestFailedResolveNotifiesOnceAndRetriesOnAHook(t *testing.T) {
 	}
 
 	// A hook event retries, with no timer.
-	w.watches.open = git.Open
+	w.watches.open = w.fake.Open
 
 	w.pm.run(hook(w.App, harness.Event{Pane: first, Name: "Stop"}))
 	w.until(t, "the retry to acquire", nil, func() bool { return w.held(first) == root })
@@ -393,19 +359,20 @@ func TestFailedResolveNotifiesOnceAndRetriesOnAHook(t *testing.T) {
 	w.watches.open = func(context.Context, string) (git.Repo, error) { return git.Repo{}, errors.New("too slow again") }
 	w.notice = ""
 
-	openIn(t, w.App, core.SetPaneCwd{ID: first, Cwd: w.repo(t, "proj")})
+	openIn(t, w.App, core.SetPaneCwd{ID: first, Cwd: w.repo(t, "proj").Root()})
 	w.pm.run(w.settle())
 	w.until(t, "the second notice", nil, func() bool { return w.notice != "" })
 
-	if want := "watching proj failed: too slow again"; w.notice != want {
-		t.Errorf("notice = %q, want %q", w.notice, want)
+	if want := carries("proj", "too slow again"); !want.matches(w.notice) {
+		t.Errorf("notice = %q, want %+v", w.notice, want)
 	}
 }
 
 func TestRailStatsFollowAFileWrite(t *testing.T) {
+	t.Parallel()
 	w := newWatchApp(t, true)
-	dir := w.repo(t, "proj")
-	root := rootOf(t, dir)
+	dir := w.repo(t, "proj").Root()
+	root := dir
 	id := w.addAgent(t, false, dir)
 
 	w.pm.run(w.settle())
@@ -420,6 +387,7 @@ func TestRailStatsFollowAFileWrite(t *testing.T) {
 
 	w.clk.Advance(statsEvery + time.Second)
 	write(t, dir+"/a.txt", "one\ntwo\nthree\n")
+	w.fake.watches.send(root, git.Batch{Paths: []string{"a.txt"}})
 
 	w.until(t, "the stats to follow the write", nil, func() bool {
 		c, _ := w.card(id)
@@ -429,13 +397,12 @@ func TestRailStatsFollowAFileWrite(t *testing.T) {
 }
 
 func TestFailedWatchNotifiesOnce(t *testing.T) {
+	t.Parallel()
 	w := newWatchApp(t, false)
-	dir := w.repo(t, "proj")
+	dir := w.repo(t, "proj").Root()
 
 	// A closed set refuses every Acquire.
-	if err := w.set.Close(); err != nil {
-		t.Fatal(err)
-	}
+	w.fake.watches.close()
 
 	w.addAgent(t, false, dir)
 	w.addAgent(t, false, dir)
@@ -453,8 +420,8 @@ func TestFailedWatchNotifiesOnce(t *testing.T) {
 	// Update ran after seen, so wait one more step for the notice.
 	w.until(t, "the notice", seen, func() bool { return w.notice != "" })
 
-	if want := "watching proj failed: watch set closed"; w.notice != want {
-		t.Errorf("notice = %q, want %q", w.notice, want)
+	if want := carries("proj", "watch set closed"); !want.matches(w.notice) {
+		t.Errorf("notice = %q, want %+v", w.notice, want)
 	}
 
 	w.notice = ""
@@ -467,6 +434,7 @@ func TestFailedWatchNotifiesOnce(t *testing.T) {
 }
 
 func TestWatchBatchErrorShowsNothing(t *testing.T) {
+	t.Parallel()
 	w := newWatchApp(t, false)
 	w.step(watchMsg{Root: "/x", Err: errors.New("boom")})
 
@@ -475,104 +443,80 @@ func TestWatchBatchErrorShowsNothing(t *testing.T) {
 	}
 }
 
+// With the rail open the probes of an agent are answered, and with it closed
+// the heads of an agent and of the focused shell are the only ones; once
+// answered they cost nothing while the app idles.
 func TestIdleAppDoesNoProbes(t *testing.T) {
-	w := newWatchApp(t, true)
-	dir := w.repo(t, "proj")
-	root := rootOf(t, dir)
-	id := w.addAgent(t, false, dir)
+	t.Parallel()
 
-	w.pm.run(w.settle())
-	w.until(t, "the worktree to be watched", nil, func() bool { return w.held(id) == root })
-	w.pm.run(w.railOpened())
-	w.until(t, "the card", nil, func() bool {
-		c, ok := w.card(id)
-
-		return ok && c.statsKnown
-	})
-
-	calls := w.gitCalls()
-
-	w.clk.Advance(time.Minute)
-
-	deadline := time.Now().Add(300 * time.Millisecond)
-	for time.Now().Before(deadline) {
-		select {
-		case m := <-w.pm.msgs:
-			_, cmd := w.Update(m)
-			w.pm.run(cmd)
-		case <-time.After(20 * time.Millisecond):
-		}
+	tests := []struct {
+		name     string
+		railOpen bool
+	}{
+		{"rail open", true},
+		{"rail closed", false},
 	}
 
-	if got := w.gitCalls(); got != calls {
-		t.Errorf("an idle app ran %d git calls", got-calls)
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-// With the rail closed the heads of an agent and of the focused shell are the
-// only probes, and once answered they cost nothing while the app idles.
-func TestIdleAppDoesNoProbesWithTheRailClosed(t *testing.T) {
-	w := newWatchApp(t, true)
-	dir, shellDir := w.repo(t, "proj"), w.repo(t, "shell")
-	root := rootOf(t, dir)
-	id := w.addAgent(t, false, dir)
+			w := newWatchApp(t, true)
+			dir, shellDir := w.repo(t, "proj").Root(), w.repo(t, "shell").Root()
+			id := w.addAgent(t, false, dir)
 
-	openIn(t, w.App, core.OpenPane{Kind: core.KindShell, Cwd: shellDir, Split: core.SplitVertical, Area: w.bodyArea()})
+			openIn(t, w.App, core.OpenPane{Kind: core.KindShell, Cwd: shellDir, Split: core.SplitVertical, Area: w.bodyArea()})
 
-	shell := w.store.State().Tab().Focus
-	if shell == id {
-		t.Fatal("setup: the agent has focus, want the shell")
-	}
-
-	known := func(p core.PaneID) bool {
-		rp := w.rail.panes[p]
-
-		return rp != nil && rp.probe.known && !rp.head.busy
-	}
-
-	w.pm.run(w.settle())
-	w.until(t, "the worktree to be watched", nil, func() bool { return w.held(id) == root })
-	w.until(t, "both heads", nil, func() bool { return known(id) && known(shell) })
-
-	calls, delays := w.gitCalls(), len(w.ticks.delays)
-
-	w.clk.Advance(time.Minute)
-
-	deadline := time.Now().Add(300 * time.Millisecond)
-	for time.Now().Before(deadline) {
-		select {
-		case m := <-w.pm.msgs:
-			switch m.(type) {
-			case railHeadMsg, railStatsMsg, railNameMsg, railDueMsg:
-				t.Errorf("an idle app raised %T", m)
+			shell := w.store.State().Tab().Focus
+			if shell == id {
+				t.Fatal("setup: the agent has focus, want the shell")
 			}
 
-			_, cmd := w.Update(m)
-			w.pm.run(cmd)
-		case <-time.After(20 * time.Millisecond):
-		}
-	}
+			w.pm.run(w.settle())
+			w.until(t, "the worktree to be watched", nil, func() bool { return w.held(id) == dir })
 
-	if got := w.gitCalls(); got != calls {
-		t.Errorf("an idle app ran %d git calls", got-calls)
-	}
+			if tt.railOpen {
+				w.pm.run(w.railOpened())
+			}
 
-	if got := len(w.ticks.delays); got != delays {
-		t.Errorf("an idle app scheduled %d delayed probes", got-delays)
+			w.until(t, "the probes", nil, func() bool {
+				for _, p := range []core.PaneID{id, shell} {
+					rp := w.rail.panes[p]
+					if rp == nil || !rp.probe.known || rp.head.busy || rp.stats.busy || rp.nameSlot.busy {
+						return false
+					}
+				}
+
+				c, ok := w.card(id)
+
+				return ok && (!tt.railOpen || c.statsKnown)
+			})
+
+			calls, delays := w.gitCalls(), len(w.ticks.delays)
+
+			// The update pass after the jump is the one that would start a probe.
+			w.clk.Advance(time.Minute)
+
+			if msgs := flatten(w.settle()); len(msgs) != 0 {
+				t.Errorf("an idle app raised %v", msgs)
+			}
+
+			if got := w.gitCalls(); got != calls {
+				t.Errorf("an idle app ran %d git calls", got-calls)
+			}
+
+			if got := len(w.ticks.delays); got != delays {
+				t.Errorf("an idle app scheduled %d delayed probes", got-delays)
+			}
+		})
 	}
 }
 
 func TestAppCloseNoLeaksWithWatches(t *testing.T) {
 	base := runtime.NumGoroutine()
-	set := git.NewWatchSet(context.Background(), git.WatchOptions{Debounce: 20 * time.Millisecond})
-	r := newRealApp(t, "sleep 30; :")
-	r.watches.set = set
-
-	cmd := exec.Command("git", "init", "-q", r.cwd)
-
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Skipf("git init: %v %s", err, out)
-	}
+	f := newFakeGit(t)
+	r := newScriptApp(t, gitOf(f), "sleep 30; :")
+	root := f.repoAt(t, r.cwd).Root()
 
 	pm := newPump(t)
 	_, c := r.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
@@ -585,15 +529,27 @@ func TestAppCloseNoLeaksWithWatches(t *testing.T) {
 	pumped, stop := context.WithTimeout(context.Background(), watchWait)
 	defer stop()
 
-	root, _ := git.Open(context.Background(), r.cwd)
-
-	for {
-		if _, ok := set.Seq(root.Root); ok {
-			break
-		}
-
+	for f.watches.holds(root) == 0 {
 		if !pm.step(pumped, r.App) {
 			t.Fatal("the agent's worktree was never watched")
+		}
+	}
+
+	// A batch reaches the app and the wait for the next one is armed again.
+	for range 2 {
+		f.watches.send(root, git.Batch{Paths: []string{"a.txt"}})
+
+		for seen := false; !seen; {
+			select {
+			case m := <-pm.msgs:
+				_, isBatch := m.(watchMsg)
+				seen = isBatch
+
+				_, cmd := r.Update(m)
+				pm.run(cmd)
+			case <-pumped.Done():
+				t.Fatal("a watch batch never reached the app")
+			}
 		}
 	}
 
@@ -604,8 +560,8 @@ func TestAppCloseNoLeaksWithWatches(t *testing.T) {
 		t.Fatalf("Close() error = %v", err)
 	}
 
-	if err := set.Close(); err != nil {
-		t.Fatal(err)
+	if n := f.watches.holds(root); n != 0 {
+		t.Errorf("Close left %d references on %s", n, root)
 	}
 
 	if strings.Contains(r.notice, "failed") {

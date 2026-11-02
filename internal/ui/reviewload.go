@@ -313,7 +313,8 @@ type reviewJob struct {
 	prBase   string     // the base of the pull request src shows
 	prev     git.Result // the result batch updates
 	keep     reviewInfo // what a load that skips a probe keeps
-	eng      *git.Engine
+	eng      DiffEngine
+	git      Git
 	log      *slog.Logger
 
 	// The reviewed hunks: the common dir already found for root, the
@@ -344,7 +345,7 @@ func (a *App) reviewStart(tab core.TabID, v *reviewView, b *git.Batch, infoOnly 
 
 	job := reviewJob{
 		tab: tab, epoch: v.epoch, src: v.src, root: v.root, session: v.session, own: v.own, batch: b, infoOnly: infoOnly, prev: v.res, prBase: v.prBase,
-		keep: keep, eng: a.engine, log: a.log,
+		keep: keep, eng: a.engine, git: a.git, log: a.log,
 		common: v.common, commonRoot: v.commonRoot, known: a.store.State().Marks, files: a.marks, now: a.clock.Now(),
 	}
 
@@ -494,7 +495,7 @@ func (j reviewJob) foreign(ctx context.Context) bool {
 		return false
 	}
 
-	foreign, err := isForeign(ctx, j.own, j.root)
+	foreign, err := isForeign(ctx, j.git, j.own, j.root)
 	if err != nil {
 		return j.keep.foreign
 	}
@@ -505,7 +506,7 @@ func (j reviewJob) foreign(ctx context.Context) bool {
 // isForeign reports whether root is not the root of the agent's own directory
 // own, as when own is in no repository or gone. It returns ctx's error when the
 // check was cut short.
-func isForeign(ctx context.Context, own, root string) (bool, error) {
+func isForeign(ctx context.Context, g Git, own, root string) (bool, error) {
 	switch own {
 	case "":
 		return true, nil
@@ -513,7 +514,7 @@ func isForeign(ctx context.Context, own, root string) (bool, error) {
 		return false, nil
 	}
 
-	r, err := git.Open(ctx, own)
+	r, err := g.Open(ctx, own)
 	if err != nil && ctx.Err() != nil {
 		return false, ctx.Err()
 	}
@@ -529,7 +530,7 @@ func (j reviewJob) describe(ctx context.Context, info *reviewInfo) {
 		return
 	}
 
-	r, err := git.Open(ctx, j.root)
+	r, err := j.git.Open(ctx, j.root)
 	if err != nil {
 		j.log.Debug("review: open", "root", j.root, "err", err)
 
@@ -539,7 +540,7 @@ func (j reviewJob) describe(ctx context.Context, info *reviewInfo) {
 	if probe {
 		info.project = repoProject(r)
 
-		if h, err := git.Head(ctx, r); err == nil {
+		if h, err := j.git.Head(ctx, r); err == nil {
 			info.branch = h.Branch
 			if h.Detached {
 				info.branch = h.OID[:min(shortOIDLen, len(h.OID))]
@@ -556,7 +557,7 @@ func (j reviewJob) describe(ctx context.Context, info *reviewInfo) {
 		}
 
 		if base == "" {
-			if base, err = git.DefaultBranch(ctx, r); err != nil {
+			if base, err = j.git.DefaultBranch(ctx, r); err != nil {
 				j.log.Debug("review: default branch", "root", j.root, "err", err)
 			}
 		}

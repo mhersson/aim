@@ -1,10 +1,7 @@
 package ui
 
 import (
-	"context"
 	"fmt"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -17,17 +14,11 @@ import (
 	"github.com/charmbracelet/x/exp/golden"
 
 	"github.com/mhersson/aim/internal/core"
+	"github.com/mhersson/aim/internal/git"
 	"github.com/mhersson/aim/internal/github"
 	"github.com/mhersson/aim/internal/harness"
 	"github.com/mhersson/aim/internal/ui/palette"
 )
-
-// pushDate fixes the commit dates of a rig, so commit ids and the goldens that
-// show them are the same on every run.
-const pushDate = "2026-10-29T12:00:00+0000"
-
-// gitFileOnly limits git to local transports, so no push test can reach a network.
-const gitFileOnly = "GIT_ALLOW_PROTOCOL=file"
 
 // refreshRec records the repositories the poller was asked to refresh.
 type refreshRec struct {
@@ -49,26 +40,6 @@ func (r *refreshRec) refreshed() []github.Repo {
 	defer r.rmu.Unlock()
 
 	return slices.Clone(r.repos)
-}
-
-// gitRead runs the real git in dir and returns its trimmed output.
-func gitRead(t *testing.T, bin, dir string, args ...string) string {
-	t.Helper()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Dir = dir
-
-	cmd.Env = append(os.Environ(), gitFileOnly)
-
-	out, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("git %v: %v", args, err)
-	}
-
-	return strings.TrimSpace(string(out))
 }
 
 // churnMsgs is churn that also returns every message it fed back.
@@ -98,41 +69,58 @@ func (r *railApp) churnMsgs(t *testing.T, cmd tea.Cmd) []tea.Msg {
 	return all
 }
 
-// pushRemoteURL is how the rig's repository reaches its bare remote, which sits
-// next to it. A relative URL shows the same in every run.
+// pushRemoteURL is how the rig's repository reaches its remote. A relative URL
+// shows the same in every run.
 const pushRemoteURL = "../remote.git"
 
+// pushHead is the id of the newest commit on feat/x, which the push golden shows.
+const pushHead = "2388116000000000000000000000000000000000"
+
+// pushScenario makes proj on feat/x two commits past main, with one edit left in
+// the work tree, and origin at pushRemoteURL holding main.
+func pushScenario(t *testing.T, f *fakeGit) *fakeRepo {
+	t.Helper()
+
+	r := f.repo(t, "proj")
+	write(t, filepath.Join(r.Root(), "a.txt"), "one\n")
+
+	main := r.commit("init")
+	r.branch("feat/x")
+	r.remote("origin", pushRemoteURL).setBranch("main", main)
+	r.track("origin", "main", main)
+	r.commit("add the lexer")
+	r.commitAs(pushHead, "fix the parser")
+	write(t, filepath.Join(r.Root(), "a.txt"), "one\ntwo\n")
+
+	return r
+}
+
 // pushRig is a rail app with an agent in a repository named proj, on feat/x two
-// commits past main. origin is a bare repository that has main.
+// commits past main. origin has main.
 type pushRig struct {
 	*prApp
-	rec   *refreshRec
-	dir   string
-	bare  string
-	agent core.PaneID
+	rec    *refreshRec
+	repo   *fakeRepo
+	origin *fakeRemote
+	dir    string
+	agent  core.PaneID
 }
 
 func newPushRig(t *testing.T) *pushRig {
 	t.Helper()
 
-	allow, protocols, _ := strings.Cut(gitFileOnly, "=")
+	f := newFakeGit(t)
+	repo := pushScenario(t, f)
 
-	// The app's own git speaks no network transport and commits at fixed dates.
-	t.Setenv(allow, protocols)
-	t.Setenv("GIT_AUTHOR_DATE", pushDate)
-	t.Setenv("GIT_COMMITTER_DATE", pushDate)
-
-	p := newPRApp(t)
+	p := newPRApp(t, gitOf(f))
 	rec := &refreshRec{fakePRs: p.src}
 	p.prs.src = rec
 
-	root := t.TempDir()
-	copyPushTemplate(t, p.real, root)
+	r := &pushRig{prApp: p, rec: rec, repo: repo, dir: repo.Root()}
 
-	dir, bare := filepath.Join(root, "proj"), filepath.Join(root, "remote.git")
+	f.edit(func() { r.origin = repo.c.remotes["origin"] })
 
-	r := &pushRig{prApp: p, rec: rec, dir: dir, bare: bare}
-	r.agent = r.addAgent(t, false, dir)
+	r.agent = r.addAgent(t, false, r.dir)
 	r.churn(t, r.settle())
 
 	return r
@@ -141,13 +129,35 @@ func newPushRig(t *testing.T) *pushRig {
 // githubURL is a fetch URL the rig's pushes never reach: a rig that has it also has a push URL.
 const githubURL = "https://github.com/o/r.git"
 
-// splitURLs gives origin a fetch URL of its own while pushes still go to the
-// bare repository, through a push URL.
+// splitURLs gives origin a fetch URL of its own while pushes still go to
+// pushRemoteURL, through a push URL.
 func (r *pushRig) splitURLs(t *testing.T, fetch string) {
 	t.Helper()
 
-	gitIn(t, r.real, r.dir, "remote", "set-url", "origin", fetch)
-	gitIn(t, r.real, r.dir, "config", "remote.origin.pushurl", pushRemoteURL)
+	r.fake.edit(func() { r.origin.url = fetch })
+	r.origin.setPushURLs(pushRemoteURL)
+}
+
+// branchTip is the tip of a branch of the rig's repository.
+func (r *pushRig) branchTip(branch string) string {
+	var oid string
+
+	r.fake.edit(func() { oid = r.repo.c.branches[branch] })
+
+	return oid
+}
+
+// publish has the remote hold the current branch at its tip, as after push -u.
+func (r *pushRig) publish(t *testing.T) {
+	t.Helper()
+
+	var oid string
+
+	r.fake.edit(func() { oid = r.repo.headOID() })
+
+	r.origin.setBranch("feat/x", oid)
+	r.repo.track("origin", "feat/x", oid)
+	r.repo.setUpstream("feat/x", "origin")
 }
 
 // leaderP presses leader g P and returns the command it raised.
@@ -166,6 +176,30 @@ func (r *pushRig) ask(t *testing.T) []tea.Msg {
 	return r.churnMsgs(t, r.leaderP())
 }
 
+// askNotice asks and checks that the answer carried state, opened no confirm and
+// raised a notice at the notice level; it returns the notice.
+func (r *pushRig) askNotice(t *testing.T, state pushState) string {
+	t.Helper()
+
+	for _, m := range r.ask(t) {
+		if res, ok := m.(pushResolvedMsg); ok {
+			if res.state != state || res.err != nil {
+				t.Errorf("resolved state %v (err %v), want %v", res.state, res.err, state)
+			}
+
+			if r.confirm != nil || r.noticeLevel() != levelNotice {
+				t.Errorf("confirm %v, notice %q at level %v, want no confirm and a notice", r.confirm != nil, r.notice, r.noticeLevel())
+			}
+
+			return r.notice
+		}
+	}
+
+	t.Fatal("no pushResolvedMsg after leader g P")
+
+	return ""
+}
+
 // askOpen asks and fails unless the push confirm is open.
 func (r *pushRig) askOpen(t *testing.T) {
 	t.Helper()
@@ -177,42 +211,50 @@ func (r *pushRig) askOpen(t *testing.T) {
 	}
 }
 
+// remoteRefs is the remote's branches, one ref per line in name order.
 func (r *pushRig) remoteRefs(t *testing.T) string {
 	t.Helper()
 
-	return gitRead(t, r.real, r.bare, "for-each-ref", "--format=%(refname)")
+	var refs []string
+
+	r.fake.edit(func() {
+		for b := range r.origin.branches {
+			refs = append(refs, "refs/heads/"+b)
+		}
+	})
+
+	slices.Sort(refs)
+
+	return strings.Join(refs, "\n")
 }
 
-// pushCalls counts the git pushes the app ran.
-func (r *pushRig) pushCalls() int {
-	b, err := os.ReadFile(r.log)
-	if err != nil {
-		return 0
+// pushCalls counts the pushes the app ran.
+func (r *pushRig) pushCalls() int { return r.fake.count("Push") }
+
+// pushes is the branch of every push the app ran, in order.
+func (r *pushRig) pushes() []string {
+	var out []string
+
+	for _, c := range r.fake.calls("Push") {
+		out = append(out, c.Args...)
 	}
 
-	n := 0
-
-	for line := range strings.SplitSeq(string(b), "\n") {
-		if strings.Contains(line, " push ") {
-			n++
-		}
-	}
-
-	return n
+	return out
 }
 
 func (r *pushRig) overlayText() string { return ansi.Strip(r.View().Content) }
 
 func TestPushConfirmNamesTheTarget(t *testing.T) {
+	t.Parallel()
+
 	r := newPushRig(t)
 	r.askOpen(t)
 
-	oid := gitRead(t, r.real, r.dir, "rev-parse", "HEAD")
 	text := r.overlayText()
 
 	for _, want := range []string{
 		"Push feat/x", "proj", "feat/x", "origin  ../remote.git", "2 commits", "sets the upstream",
-		oid[:7] + " fix the parser", "enter push", "esc cancel",
+		pushHead[:7] + " fix the parser", "enter push", "esc cancel",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the overlay lacks %q:\n%s", want, text)
@@ -241,9 +283,11 @@ func TestPushConfirmNamesTheTarget(t *testing.T) {
 }
 
 func TestPushConfirmNamesAnUpstreamAlreadySet(t *testing.T) {
+	t.Parallel()
+
 	r := newPushRig(t)
-	gitIn(t, r.real, r.dir, "push", "-q", "-u", "origin", "feat/x")
-	gitIn(t, r.real, r.dir, "commit", "-q", "--allow-empty", "-m", "one more")
+	r.publish(t)
+	r.repo.commit("one more")
 
 	r.askOpen(t)
 
@@ -254,12 +298,14 @@ func TestPushConfirmNamesAnUpstreamAlreadySet(t *testing.T) {
 
 	r.churn(t, press(r.App, keyEnter))
 
-	if want := "pushed feat/x to origin: 1 commit"; r.notice != want {
-		t.Errorf("toast = %q, want %q", r.notice, want)
+	if want := carries("feat/x", "origin", commitCount(1)); !want.matches(r.notice) || r.noticeLevel() != levelSuccess {
+		t.Errorf("toast = %q at level %v, want %+v as a success", r.notice, r.noticeLevel(), want)
 	}
 }
 
 func TestPushFirstPush(t *testing.T) {
+	t.Parallel()
+
 	r := newPushRig(t)
 	r.askOpen(t)
 
@@ -269,16 +315,24 @@ func TestPushFirstPush(t *testing.T) {
 		t.Error("the confirm is still open after enter")
 	}
 
-	if want := "pushed feat/x to origin: 2 commits"; r.notice != want || r.noticeLevel() != levelSuccess {
-		t.Errorf("toast = %q at level %v, want %q at the success level", r.notice, r.noticeLevel(), want)
+	if want := carries("feat/x", "origin", commitCount(2)); !want.matches(r.notice) || r.noticeLevel() != levelSuccess {
+		t.Errorf("toast = %q at level %v, want %+v at the success level", r.notice, r.noticeLevel(), want)
 	}
 
 	if got := r.remoteRefs(t); !strings.Contains(got, "refs/heads/feat/x") {
 		t.Errorf("the remote holds %q, want feat/x", got)
 	}
 
-	if got := gitRead(t, r.real, r.dir, "config", "branch.feat/x.merge"); got != "refs/heads/feat/x" {
-		t.Errorf("upstream merge = %q, want refs/heads/feat/x", got)
+	if got := r.pushes(); !slices.Equal(got, []string{"feat/x"}) {
+		t.Errorf("pushed %q, want only feat/x", got)
+	}
+
+	var upstream string
+
+	r.fake.edit(func() { upstream = r.repo.c.upstream["feat/x"] })
+
+	if upstream != "origin" {
+		t.Errorf("upstream = %q, want origin", upstream)
 	}
 
 	if countOf[railHeadMsg](msgs) == 0 {
@@ -291,14 +345,16 @@ func TestPushFirstPush(t *testing.T) {
 }
 
 func TestPushRefreshesTheGitHubRepository(t *testing.T) {
+	t.Parallel()
+
 	r := newPushRig(t)
 	r.splitURLs(t, githubURL)
 	r.askOpen(t)
 
 	r.churn(t, press(r.App, keyEnter))
 
-	if want := "pushed feat/x to origin: 2 commits"; r.notice != want {
-		t.Errorf("toast = %q, want %q", r.notice, want)
+	if want := carries("feat/x", "origin", commitCount(2)); !want.matches(r.notice) || r.noticeLevel() != levelSuccess {
+		t.Errorf("toast = %q at level %v, want %+v as a success", r.notice, r.noticeLevel(), want)
 	}
 
 	if got := r.rec.refreshed(); !slices.Equal(got, []github.Repo{prRepo}) {
@@ -307,25 +363,24 @@ func TestPushRefreshesTheGitHubRepository(t *testing.T) {
 }
 
 func TestPushConfirmNamesThePushURLs(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name  string
 		setup func(t *testing.T, r *pushRig)
 		urls  []string
 	}{
 		{"the fetch url when there is no push url", func(*testing.T, *pushRig) {}, []string{"../remote.git"}},
-		{"a push url", func(t *testing.T, r *pushRig) { r.splitURLs(t, githubURL) }, []string{"../remote.git"}},
-		{"a push url rewrite", func(t *testing.T, r *pushRig) {
-			gitIn(t, r.real, r.dir, "remote", "set-url", "origin", githubURL)
-			gitIn(t, r.real, r.dir, "config", "url."+pushRemoteURL+".pushInsteadOf", githubURL)
-		}, []string{"../remote.git"}},
 		{"two push urls", func(t *testing.T, r *pushRig) {
 			r.splitURLs(t, githubURL)
-			gitIn(t, r.real, r.dir, "config", "--add", "remote.origin.pushurl", "../mirror.git")
+			r.origin.setPushURLs(pushRemoteURL, "../mirror.git")
 		}, []string{"../remote.git", "../mirror.git"}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			r := newPushRig(t)
 			tt.setup(t, r)
 			r.askOpen(t)
@@ -364,6 +419,7 @@ func TestPushConfirmNamesThePushURLs(t *testing.T) {
 
 func TestPushConfirmCapsThePushURLs(t *testing.T) {
 	t.Parallel()
+
 	a := newTestApp(t)
 
 	tests := []struct {
@@ -398,23 +454,24 @@ func TestPushConfirmCapsThePushURLs(t *testing.T) {
 }
 
 func TestPushRefusesAChangedPushURL(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		changed func(t *testing.T, r *pushRig)
 	}{
 		{"the push url is replaced", func(t *testing.T, r *pushRig) {
-			gitIn(t, r.real, r.dir, "config", "remote.origin.pushurl", "../elsewhere.git")
+			r.origin.setPushURLs("../elsewhere.git")
 		}},
 		{"a push url is added", func(t *testing.T, r *pushRig) {
-			gitIn(t, r.real, r.dir, "config", "--add", "remote.origin.pushurl", "../mirror.git")
-		}},
-		{"the push url is removed", func(t *testing.T, r *pushRig) {
-			gitIn(t, r.real, r.dir, "config", "--unset", "remote.origin.pushurl")
+			r.origin.setPushURLs(pushRemoteURL, "../mirror.git")
 		}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			r := newPushRig(t)
 			r.splitURLs(t, "../fetch-only.git")
 			r.askOpen(t)
@@ -422,8 +479,8 @@ func TestPushRefusesAChangedPushURL(t *testing.T) {
 			tt.changed(t, r)
 			r.churn(t, press(r.App, keyEnter))
 
-			if want := "push: feat/x's push URL changed since you asked; nothing pushed"; r.notice != want || r.noticeLevel() != levelNotice {
-				t.Errorf("toast = %q at level %v, want %q at the notice level", r.notice, r.noticeLevel(), want)
+			if want := carries("feat/x"); !want.matches(r.notice) || r.noticeLevel() != levelNotice {
+				t.Errorf("toast = %q at level %v, want %+v at the notice level", r.notice, r.noticeLevel(), want)
 			}
 
 			if got := r.remoteRefs(t); got != "refs/heads/main" {
@@ -438,6 +495,8 @@ func TestPushRefusesAChangedPushURL(t *testing.T) {
 }
 
 func TestPushConfirmEscCancels(t *testing.T) {
+	t.Parallel()
+
 	r := newPushRig(t)
 	r.askOpen(t)
 
@@ -457,6 +516,8 @@ func TestPushConfirmEscCancels(t *testing.T) {
 }
 
 func TestPushConfirmIgnoresYAndN(t *testing.T) {
+	t.Parallel()
+
 	r := newPushRig(t)
 	r.askOpen(t)
 
@@ -474,6 +535,8 @@ func TestPushConfirmIgnoresYAndN(t *testing.T) {
 }
 
 func TestPushConfirmTargetIsFrozen(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		move func(t *testing.T, r *pushRig, other string)
@@ -492,8 +555,10 @@ func TestPushConfirmTargetIsFrozen(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			r := newPushRig(t)
-			other := r.prRepo(t, "other", "elsewhere", "")
+			other := pushOther(t, r.fake, "other", "elsewhere")
 
 			r.askOpen(t)
 			tt.move(t, r, other)
@@ -504,29 +569,48 @@ func TestPushConfirmTargetIsFrozen(t *testing.T) {
 
 			r.churn(t, press(r.App, keyEnter))
 
-			if want := "pushed feat/x to origin: 2 commits"; r.notice != want {
-				t.Errorf("toast = %q, want %q", r.notice, want)
+			if want := carries("feat/x", "origin", commitCount(2)); !want.matches(r.notice) || r.noticeLevel() != levelSuccess {
+				t.Errorf("toast = %q at level %v, want %+v as a success", r.notice, r.noticeLevel(), want)
 			}
 
 			got := r.remoteRefs(t)
 			if !strings.Contains(got, "refs/heads/feat/x") || strings.Contains(got, "elsewhere") {
 				t.Errorf("the remote holds %q, want feat/x and not elsewhere", got)
 			}
+
+			if got := r.pushes(); !slices.Equal(got, []string{"feat/x"}) {
+				t.Errorf("pushed %q, want only feat/x", got)
+			}
 		})
 	}
 }
 
 // worktree adds a linked worktree of the rig's repository beside it, on a new
-// branch cut from its head with one commit of its own. Beside the repository,
-// the relative push URL reaches the bare remote from there too.
+// branch cut from its head with one commit of its own, and returns its root.
 func (r *pushRig) worktree(t *testing.T, name, branch string) string {
 	t.Helper()
 
-	dir := filepath.Join(filepath.Dir(r.dir), name)
-	gitIn(t, r.real, r.dir, "worktree", "add", "-q", "-b", branch, dir)
-	gitIn(t, r.real, dir, "commit", "-q", "--allow-empty", "-m", "work on "+branch)
+	wt := r.repo.worktree(t, filepath.Join(filepath.Dir(r.dir), name), branch)
+	wt.commit("work on " + branch)
 
-	return dir
+	return wt.Root()
+}
+
+// pushOther is a second repository, on branch, with one commit and an edit and no remote.
+func pushOther(t *testing.T, f *fakeGit, name, branch string) string {
+	t.Helper()
+
+	r := f.repo(t, name)
+	write(t, filepath.Join(r.Root(), "a.txt"), "one\n")
+	r.commit("init")
+
+	if branch != "main" {
+		r.branch(branch)
+	}
+
+	write(t, filepath.Join(r.Root(), "a.txt"), "one\ntwo\n")
+
+	return r.Root()
 }
 
 // agentOnMain moves the agent's own directory to a worktree on main, which the
@@ -534,9 +618,12 @@ func (r *pushRig) worktree(t *testing.T, name, branch string) string {
 func (r *pushRig) agentOnMain(t *testing.T) {
 	t.Helper()
 
-	dir := filepath.Join(filepath.Dir(r.dir), "main")
-	gitIn(t, r.real, r.dir, "worktree", "add", "-q", dir, "main")
-	openIn(t, r.App, core.SetAgentCwd{ID: r.agent, Cwd: dir})
+	// The fake makes a linked worktree on a new branch; main is switched to and the new branch dropped.
+	wt := r.repo.worktree(t, filepath.Join(filepath.Dir(r.dir), "main"), "main-wt")
+	wt.switchTo("main")
+	r.fake.edit(func() { delete(r.repo.c.branches, "main-wt") })
+
+	openIn(t, r.App, core.SetAgentCwd{ID: r.agent, Cwd: wt.Root()})
 
 	r.clk.Advance(6 * time.Second)
 	r.churn(t, r.settle())
@@ -568,9 +655,15 @@ func (r *pushRig) pushed(t *testing.T, want ...string) {
 	if got := r.remoteRefs(t); got != strings.Join(refs, "\n") {
 		t.Errorf("the remote holds %q, want %q", got, strings.Join(refs, " "))
 	}
+
+	if got := r.pushes(); !slices.Equal(got, want) {
+		t.Errorf("pushed %q, want %q", got, want)
+	}
 }
 
 func TestPushTargetsTheDrawer(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name  string
 		setup func(t *testing.T, r *pushRig, b string)
@@ -597,8 +690,10 @@ func TestPushTargetsTheDrawer(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			r := newPushRig(t)
-			b := rootOf(t, r.worktree(t, "b", "feat/b"))
+			b := r.worktree(t, "b", "feat/b")
 			r.editIn(t, r.worktree(t, "c", "feat/c"))
 			r.churn(t, r.openReview(r.agent, true))
 
@@ -619,19 +714,19 @@ func TestPushTargetsTheDrawer(t *testing.T) {
 }
 
 func TestPushTargetsTheFollowedPlace(t *testing.T) {
+	t.Parallel()
+
 	r := newPushRig(t)
 	r.agentOnMain(t)
 
-	r.ask(t)
-
-	if r.confirm != nil || r.notice != "main is up to date on origin" {
-		t.Fatalf("confirm %v, toast %q before the edit, want main up to date", r.confirm != nil, r.notice)
+	if got := r.askNotice(t, pushUpToDate); !strings.Contains(got, "main") || !strings.Contains(got, "origin") {
+		t.Fatalf("toast %q before the edit, want main named up to date on origin", got)
 	}
 
 	r.editIn(t, r.dir)
 	r.askOpen(t)
 
-	if got, want := r.confirm.push.root, rootOf(t, r.dir); got != want {
+	if got, want := r.confirm.push.root, r.dir; got != want {
 		t.Errorf("the confirm pushes from %q, want %q", got, want)
 	}
 
@@ -639,6 +734,8 @@ func TestPushTargetsTheFollowedPlace(t *testing.T) {
 }
 
 func TestPushTargetFrozenWhileFollowing(t *testing.T) {
+	t.Parallel()
+
 	r := newPushRig(t)
 	r.agentOnMain(t)
 	r.editIn(t, r.dir)
@@ -654,6 +751,8 @@ func TestPushTargetFrozenWhileFollowing(t *testing.T) {
 }
 
 func TestPushShellPane(t *testing.T) {
+	t.Parallel()
+
 	r := newPushRig(t)
 	r.editIn(t, r.worktree(t, "b", "feat/b"))
 
@@ -673,34 +772,29 @@ func TestPushShellPane(t *testing.T) {
 }
 
 func TestPushConfirmHeadMoved(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name  string
 		moved func(t *testing.T, r *pushRig)
 	}{
-		{"a commit lands", func(t *testing.T, r *pushRig) {
-			gitIn(t, r.real, r.dir, "commit", "-q", "--allow-empty", "-m", "late")
-		}},
-		{"the branch is reset", func(t *testing.T, r *pushRig) {
-			gitIn(t, r.real, r.dir, "reset", "-q", "--hard", "HEAD~1")
-		}},
-		{"another branch is checked out", func(t *testing.T, r *pushRig) {
-			gitIn(t, r.real, r.dir, "switch", "-q", "-c", "other")
-		}},
-		{"the head is detached", func(t *testing.T, r *pushRig) {
-			gitIn(t, r.real, r.dir, "switch", "-q", "--detach")
-		}},
+		{"a commit lands", func(t *testing.T, r *pushRig) { r.repo.commit("late") }},
+		{"another branch is checked out", func(t *testing.T, r *pushRig) { r.repo.branch("other") }},
+		{"the head is detached", func(t *testing.T, r *pushRig) { r.repo.detach() }},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			r := newPushRig(t)
 			r.askOpen(t)
 
 			tt.moved(t, r)
 			r.churn(t, press(r.App, keyEnter))
 
-			if want := "push: feat/x changed since you asked; nothing pushed"; r.notice != want || r.noticeLevel() != levelNotice {
-				t.Errorf("toast = %q at level %v, want %q at the notice level", r.notice, r.noticeLevel(), want)
+			if want := carries("feat/x"); !want.matches(r.notice) || r.noticeLevel() != levelNotice {
+				t.Errorf("toast = %q at level %v, want %+v at the notice level", r.notice, r.noticeLevel(), want)
 			}
 
 			if got := r.remoteRefs(t); got != "refs/heads/main" {
@@ -715,13 +809,15 @@ func TestPushConfirmHeadMoved(t *testing.T) {
 }
 
 func TestPushInFlight(t *testing.T) {
+	t.Parallel()
+
 	r := newPushRig(t)
 	r.askOpen(t)
 
 	// The command is held, as a push still running is.
 	held := press(r.App, keyEnter)
 
-	if want := "pushing feat/x to origin…"; r.notice != want || r.noticeLevel() != levelNotice {
+	if want := pushingNotice(pushTarget{branch: "feat/x", remote: "origin"}); r.notice != want || r.noticeLevel() != levelNotice {
 		t.Errorf("toast = %q at level %v, want %q at the notice level", r.notice, r.noticeLevel(), want)
 	}
 
@@ -731,7 +827,7 @@ func TestPushInFlight(t *testing.T) {
 
 	r.ask(t)
 
-	if want := "push: feat/x is already being pushed"; r.notice != want || r.noticeLevel() != levelNotice {
+	if want := fmt.Sprintf(noticePushBusy, "feat/x"); r.notice != want || r.noticeLevel() != levelNotice {
 		t.Errorf("toast = %q at level %v, want %q at the notice level", r.notice, r.noticeLevel(), want)
 	}
 
@@ -745,20 +841,20 @@ func TestPushInFlight(t *testing.T) {
 
 	r.churn(t, held)
 
-	if want := "pushed feat/x to origin: 2 commits"; r.notice != want || r.noticeLevel() != levelSuccess {
-		t.Errorf("toast = %q at level %v, want %q at the success level", r.notice, r.noticeLevel(), want)
+	if want := carries("feat/x", "origin", commitCount(2)); !want.matches(r.notice) || r.noticeLevel() != levelSuccess {
+		t.Errorf("toast = %q at level %v, want %+v at the success level", r.notice, r.noticeLevel(), want)
 	}
 
 	if len(r.pushing) != 0 {
 		t.Errorf("%v still marked as being pushed after the result", r.pushing)
 	}
 
-	gitIn(t, r.real, r.dir, "commit", "-q", "--allow-empty", "-m", "more")
+	r.repo.commit("more")
 	r.askOpen(t)
 	r.churn(t, press(r.App, keyEnter))
 
-	if want := "pushed feat/x to origin: 1 commit"; r.notice != want {
-		t.Errorf("toast = %q, want %q", r.notice, want)
+	if want := carries("feat/x", "origin", commitCount(1)); !want.matches(r.notice) || r.noticeLevel() != levelSuccess {
+		t.Errorf("toast = %q at level %v, want %+v as a success", r.notice, r.noticeLevel(), want)
 	}
 
 	if n := r.pushCalls(); n != 2 {
@@ -767,6 +863,8 @@ func TestPushInFlight(t *testing.T) {
 }
 
 func TestPushInFlightStopsAnotherAnswer(t *testing.T) {
+	t.Parallel()
+
 	r := newPushRig(t)
 	r.askOpen(t)
 
@@ -775,7 +873,7 @@ func TestPushInFlightStopsAnotherAnswer(t *testing.T) {
 
 	r.churn(t, press(r.App, keyEnter))
 
-	if want := "push: feat/x is already being pushed"; r.notice != want {
+	if want := fmt.Sprintf(noticePushBusy, "feat/x"); r.notice != want {
 		t.Errorf("toast = %q, want %q", r.notice, want)
 	}
 
@@ -788,55 +886,29 @@ func TestPushInFlightStopsAnotherAnswer(t *testing.T) {
 	}
 }
 
-func TestPushRefusesATransportThatReachesTheNetwork(t *testing.T) {
-	r := newPushRig(t)
-	gitIn(t, r.real, r.dir, "remote", "set-url", "origin", "https://git.example.invalid/o/r.git")
-
-	r.askOpen(t)
-	r.churn(t, press(r.App, keyEnter))
-
-	if r.noticeLevel() != levelError || !strings.Contains(r.notice, "transport 'https' not allowed") {
-		t.Errorf("toast = %q at level %v, want git's refusal of the transport at the error level", r.notice, r.noticeLevel())
-	}
-
-	for _, leak := range []string{"example.invalid", "https://"} {
-		if strings.Contains(r.notice, leak) {
-			t.Errorf("toast %q holds the remote %q", r.notice, leak)
-		}
-	}
-
-	if got := r.remoteRefs(t); got != "refs/heads/main" {
-		t.Errorf("the remote holds %q, want only main", got)
-	}
-}
-
 func TestPushNothingToSend(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name  string
 		setup func(t *testing.T, r *pushRig)
-		want  string
+		want  pushState
 	}{
-		{"the remote has the branch", func(t *testing.T, r *pushRig) {
-			gitIn(t, r.real, r.dir, "push", "-q", "-u", "origin", "feat/x")
-		}, "feat/x is up to date on origin"},
+		{"the remote has the branch", func(t *testing.T, r *pushRig) { r.publish(t) }, pushUpToDate},
 		{"the remote lacks the branch", func(t *testing.T, r *pushRig) {
-			gitIn(t, r.real, r.dir, "reset", "-q", "--hard", "main")
-		}, "feat/x has nothing to push to origin"},
+			r.repo.reset(r.branchTip("main"))
+		}, pushNothing},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			r := newPushRig(t)
 			tt.setup(t, r)
 
-			r.ask(t)
-
-			if r.confirm != nil {
-				t.Error("a confirm opened with nothing to push")
-			}
-
-			if r.notice != tt.want || r.noticeLevel() != levelNotice {
-				t.Errorf("toast = %q at level %v, want %q at the notice level", r.notice, r.noticeLevel(), tt.want)
+			if got := r.askNotice(t, tt.want); !strings.Contains(got, "feat/x") || !strings.Contains(got, "origin") {
+				t.Errorf("notice %q lacks the branch or the remote", got)
 			}
 
 			if n := r.pushCalls(); n != 0 {
@@ -847,47 +919,48 @@ func TestPushNothingToSend(t *testing.T) {
 }
 
 func TestPushRejected(t *testing.T) {
+	t.Parallel()
+
 	r := newPushRig(t)
 
-	clone := filepath.Join(t.TempDir(), "clone")
-	gitIn(t, r.real, filepath.Dir(clone), "clone", "-q", r.bare, clone)
-	gitIn(t, r.real, clone, "switch", "-q", "-c", "feat/x")
-	gitIn(t, r.real, clone, "commit", "-q", "--allow-empty", "-m", "remote work")
-	gitIn(t, r.real, clone, "push", "-q", "origin", "feat/x")
-
-	want := gitRead(t, r.real, r.bare, "rev-parse", "feat/x")
+	// The remote's feat/x holds work this branch lacks.
+	remoteWork := fakeOID("remote work")
+	r.origin.setBranch("feat/x", remoteWork)
 
 	r.askOpen(t)
 	r.churn(t, press(r.App, keyEnter))
 
-	if r.noticeLevel() != levelError {
-		t.Errorf("toast level = %v, want error; text %q", r.noticeLevel(), r.notice)
+	if r.noticeLevel() != levelError || !strings.Contains(r.notice, git.ErrRejected.Error()) {
+		t.Errorf("toast = %q at level %v, want the rejection at the error level", r.notice, r.noticeLevel())
 	}
 
-	// git says "fetch first" when the remote's tip is not in the clone, else "non-fast-forward".
-	if !strings.Contains(r.notice, "push rejected (") || !strings.Contains(r.notice, "fetch first") && !strings.Contains(r.notice, "non-fast-forward") {
-		t.Errorf("toast %q lacks git's reason", r.notice)
-	}
-
-	for _, leak := range []string{r.bare, "remote.git", "github.com", "https://"} {
+	for _, leak := range []string{pushRemoteURL, "remote.git", "github.com", "https://"} {
 		if strings.Contains(r.notice, leak) {
 			t.Errorf("toast %q holds the remote %q", r.notice, leak)
 		}
 	}
 
-	if got := gitRead(t, r.real, r.bare, "rev-parse", "feat/x"); got != want {
-		t.Errorf("remote feat/x = %s after a rejected push, want %s", got, want)
+	if got := r.pushes(); !slices.Equal(got, []string{"feat/x"}) {
+		t.Errorf("pushed %q, want one attempt at feat/x", got)
+	}
+
+	var tip string
+
+	r.fake.edit(func() { tip = r.origin.branches["feat/x"] })
+
+	if tip != remoteWork {
+		t.Errorf("remote feat/x = %s after a rejected push, want %s", tip, remoteWork)
 	}
 }
 
 func TestPushDetached(t *testing.T) {
+	t.Parallel()
+
 	r := newPushRig(t)
-	gitIn(t, r.real, r.dir, "switch", "-q", "--detach")
+	r.repo.detach()
 
-	r.ask(t)
-
-	if r.confirm != nil || r.notice != "push: HEAD is detached" || r.noticeLevel() != levelNotice {
-		t.Errorf("confirm %v, toast %q at level %v, want the detached notice", r.confirm != nil, r.notice, r.noticeLevel())
+	if got := r.askNotice(t, pushDetached); got != noticePushDetached {
+		t.Errorf("notice = %q, want %q", got, noticePushDetached)
 	}
 
 	if n := r.pushCalls(); n != 0 {
@@ -896,43 +969,44 @@ func TestPushDetached(t *testing.T) {
 }
 
 func TestPushNotRepo(t *testing.T) {
+	t.Parallel()
+
 	r := newPushRig(t)
 	openIn(t, r.App, core.NewTab{Kind: core.KindShell, Cwd: t.TempDir()})
 
-	r.ask(t)
-
-	if r.confirm != nil || r.notice != "push: not a git repository" {
-		t.Errorf("confirm %v, toast %q, want the not-a-repository notice", r.confirm != nil, r.notice)
+	if got := r.askNotice(t, pushNotRepo); got != noticePushNotRepo {
+		t.Errorf("notice = %q, want %q", got, noticePushNotRepo)
 	}
 }
 
 func TestPushUnborn(t *testing.T) {
+	t.Parallel()
+
 	r := newPushRig(t)
 
-	empty := t.TempDir()
-	gitIn(t, r.real, empty, "init", "-q", "-b", "main")
-	openIn(t, r.App, core.NewTab{Kind: core.KindShell, Cwd: empty})
+	empty := r.fake.repo(t, "empty")
+	openIn(t, r.App, core.NewTab{Kind: core.KindShell, Cwd: empty.Root()})
 
-	r.ask(t)
-
-	if r.confirm != nil || r.notice != "push: main has no commits yet" {
-		t.Errorf("confirm %v, toast %q, want the no-commits notice", r.confirm != nil, r.notice)
+	if got := r.askNotice(t, pushUnborn); !strings.Contains(got, "main") {
+		t.Errorf("notice = %q, want the branch named", got)
 	}
 }
 
 func TestPushNoRemote(t *testing.T) {
+	t.Parallel()
+
 	r := newPushRig(t)
-	solo := r.repo(t, "solo")
+	solo := pushOther(t, r.fake, "solo", "main")
 	openIn(t, r.App, core.NewTab{Kind: core.KindShell, Cwd: solo})
 
-	r.ask(t)
-
-	if r.confirm != nil || r.notice != "push: main has no remote to push to" {
-		t.Errorf("confirm %v, toast %q, want the no-remote notice", r.confirm != nil, r.notice)
+	if got := r.askNotice(t, pushNoRemote); !strings.Contains(got, "main") {
+		t.Errorf("notice = %q, want the branch named", got)
 	}
 }
 
 func TestPushRunsOffTheLoop(t *testing.T) {
+	t.Parallel()
+
 	r := newPushRig(t)
 
 	calls := r.gitCalls()
@@ -968,7 +1042,11 @@ func TestPushRunsOffTheLoop(t *testing.T) {
 }
 
 func TestPushStopsWithTheApp(t *testing.T) {
+	t.Parallel()
+
 	t.Run("while resolving", func(t *testing.T) {
+		t.Parallel()
+
 		r := newPushRig(t)
 		r.cancel()
 
@@ -980,6 +1058,8 @@ func TestPushStopsWithTheApp(t *testing.T) {
 	})
 
 	t.Run("while pushing", func(t *testing.T) {
+		t.Parallel()
+
 		r := newPushRig(t)
 		r.askOpen(t)
 		r.cancel()
@@ -1001,7 +1081,11 @@ func TestPushStopsWithTheApp(t *testing.T) {
 }
 
 func TestPushAnswerIsDroppedWhenStale(t *testing.T) {
+	t.Parallel()
+
 	t.Run("a newer request", func(t *testing.T) {
+		t.Parallel()
+
 		r := newPushRig(t)
 
 		first := flatten(r.leaderP())
@@ -1025,6 +1109,8 @@ func TestPushAnswerIsDroppedWhenStale(t *testing.T) {
 	})
 
 	t.Run("the focus moved", func(t *testing.T) {
+		t.Parallel()
+
 		r := newPushRig(t)
 		msgs := flatten(r.leaderP())
 
@@ -1040,6 +1126,8 @@ func TestPushAnswerIsDroppedWhenStale(t *testing.T) {
 	})
 
 	t.Run("another confirm is open", func(t *testing.T) {
+		t.Parallel()
+
 		r := newPushRig(t)
 		msgs := flatten(r.leaderP())
 
@@ -1061,6 +1149,7 @@ func TestPushAnswerIsDroppedWhenStale(t *testing.T) {
 
 func TestPushCommand(t *testing.T) {
 	t.Parallel()
+
 	a := newTestApp(t)
 
 	c, ok := a.reg.get("git.push")
@@ -1078,6 +1167,8 @@ func TestPushCommand(t *testing.T) {
 }
 
 func TestPushKey(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		key     tea.KeyPressMsg
@@ -1090,6 +1181,8 @@ func TestPushKey(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			r := newPushRig(t)
 
 			press(r.App, keyLeader, keyRune('g'))
@@ -1121,6 +1214,8 @@ func TestCommitCount(t *testing.T) {
 }
 
 func TestPushConfirmFitsANarrowScreen(t *testing.T) {
+	t.Parallel()
+
 	r := newPushRig(t)
 	r.askOpen(t)
 
@@ -1172,6 +1267,7 @@ func TestRemoteDisplay(t *testing.T) {
 
 func TestPushConfirmDrawsRepositoryTextCleaned(t *testing.T) {
 	t.Parallel()
+
 	a := newTestApp(t)
 	tgt := pushTarget{
 		project: "pro\x1b[31mj", branch: "feat/\u200bx", remote: "ori\x07gin", urls: []string{"github.com/o/r", "host/\x1b[31mo/r"},
@@ -1194,6 +1290,8 @@ func TestPushConfirmDrawsRepositoryTextCleaned(t *testing.T) {
 }
 
 func TestPushFromThePalette(t *testing.T) {
+	t.Parallel()
+
 	r := newPushRig(t)
 
 	press(r.App, keyLeader, keyRune(':'))

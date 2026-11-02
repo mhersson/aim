@@ -39,10 +39,10 @@ func (a *App) noteEdit(m core.Pane, id core.PaneID, path string) tea.Cmd {
 
 	msg := editPlaceMsg{pane: id, session: m.Session, path: path, seq: a.edits.seq, at: a.clock.Now()}
 
-	ctx, sem, resolve := a.ctx, a.probeSem, a.edits.resolve
+	ctx, sem, budget, resolve := a.ctx, a.probeSem, a.probeBudget, a.edits.resolve
 
 	return func() tea.Msg {
-		ctx, done, err := admit(ctx, sem)
+		ctx, done, err := admit(ctx, sem, budget)
 		if err != nil {
 			msg.err = err
 
@@ -77,12 +77,12 @@ func (a *App) noteChanged(m core.Pane, id core.PaneID, paths []string) tea.Cmd {
 	}
 
 	at := a.clock.Now()
-	ctx, sem, resolve, log := a.ctx, a.probeSem, a.edits.resolve, a.log
+	ctx, sem, budget, resolve, log := a.ctx, a.probeSem, a.probeBudget, a.edits.resolve, a.log
 
 	return func() tea.Msg {
 		msg := editPlacesMsg{pane: id, session: m.Session, at: at}
 
-		ctx, done, err := admit(ctx, sem)
+		ctx, done, err := admit(ctx, sem, budget)
 		if err != nil {
 			logEditError(log, id, err)
 

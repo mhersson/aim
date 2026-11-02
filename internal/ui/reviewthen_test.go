@@ -33,7 +33,7 @@ func TestAfterLoadActionNeedsTheKeyboard(t *testing.T) {
 			t.Errorf("the late approve opened a confirm: %+v", *r.confirm)
 		}
 
-		if want := "#7 loaded; press a to approve"; r.notice != want {
+		if want := r.prLoadedNotice(7, thenApprove); r.notice != want {
 			t.Errorf("notice = %q, want %q", r.notice, want)
 		}
 	})
@@ -58,7 +58,7 @@ func TestAfterLoadActionNeedsTheKeyboard(t *testing.T) {
 			t.Errorf("confirm = %+v, want the quit confirm left alone", r.confirm)
 		}
 
-		if want := "#7 loaded; press a to approve"; r.notice != want {
+		if want := r.prLoadedNotice(7, thenApprove); r.notice != want {
 			t.Errorf("notice = %q, want %q", r.notice, want)
 		}
 	})
@@ -81,7 +81,7 @@ func TestAfterLoadActionNeedsTheKeyboard(t *testing.T) {
 			t.Error("the late merge opened the box")
 		}
 
-		if want := "#7 loaded; press M to merge"; r.notice != want {
+		if want := r.prLoadedNotice(7, thenMerge); r.notice != want {
 			t.Errorf("notice = %q, want %q", r.notice, want)
 		}
 	})
@@ -154,7 +154,7 @@ func TestAfterLoadActionDroppedByANewerAsk(t *testing.T) {
 				r.run(r.step(fetch()))
 			}
 
-			r.quiet(t, 0)
+			r.settled(t)
 
 			if r.confirm != nil {
 				t.Errorf("a's answers after r opened a confirm: %+v", *r.confirm)
@@ -177,7 +177,7 @@ func TestAfterLoadActionDroppedByANewerAsk(t *testing.T) {
 		r.typed("r")
 		r.run(open)
 		r.until(t, "PR mode", r.inPRMode(7))
-		r.quiet(t, 0)
+		r.settled(t)
 
 		if r.confirm != nil {
 			t.Errorf("an r while the drawer opened left a confirm open: %+v", *r.confirm)
@@ -197,7 +197,7 @@ func TestAfterLoadActionDroppedByANewerAsk(t *testing.T) {
 
 		r.typed("r")
 		r.settle()
-		r.quiet(t, 0)
+		r.settled(t)
 
 		if r.confirm != nil {
 			t.Errorf("an r while loading left a confirm open: %+v", *r.confirm)
@@ -212,7 +212,7 @@ func TestPinnedDrawerKeepsTheUnpushedCountInPRMode(t *testing.T) {
 	r.poll()
 	r.opened(t)
 
-	openIn(t, r.App, core.PinReview{Root: newRepoDir(t)})
+	openIn(t, r.App, core.PinReview{Root: r.fake.repo(t, "other").Root()})
 	r.settle()
 
 	r.run(r.openWithPR(r.focus(), &prWant{repo: prRepoKey, number: 7, root: r.root}, thenNothing))

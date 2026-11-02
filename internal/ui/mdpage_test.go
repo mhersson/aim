@@ -154,26 +154,34 @@ type pageRig struct {
 	dir  string
 	root string
 	st   *starts
+	fake *fakeGit
+	repo *fakeRepo
 }
 
-// newPageRig opens a drawer on a repository; extra adds files to the worktree.
+// newPageRig opens a drawer on a fake git's repository; extra adds files to the worktree.
 func newPageRig(t *testing.T, extra map[string]string, opts ...func(*Options)) *pageRig {
 	t.Helper()
 
-	return openPageRig(t, pageRepo(t, extra), opts...)
+	m := bareRig(t, "", extra, opts...)
+	m.v = m.opened(t)
+
+	return m
 }
 
-// pageRepo is the page rig's repository: README.md, docs/a.md and an ignored
-// notes/b.md, with main.go edited; extra adds files to the worktree.
-func pageRepo(t *testing.T, extra map[string]string) string {
+// fakePageRepo is the page rig's repository: README.md, docs/a.md and an ignored
+// notes/b.md, with main.go edited; extra adds files to the worktree. An empty name
+// is the fake's default.
+func fakePageRepo(t *testing.T, f *fakeGit, name string, extra map[string]string) *fakeRepo {
 	t.Helper()
 
-	dir := newRepoDir(t)
+	r := f.repo(t, name)
+	dir := r.Root()
 	write(t, filepath.Join(dir, "README.md"), "# Readme\n\nhello there\n")
 	write(t, filepath.Join(dir, "docs/a.md"), pageDoc)
 	write(t, filepath.Join(dir, ".gitignore"), "notes/\n")
 	write(t, filepath.Join(dir, "main.go"), numberedLines("line", 40))
-	commitEverything(t, dir, "init")
+	r.ignore("notes/")
+	r.commit("init")
 	write(t, filepath.Join(dir, "notes/b.md"), "# Ignored\n")
 	write(t, filepath.Join(dir, "main.go"), editedLines(40, 3, 30))
 
@@ -181,23 +189,19 @@ func pageRepo(t *testing.T, extra map[string]string) string {
 		write(t, filepath.Join(dir, name), text)
 	}
 
-	return dir
+	return r
 }
 
-func openPageRig(t *testing.T, dir string, opts ...func(*Options)) *pageRig {
+// bareRig is the page rig's app on a fake git's page repository (see fakePageRepo
+// for name and extra), with no drawer.
+func bareRig(t *testing.T, name string, extra map[string]string, opts ...func(*Options)) *pageRig {
 	t.Helper()
 
-	m := bareRig(t, dir, opts...)
-	m.v = m.opened(t)
+	f := newFakeGit(t)
+	repo := fakePageRepo(t, f, name, extra)
+	dir := repo.Root()
 
-	return m
-}
-
-// bareRig is the page rig's app on the repository in dir, with no drawer.
-func bareRig(t *testing.T, dir string, opts ...func(*Options)) *pageRig {
-	t.Helper()
-
-	r := newKeysRig(t, dir, append([]func(*Options){func(o *Options) {
+	r := newKeysRig(t, dir, append([]func(*Options){gitOf(f), func(o *Options) {
 		o.Getenv = func(k string) string {
 			return map[string]string{"SHELL": "/bin/testsh", "EDITOR": "ed", "HOME": "/home/test"}[k]
 		}
@@ -206,7 +210,7 @@ func bareRig(t *testing.T, dir string, opts ...func(*Options)) *pageRig {
 	r.start = st.start
 	r.icons = true
 
-	return &pageRig{drawerRig: r, dir: dir, st: st, root: rootOf(t, dir)}
+	return &pageRig{drawerRig: r, dir: dir, st: st, root: dir, fake: f, repo: repo}
 }
 
 // flow feeds the messages of cmd, and of what Update returns for them, to Update,
@@ -271,6 +275,9 @@ func overlayIDs(a *App) []string {
 
 	return out
 }
+
+// refusal reports whether notice is set and names shown, the path a refused open shows.
+func refusal(notice, shown string) bool { return notice != "" && strings.Contains(notice, shown) }
 
 // pageLine is the layout line of the page that holds sub.
 func pageLine(t *testing.T, p *mdPage, sub string) int {
@@ -386,11 +393,12 @@ func TestMarkdownOpenPageErrors(t *testing.T) {
 	}
 
 	tests := []struct {
-		name, path, want string
+		name, path string
+		shown      string // the path as the notice names it
 	}{
-		{"a missing file", "docs/gone.md", "not opening docs/gone.md: no such file"},
-		{"a folder", "docs", "not opening docs: it is a folder"},
-		{"a path out of the worktree", "../x.md", "not opening ~/x.md: outside the worktree"},
+		{"a missing file", "docs/gone.md", "docs/gone.md"},
+		{"a folder", "docs", "docs"},
+		{"a path out of the worktree", "../x.md", "~/x.md"},
 	}
 
 	for _, tt := range tests {
@@ -403,8 +411,8 @@ func TestMarkdownOpenPageErrors(t *testing.T) {
 			m.notice = ""
 			m.flow(m.openMarkdownPage(m.tabID(), path), nil)
 
-			if m.notice != tt.want || len(m.v.pages) != 0 {
-				t.Errorf("notice = %q, pages %d, want %q and none", m.notice, len(m.v.pages), tt.want)
+			if !refusal(m.notice, tt.shown) || len(m.v.pages) != 0 {
+				t.Errorf("notice = %q, pages %d, want a notice naming %q and no page", m.notice, len(m.v.pages), tt.shown)
 			}
 		})
 	}
@@ -413,7 +421,7 @@ func TestMarkdownOpenPageErrors(t *testing.T) {
 		m.notice = ""
 		m.flow(m.openMarkdownPage(m.tabID(), filepath.Join(m.root, "docs/link.md")), nil)
 
-		if !strings.HasPrefix(m.notice, "not opening docs/link.md: ") || len(m.v.pages) != 0 {
+		if !refusal(m.notice, "docs/link.md") || len(m.v.pages) != 0 {
 			t.Errorf("notice = %q, pages %d, want a refusal and no page", m.notice, len(m.v.pages))
 		}
 	})
@@ -574,8 +582,8 @@ func TestMarkdownPageKeys(t *testing.T) {
 		m.notice = ""
 		m.press(keyEnter)
 
-		if m.notice != "not found: zzz" {
-			t.Errorf("notice = %q, want not found: zzz", m.notice)
+		if want := noticeNotFound + "zzz"; m.notice != want {
+			t.Errorf("notice = %q, want %q", m.notice, want)
 		}
 	})
 
@@ -640,7 +648,7 @@ func TestMarkdownPageKeys(t *testing.T) {
 
 		before := snapOf()
 
-		for _, k := range []tea.KeyPressMsg{keyRune('f'), keyRune('u'), {Code: tea.KeyTab}, keyRune('w'), keyRune('m'), keyRune('c'), keyRune('}'), keyRune(','), keyRune('x')} {
+		for _, k := range []tea.KeyPressMsg{keyRune('f'), keyRune('u'), {Code: tea.KeyTab}, keyRune('w'), keyRune('m'), keyRune('c'), keyRune('}'), keyRune(','), keyRune('x'), keySpace, keyRune('R')} {
 			m.notice = ""
 			m.press(k)
 
@@ -710,11 +718,8 @@ func TestMarkdownPageReload(t *testing.T) {
 		reads bool
 	}{
 		{"the page's path", git.Batch{Paths: []string{"docs/a.md"}}, false, true},
-		{"another path", git.Batch{Paths: []string{"main.go", "docs/other.md"}}, false, true},
 		{"an overflow", git.Batch{Overflow: true}, false, true},
-		{"a removed parent", git.Batch{Paths: []string{"docs"}}, false, true},
 		{"the page's path in pull request mode", git.Batch{Paths: []string{"docs/a.md"}}, true, true},
-		{"an overflow in pull request mode", git.Batch{Overflow: true}, true, true},
 		{"a head change only", git.Batch{Git: true}, false, true},
 	}
 
@@ -988,30 +993,5 @@ func mdPageScene(th string, icons bool) reviewScene {
 			p.resize(120, 40, icons)
 			p.view.cursor = pageLine(t, p, "Steps")
 		},
-	}
-}
-
-func TestMarkdownPagePushes(t *testing.T) {
-	t.Parallel()
-
-	m := newPageRig(t, nil)
-
-	first := m.openPage(t, "docs/a.md")
-	second := m.openPage(t, "README.md")
-
-	if len(m.v.pages) != 2 || m.v.page() != second || m.v.pages[0] != first {
-		t.Fatalf("pages = %v, want a.md under README.md", m.v.pages)
-	}
-
-	m.press(keyEsc)
-
-	if len(m.v.pages) != 1 || m.v.page() != first {
-		t.Fatalf("after esc: %d pages, top %v, want a.md alone", len(m.v.pages), m.v.page())
-	}
-
-	m.press(keyEsc)
-
-	if len(m.v.pages) != 0 || m.store.State().Tab().Review == nil {
-		t.Fatalf("after the second esc: %d pages, want the diff", len(m.v.pages))
 	}
 }

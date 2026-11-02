@@ -71,6 +71,8 @@ func (r *editorRig) exit(t *testing.T) {
 }
 
 func TestComposeEditorRoundTrip(t *testing.T) {
+	t.Parallel()
+
 	r := newEditorRig(t)
 	r.v.body = newTextArea("old body", maxComposeBody)
 
@@ -116,6 +118,8 @@ func TestComposeEditorRoundTrip(t *testing.T) {
 }
 
 func TestComposeEditorClosedByLeaderX(t *testing.T) {
+	t.Parallel()
+
 	r := newEditorRig(t)
 	r.ctrlE(t)
 	r.edit(t, "from the editor")
@@ -128,6 +132,8 @@ func TestComposeEditorClosedByLeaderX(t *testing.T) {
 }
 
 func TestComposeEditorNoRunDir(t *testing.T) {
+	t.Parallel()
+
 	r := newEditorRig(t)
 	r.runDir = ""
 	r.ctrlE(t)
@@ -138,17 +144,21 @@ func TestComposeEditorNoRunDir(t *testing.T) {
 }
 
 func TestComposeEditorTwice(t *testing.T) {
+	t.Parallel()
+
 	r := newEditorRig(t)
 	r.ctrlE(t)
 
 	r.churn(t, press(r.App, keyLeader, keyRune('g'), keyRune('o')))
 
-	if r.notice != "the PR body is open in an editor" || r.st.count() != 1 {
+	if r.notice != noticeEditorOpen || r.st.count() != 1 {
 		t.Errorf("notice = %q, starts = %d", r.notice, r.st.count())
 	}
 }
 
 func TestComposeEditorCloseRemovesFile(t *testing.T) {
+	t.Parallel()
+
 	r := newEditorRig(t)
 	r.ctrlE(t)
 
@@ -161,6 +171,8 @@ func TestComposeEditorCloseRemovesFile(t *testing.T) {
 }
 
 func TestComposeEditorReadError(t *testing.T) {
+	t.Parallel()
+
 	r := newEditorRig(t)
 	r.v.body = newTextArea("keep me", maxComposeBody)
 	r.ctrlE(t)
@@ -177,6 +189,8 @@ func TestComposeEditorReadError(t *testing.T) {
 }
 
 func TestComposeEditorBoxClosedMeanwhile(t *testing.T) {
+	t.Parallel()
+
 	r := newEditorRig(t)
 	r.ctrlE(t)
 
@@ -191,6 +205,8 @@ func TestComposeEditorBoxClosedMeanwhile(t *testing.T) {
 }
 
 func TestComposeEditorCloseRemovesUndeliveredFile(t *testing.T) {
+	t.Parallel()
+
 	r := newEditorRig(t)
 
 	// The write finished but its answer never reached the update loop.
@@ -217,6 +233,8 @@ func TestComposeEditorCloseRemovesUndeliveredFile(t *testing.T) {
 }
 
 func TestComposeEditorTabClosedHandsFileBack(t *testing.T) {
+	t.Parallel()
+
 	r := newEditorRig(t)
 	r.ctrlE(t)
 	r.edit(t, "from the editor")
@@ -234,6 +252,8 @@ func TestComposeEditorTabClosedHandsFileBack(t *testing.T) {
 }
 
 func TestComposeOpensFromTheLeaderKeys(t *testing.T) {
+	t.Parallel()
+
 	r := newComposeRig(t)
 
 	r.churn(t, press(r.App, keyLeader, keyRune('g'), keyRune('o')))
@@ -244,6 +264,8 @@ func TestComposeOpensFromTheLeaderKeys(t *testing.T) {
 }
 
 func TestComposeEditorSaysWhyThereIsNoPane(t *testing.T) {
+	t.Parallel()
+
 	r := newEditorRig(t)
 
 	for len(r.store.State().Panes) < core.MaxPanes {

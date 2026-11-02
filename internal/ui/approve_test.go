@@ -8,7 +8,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/golden"
 
@@ -168,8 +170,8 @@ func TestApproveAtTheShownHead(t *testing.T) {
 		t.Error("the confirm is still open after enter")
 	}
 
-	if r.notice != "approved #7" || r.noticeLevel() != levelSuccess {
-		t.Errorf("toast = %q at level %v, want approved #7 at the success level", r.notice, r.noticeLevel())
+	if !strings.Contains(r.notice, prNumberText(7)) || r.noticeLevel() != levelSuccess {
+		t.Errorf("toast = %q at level %v, want one naming #7 at the success level", r.notice, r.noticeLevel())
 	}
 
 	if got := r.rec.refreshed(); !slices.Equal(got, []github.Repo{prRepo}) {
@@ -215,10 +217,19 @@ func TestApproveFromBranchMode(t *testing.T) {
 		r.poll()
 		r.opened(t)
 
-		r.typed("a")
+		// a's place answer lands after b, as it would; its follow-up is fed by hand.
+		place := r.step(keyRune('a'))
+		if place == nil {
+			t.Fatalf("a asked for nothing; notice = %q", r.notice)
+		}
+
 		r.typed("b")
-		r.settle()
-		r.quiet(t, 0)
+
+		if fetch := r.step(place()); fetch != nil {
+			r.run(r.step(fetch()))
+		}
+
+		r.settled(t)
 
 		if r.confirm != nil {
 			t.Errorf("a b before the load left a confirm open: %+v", *r.confirm)
@@ -250,9 +261,7 @@ func TestApproveOwnPR(t *testing.T) {
 
 			r.typed("a")
 
-			const want = "you can't approve your own pull request"
-
-			r.until(t, "the notice", func() bool { return r.notice == want })
+			r.until(t, "the notice", func() bool { return r.notice == noticeApproveOwn })
 
 			if r.confirm != nil {
 				t.Error("a confirm opened for your own pull request")
@@ -265,8 +274,8 @@ func TestApproveNotOpen(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct{ state, want string }{
-		{"MERGED", "#7 is merged"},
-		{"CLOSED", "#7 is closed"},
+		{"MERGED", fmt.Sprintf(noticeApproveClosed, 7, "merged")},
+		{"CLOSED", fmt.Sprintf(noticeApproveClosed, 7, "closed")},
 	}
 
 	for _, tc := range tests {
@@ -331,8 +340,8 @@ func TestApproveError(t *testing.T) {
 	r.keys(keyEnter)
 	r.until(t, "the toast", func() bool { return r.notice != "" })
 
-	if want := "approve #7: github: Can not approve your own pull request"; r.notice != want || r.noticeLevel() != levelError {
-		t.Errorf("toast = %q at level %v, want %q at the error level", r.notice, r.noticeLevel(), want)
+	if !strings.Contains(r.notice, prNumberText(7)) || !strings.Contains(r.notice, f.fail.Error()) || r.noticeLevel() != levelError {
+		t.Errorf("toast = %q at level %v, want one naming #7 and %q at the error level", r.notice, r.noticeLevel(), f.fail)
 	}
 
 	if got := r.rec.refreshed(); len(got) != 0 {
@@ -372,6 +381,27 @@ func TestApproveWithoutActions(t *testing.T) {
 	}
 }
 
+// feedUntil feeds queued messages to the app until one of type T has been
+// delivered, and returns it.
+func feedUntil[T tea.Msg](t *testing.T, r *drawerRig) T {
+	t.Helper()
+
+	deadline := time.After(10 * time.Second)
+
+	for {
+		select {
+		case m := <-r.pm.msgs:
+			r.run(r.step(m))
+
+			if v, ok := m.(T); ok {
+				return v
+			}
+		case <-deadline:
+			t.Fatalf("no %T arrived", *new(T))
+		}
+	}
+}
+
 func TestApproveEndsAtClose(t *testing.T) {
 	t.Parallel()
 
@@ -384,7 +414,8 @@ func TestApproveEndsAtClose(t *testing.T) {
 
 	r.cancel()
 	r.settle()
-	r.quiet(t, 0)
+	feedUntil[approvedMsg](t, r.drawerRig)
+	r.settled(t)
 
 	if r.notice != "" {
 		t.Errorf("notice = %q after the app closed, want none", r.notice)

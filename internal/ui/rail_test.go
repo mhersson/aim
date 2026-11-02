@@ -1,8 +1,6 @@
 package ui
 
 import (
-	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -25,60 +23,38 @@ func (r *tickRec) tick(d time.Duration, fn func(time.Time) tea.Msg) tea.Cmd {
 	return func() tea.Msg { return msg }
 }
 
-// railApp is a sized app with a recording tick, a fake git first on PATH and a
-// temp dir for the engine.
+// railApp is a sized app with a recording tick and a fake git in fake.
 type railApp struct {
 	*App
 	ticks *tickRec
 	clk   *fakeClock
-	log   string // the fake git's invocation log
-	slow  string // while this file exists the fake git sleeps
-	real  string
+	fake  *fakeGit
 }
 
-func newRailApp(t *testing.T, stats bool) *railApp {
+func newRailApp(t *testing.T, stats bool, opts ...func(*Options)) *railApp {
 	t.Helper()
 
-	realGit, err := exec.LookPath("git")
-	if err != nil {
-		t.Skip("git not installed")
-	}
-
-	bin := t.TempDir()
-	r := &railApp{real: realGit, log: filepath.Join(bin, "log"), slow: filepath.Join(bin, "slow")}
-	script := "#!/bin/sh\necho \"$PWD $*\" >> '" + r.log + "'\n[ -e '" + r.slow + "' ] && { : > '" + r.slow + ".started'; sleep 30; : > '" + r.slow + ".finished'; exit 1; }\nexec '" + realGit + "' \"$@\"\n"
-
-	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-
+	f := newFakeGit(t)
 	tmp := ""
+
 	if stats {
 		tmp = t.TempDir()
 	}
 
-	a, _, clk := kindApp(t, func(o *Options) { o.GitTempDir = tmp })
-	r.App, r.clk, r.ticks = a, clk, &tickRec{}
+	// No watch set: the rail's tests count the probes alone; the watch tests set their own.
+	all := append([]func(*Options){gitOf(f), func(o *Options) { o.Watches, o.GitTempDir = nil, tmp }}, opts...)
+	a, _, clk := kindApp(t, all...)
+	r := &railApp{App: a, clk: clk, ticks: &tickRec{}, fake: f}
 	a.tick = r.ticks.tick
 
 	return r
 }
 
+// gitCalls counts the git calls the fake has logged.
 func (r *railApp) gitCalls() int {
-	b, err := os.ReadFile(r.log)
-	if err != nil {
-		return 0
-	}
-
 	n := 0
 
-	for _, c := range b {
-		if c == '\n' {
-			n++
-		}
-	}
+	r.fake.edit(func() { n = len(r.fake.log) })
 
 	return n
 }
@@ -163,6 +139,8 @@ func ids(gs []railGroup) [][]core.PaneID {
 }
 
 func TestRailCardsGroupsAndOrder(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
 	dir := t.TempDir()
 
@@ -314,6 +292,8 @@ func TestRailSearchMatchesTheName(t *testing.T) {
 }
 
 func TestRailSearchFiltersCards(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
 	a1 := r.addAgent(t, false, "/w/alpha")
 	a2 := r.addAgent(t, true, "/w/beta")
@@ -342,6 +322,8 @@ func TestRailSearchFiltersCards(t *testing.T) {
 }
 
 func TestRailSelectionFollowsItsAgent(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
 	dir := t.TempDir()
 	a1 := r.addAgent(t, false, dir)
@@ -393,6 +375,8 @@ func TestRailSelectionFollowsItsAgent(t *testing.T) {
 }
 
 func TestRailUnseenMarks(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
 	dir := t.TempDir()
 	a1 := r.addAgent(t, false, dir)
@@ -471,6 +455,8 @@ func TestRailUnseenMarks(t *testing.T) {
 }
 
 func TestRailActiveTimeIsTheLaterOfOutputAndHook(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
 	id := r.addAgent(t, false, t.TempDir())
 	r.panes[id] = &pane{id: id, lastOut: t0.Add(5 * time.Second)}
@@ -493,6 +479,8 @@ func TestRailActiveTimeIsTheLaterOfOutputAndHook(t *testing.T) {
 }
 
 func TestRailForgetsClosedPanes(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
 	id := r.addAgent(t, false, t.TempDir())
 	hook(r.App, harness.Event{Pane: id, Name: "Stop", State: core.AgentIdle})
@@ -510,6 +498,8 @@ func TestRailForgetsClosedPanes(t *testing.T) {
 }
 
 func TestRailUIStateSurvivesUpdates(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
 	r.addAgent(t, false, t.TempDir())
 	openIn(t, r.App, core.SetRail{Open: true})
@@ -524,6 +514,8 @@ func TestRailUIStateSurvivesUpdates(t *testing.T) {
 }
 
 func TestRailSelectionUnderAFilterThatHidesIt(t *testing.T) {
+	t.Parallel()
+
 	r := newRailApp(t, false)
 	a1 := r.addAgent(t, true, "/w/alpha")
 	a2 := r.addAgent(t, true, "/w/beta")

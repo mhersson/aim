@@ -73,12 +73,23 @@ func (m keysFlow) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // retargets it to the focused pane, and a third closes it.
 func TestLeaderDOpensFocusesClosesAndRetargets(t *testing.T) {
 	t.Parallel()
-	dir := editedRepo(t)
-	a, _, _ := kindApp(t, func(o *Options) { o.Cwd, o.GitTempDir = dir, t.TempDir() })
-	// The slide needs real time.
-	a.clock = realClock{}
+	f := newFakeGit(t)
+	dir := editedRepo(t, f).Root()
+	a, _, clk := kindApp(t, gitOf(f), func(o *Options) { o.Cwd, o.GitTempDir = dir, t.TempDir() })
 
 	probe := &keysProbe{}
+
+	// The slide frames come from the runtime's ticks; each poll moves the clock past the slide, so a frame ends it.
+	waitSlide := func(what string, cond func(keysSnap) bool) {
+		t.Helper()
+
+		probe.wait(t, what, func(s keysSnap) bool {
+			clk.Advance(slideFor)
+
+			return cond(s)
+		})
+	}
+
 	tm := teatest.NewTestModel(t, keysFlow{App: a, probe: probe}, teatest.WithInitialTermSize(200, 50))
 	send := func(ks ...tea.KeyPressMsg) {
 		for _, k := range ks {
@@ -90,7 +101,7 @@ func TestLeaderDOpensFocusesClosesAndRetargets(t *testing.T) {
 	probe.wait(t, "a second pane", func(s keysSnap) bool { return s.focus == "p2" })
 
 	send(keyLeader, keyRune('d'))
-	probe.wait(t, "the drawer on p2 with the keyboard", func(s keysSnap) bool { return s.review == "p2" && s.drawer })
+	waitSlide("the drawer on p2 with the keyboard", func(s keysSnap) bool { return s.review == "p2" && s.drawer })
 	waitForText(t, tm, "fifty")
 
 	// p2 lies under the drawer, so the keyboard goes to the pane nearest it that shows.
@@ -98,10 +109,10 @@ func TestLeaderDOpensFocusesClosesAndRetargets(t *testing.T) {
 	probe.wait(t, "the keyboard back with p1", func(s keysSnap) bool { return !s.drawer && s.focus == "p1" && s.review == "p2" })
 
 	send(keyLeader, keyRune('d'))
-	probe.wait(t, "the drawer on p1 with the keyboard", func(s keysSnap) bool { return s.review == "p1" && s.drawer })
+	waitSlide("the drawer on p1 with the keyboard", func(s keysSnap) bool { return s.review == "p1" && s.drawer })
 
 	send(keyLeader, keyRune('d'))
-	probe.wait(t, "the drawer to close", func(s keysSnap) bool { return s.review == "" && !s.drawer })
+	waitSlide("the drawer to close", func(s keysSnap) bool { return s.review == "" && !s.drawer })
 
 	if err := tm.Quit(); err != nil {
 		t.Fatalf("Quit() error = %v", err)
@@ -112,8 +123,7 @@ func TestLeaderDOpensFocusesClosesAndRetargets(t *testing.T) {
 
 func TestFocusSkipsCoveredPanes(t *testing.T) {
 	t.Parallel()
-	dir := keysRepo(t)
-	r := newKeysRig(t, dir)
+	r, dir := fakeKeysRig(t)
 
 	// p1 across the top; p2 and p3 side by side below it. The drawer covers the
 	// right half: p3 lies wholly under it, p2 and p1 do not.
@@ -175,7 +185,7 @@ func TestFocusSkipsCoveredPanes(t *testing.T) {
 
 func TestLeaderLEntersTheDrawer(t *testing.T) {
 	t.Parallel()
-	r := newKeysRig(t, keysRepo(t))
+	r, _ := fakeKeysRig(t)
 	r.opened(t)
 	r.leader('h')
 
@@ -196,8 +206,7 @@ func TestLeaderLEntersTheDrawer(t *testing.T) {
 
 func TestLeaderHLeavesToTheNearestVisiblePane(t *testing.T) {
 	t.Parallel()
-	dir := keysRepo(t)
-	r := newKeysRig(t, dir)
+	r, dir := fakeKeysRig(t)
 
 	// p1 and p3 share the left half, p2 holds the right half under the drawer.
 	p2 := r.openShell(t, dir, core.SplitVertical)
@@ -235,7 +244,7 @@ func TestLeaderHLeavesToTheNearestVisiblePane(t *testing.T) {
 func TestEscStepsBackThenLeaderHReturnsTheKeyboard(t *testing.T) {
 	t.Parallel()
 	t.Run("search then drawer", func(t *testing.T) {
-		r := newKeysRig(t, keysRepo(t))
+		r, _ := fakeKeysRig(t)
 		v := r.opened(t)
 
 		r.keys(keyRune('/'))
@@ -265,7 +274,7 @@ func TestEscStepsBackThenLeaderHReturnsTheKeyboard(t *testing.T) {
 	})
 
 	t.Run("tree then drawer", func(t *testing.T) {
-		r := newKeysRig(t, keysRepo(t))
+		r, _ := fakeKeysRig(t)
 		v := r.opened(t)
 		r.keys(keyTab, keyRune('j'))
 
@@ -294,7 +303,7 @@ func TestEscStepsBackThenLeaderHReturnsTheKeyboard(t *testing.T) {
 // a pending leader, the rail, the drawer, then it reaches the pane.
 func TestRoutingOrder(t *testing.T) {
 	t.Parallel()
-	r := newKeysRig(t, keysRepo(t))
+	r, _ := fakeKeysRig(t)
 	r.opened(t)
 	r.leader('a')
 	// The rail took the keyboard from the drawer; both claim it so routing decides.
@@ -347,7 +356,7 @@ func TestRoutingOrder(t *testing.T) {
 
 func TestRailAndDrawerShareTheKeyboard(t *testing.T) {
 	t.Parallel()
-	r := newKeysRig(t, keysRepo(t))
+	r, _ := fakeKeysRig(t)
 	r.opened(t)
 
 	holders := func() string {
@@ -396,7 +405,7 @@ func TestRailAndDrawerShareTheKeyboard(t *testing.T) {
 
 func TestSlideLastsAbout120ms(t *testing.T) {
 	t.Parallel()
-	r := newKeysRig(t, keysRepo(t))
+	r, _ := fakeKeysRig(t)
 	r.leader('d')
 	r.until(t, "the drawer to open", func() bool { return r.store.State().Tab().Review != nil })
 	r.idle(t)
@@ -469,7 +478,7 @@ func TestSlideLastsAbout120ms(t *testing.T) {
 
 func TestResizeEndsTheSlide(t *testing.T) {
 	t.Parallel()
-	r := newKeysRig(t, keysRepo(t))
+	r, _ := fakeKeysRig(t)
 	r.leader('d')
 	r.until(t, "the drawer to open", func() bool { return r.store.State().Tab().Review != nil })
 	r.idle(t)
@@ -499,7 +508,7 @@ func TestTabSwitchShowsTheDrawerWithoutASlide(t *testing.T) {
 	t.Parallel()
 
 	for _, midSlide := range []bool{false, true} {
-		r := newKeysRig(t, keysRepo(t))
+		r, _ := fakeKeysRig(t)
 
 		if midSlide {
 			r.leader('d')
@@ -530,7 +539,7 @@ func TestTabSwitchShowsTheDrawerWithoutASlide(t *testing.T) {
 
 func TestSecondLeaderDEndsTheSlide(t *testing.T) {
 	t.Parallel()
-	r := newKeysRig(t, keysRepo(t))
+	r, _ := fakeKeysRig(t)
 	r.leader('d')
 	r.until(t, "the drawer to open", func() bool { return r.store.State().Tab().Review != nil })
 	r.idle(t)
@@ -561,8 +570,7 @@ func TestSecondLeaderDEndsTheSlide(t *testing.T) {
 
 func TestZoomedTabWithADrawer(t *testing.T) {
 	t.Parallel()
-	dir := keysRepo(t)
-	r := newKeysRig(t, dir)
+	r, dir := fakeKeysRig(t)
 	r.openShell(t, dir, core.SplitVertical)
 	openIn(t, r.App, core.FocusPane{ID: "p1"}, core.ToggleZoom{})
 	r.opened(t)
@@ -592,8 +600,7 @@ func TestZoomedTabWithADrawer(t *testing.T) {
 
 func TestRailJumpToACoveredPaneClosesTheDrawer(t *testing.T) {
 	t.Parallel()
-	dir := keysRepo(t)
-	r := newKeysRig(t, dir)
+	r, dir := fakeKeysRig(t)
 	agent := r.agent(t, dir, "")
 
 	r.leader('a')
@@ -631,8 +638,7 @@ func TestPaneMovedIntoATabWithADrawer(t *testing.T) {
 	}
 
 	t.Run("lands under the drawer", func(t *testing.T) {
-		dir := keysRepo(t)
-		r := newKeysRig(t, dir)
+		r, dir := fakeKeysRig(t)
 		r.opened(t)
 		moved := secondTab(t, r, dir)
 
@@ -646,8 +652,7 @@ func TestPaneMovedIntoATabWithADrawer(t *testing.T) {
 	})
 
 	t.Run("lands beside the drawer", func(t *testing.T) {
-		dir := keysRepo(t)
-		r := newKeysRig(t, dir)
+		r, dir := fakeKeysRig(t)
 		r.openShell(t, dir, core.SplitVertical)
 		openIn(t, r.App, core.FocusPane{ID: "p1"})
 		r.opened(t)
@@ -663,8 +668,7 @@ func TestPaneMovedIntoATabWithADrawer(t *testing.T) {
 	})
 
 	t.Run("sent away", func(t *testing.T) {
-		dir := keysRepo(t)
-		r := newKeysRig(t, dir)
+		r, dir := fakeKeysRig(t)
 		r.opened(t)
 		secondTab(t, r, dir)
 
@@ -687,7 +691,7 @@ func (r *drawerRig) drawerCell(t *testing.T, dx, dy int) (x, y int) {
 
 func TestClickOnARowMovesTheCursor(t *testing.T) {
 	t.Parallel()
-	r := newKeysRig(t, keysRepo(t))
+	r, _ := fakeKeysRig(t)
 	v := r.opened(t)
 	r.leader('h')
 
@@ -743,7 +747,7 @@ func TestClickOnARowMovesTheCursor(t *testing.T) {
 // keyboard; the tree stays open, in a narrow drawer as in a wide one.
 func TestClickOnATreeFileKeepsTheTreeOpen(t *testing.T) {
 	t.Parallel()
-	r := newKeysRig(t, keysRepo(t))
+	r, _ := fakeKeysRig(t)
 	sized(t, r.App, 100, 30)
 
 	v := r.opened(t)
@@ -771,7 +775,7 @@ func TestClickOnATreeFileKeepsTheTreeOpen(t *testing.T) {
 
 func TestWheelScrolls(t *testing.T) {
 	t.Parallel()
-	r := newKeysRig(t, keysRepo(t))
+	r, _ := fakeKeysRig(t)
 	v := r.opened(t)
 	lay := r.layout(t)
 	x, y := r.drawerCell(t, 1+lay.treeW+1+8, 1+5)
@@ -804,8 +808,7 @@ func TestWheelScrolls(t *testing.T) {
 
 func TestClickOutsideKeepsTheDrawerOpen(t *testing.T) {
 	t.Parallel()
-	dir := keysRepo(t)
-	r := newKeysRig(t, dir)
+	r, dir := fakeKeysRig(t)
 	r.openShell(t, dir, core.SplitVertical)
 	openIn(t, r.App, core.FocusPane{ID: "p1"})
 	r.opened(t)

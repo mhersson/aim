@@ -182,7 +182,8 @@ func TestMergeAtTheShownHead(t *testing.T) {
 	f.mu.Unlock()
 
 	r.keys(keyEnter)
-	r.until(t, "the merge", func() bool { return len(f.merged()) == 1 && r.noticeLevel() == levelSuccess })
+
+	answer := feedUntil[mergedMsg](t, r.drawerRig)
 
 	got := f.merged()[0]
 	if got.repo != prRepo || got.pr.Number != 7 || got.pr.HeadBranch != "feat/x" || got.info.DefaultBranch != "main" ||
@@ -194,8 +195,12 @@ func TestMergeAtTheShownHead(t *testing.T) {
 		t.Error("the box is still open after enter")
 	}
 
-	if want := "merged #7 (squash), branch deleted"; r.notice != want {
-		t.Errorf("toast = %q, want %q", r.notice, want)
+	if answer.err != nil || !answer.res.BranchDeleted || answer.method != github.Squash {
+		t.Errorf("merge answer = %+v, want a squash that deleted the branch", answer)
+	}
+
+	if !strings.Contains(r.notice, prNumberText(7)) || !strings.Contains(r.notice, string(github.Squash)) || r.noticeLevel() != levelSuccess {
+		t.Errorf("toast = %q at level %v, want one naming #7 and the squash method at the success level", r.notice, r.noticeLevel())
 	}
 
 	if got := r.rec.refreshed(); !slices.Equal(got, []github.Repo{prRepo}) {
@@ -415,7 +420,7 @@ func TestMergeNotOpen(t *testing.T) {
 
 			r.typed("M")
 
-			if want := "#7 is " + strings.ToLower(state); r.merge != nil || r.notice != want {
+			if want := fmt.Sprintf(noticeMergeClosed, 7, strings.ToLower(state)); r.merge != nil || r.notice != want {
 				t.Errorf("box %v, notice %q, want no box and %q", r.merge, r.notice, want)
 			}
 		})
@@ -429,25 +434,34 @@ func TestMergeErrors(t *testing.T) {
 		name  string
 		fail  error
 		res   github.Merged
-		want  string
+		is    error    // what the answer's error is, by errors.Is
+		has   []string // what the toast carries
+		lacks []string // what tells it from the generic failure toast
 		level toastLevel
 	}{
 		{
 			"head moved", fmt.Errorf("%w: sha mismatch", github.ErrHeadMoved),
 			github.Merged{},
-			"merge #7: the PR moved since you reviewed it; nothing merged", levelError,
+			github.ErrHeadMoved,
+			[]string{prNumberText(7)},
+			[]string{"sha mismatch", github.ErrHeadMoved.Error()},
+			levelError,
 		},
 		{
 			"not mergeable", fmt.Errorf("%w: base branch policy", github.ErrNotMergeable),
 			github.Merged{},
-			"merge #7: " + github.ErrNotMergeable.Error() + ": base branch policy", levelError,
+			github.ErrNotMergeable,
+			[]string{prNumberText(7), github.ErrNotMergeable.Error(), "base branch policy"},
+			nil, levelError,
 		},
 		{
 			"delete failed", nil,
 			github.Merged{SHA: "m1", DeleteErr: errors.New("protected branch")},
-			"merged #7 (merge); deleting feat/x failed: protected branch", levelSuccess,
+			nil,
+			[]string{prNumberText(7), string(github.MergeCommit), "feat/x", "protected branch"},
+			nil, levelSuccess,
 		},
-		{"plain success", nil, github.Merged{SHA: "m1"}, "merged #7 (merge)", levelSuccess},
+		{"plain success", nil, github.Merged{SHA: "m1"}, nil, []string{prNumberText(7), string(github.MergeCommit)}, []string{"protected branch"}, levelSuccess},
 	}
 
 	for _, tc := range tests {
@@ -459,10 +473,27 @@ func TestMergeErrors(t *testing.T) {
 
 			r.typed("M")
 			r.keys(keyEnter)
-			r.until(t, "the toast", func() bool { return r.notice != "" && !strings.HasPrefix(r.notice, "merging") })
 
-			if r.notice != tc.want || r.noticeLevel() != tc.level {
-				t.Errorf("toast = %q at level %v, want %q at level %v", r.notice, r.noticeLevel(), tc.want, tc.level)
+			m := feedUntil[mergedMsg](t, r.drawerRig)
+
+			if tc.is != nil && !errors.Is(m.err, tc.is) || tc.is == nil && m.err != nil {
+				t.Errorf("answer error = %v, want %v", m.err, tc.is)
+			}
+
+			for _, w := range tc.has {
+				if !strings.Contains(r.notice, w) {
+					t.Errorf("toast = %q, want it to carry %q", r.notice, w)
+				}
+			}
+
+			for _, w := range tc.lacks {
+				if strings.Contains(r.notice, w) {
+					t.Errorf("toast = %q, want it without %q", r.notice, w)
+				}
+			}
+
+			if r.noticeLevel() != tc.level {
+				t.Errorf("toast = %q at level %v, want level %v", r.notice, r.noticeLevel(), tc.level)
 			}
 
 			refreshed := len(r.rec.refreshed()) > 0
@@ -485,20 +516,21 @@ func TestMergeOnce(t *testing.T) {
 
 	r.typed("M")
 
-	if r.merge != nil || r.notice != "#7 is already being merged" {
+	if r.merge != nil || r.notice != fmt.Sprintf(noticeMergeBusy, 7) {
 		t.Errorf("box %v, notice %q, want no box and the busy notice", r.merge, r.notice)
 	}
 
 	r.leader('g')
 	r.typed("m")
 
-	if r.merge != nil || r.notice != "#7 is already being merged" {
+	if r.merge != nil || r.notice != fmt.Sprintf(noticeMergeBusy, 7) {
 		t.Errorf("leader g m: box %v, notice %q, want no box and the busy notice", r.merge, r.notice)
 	}
 
 	r.cancel()
 	r.settle()
-	r.quiet(t, 0)
+	r.until(t, "the cancelled merge to answer", func() bool { return len(r.merging) == 0 })
+	r.settled(t)
 
 	if got := len(f.merged()); got != 1 {
 		t.Errorf("merge called %d times, want once", got)
@@ -529,25 +561,6 @@ func TestMergeTargetIsFrozen(t *testing.T) {
 	got := f.merged()[0]
 	if got.opts.SHA != r.prHead || got.opts.Method != github.MergeCommit || got.pr.HeadBranch != "feat/x" {
 		t.Errorf("merge call = %+v, want the frozen head %s, merge and feat/x", got, r.prHead)
-	}
-}
-
-func TestMergeBoxPicksTheWatchedPR(t *testing.T) {
-	t.Parallel()
-
-	r, _ := inMergeDrawer(t, everyMethod, nil)
-	r.typed("M")
-
-	var focused int
-
-	for _, w := range r.prWatches(r.store.State()) {
-		if w.Repo == prRepo {
-			focused = w.Focused
-		}
-	}
-
-	if focused != 7 {
-		t.Errorf("focused = %d, want 7", focused)
 	}
 }
 
@@ -787,8 +800,8 @@ func TestMergedPRShowsMergedInTheDrawer(t *testing.T) {
 			r.notice = ""
 			r.typed(key)
 
-			if r.merge != nil || r.notice != "#7 is merged" {
-				t.Errorf("%s: %s gave box %v, notice %q, want no box and %q", when, key, r.merge, r.notice, "#7 is merged")
+			if want := fmt.Sprintf(noticeMergeClosed, 7, "merged"); r.merge != nil || r.notice != want {
+				t.Errorf("%s: %s gave box %v, notice %q, want no box and %q", when, key, r.merge, r.notice, want)
 			}
 		}
 

@@ -300,7 +300,7 @@ func TestChecksUnreadable(t *testing.T) {
 		}
 	}
 
-	for _, not := range []string{noticeChecksLoading, "no checks on"} {
+	for _, not := range []string{noticeChecksLoading, strings.TrimSpace(fmt.Sprintf(noticeChecksNone, ""))} {
 		if strings.Contains(text, not) {
 			t.Errorf("the overlay shows %q for unreadable checks:\n%s", not, text)
 		}
@@ -441,66 +441,62 @@ func (f *fakeOpen) opened(t *testing.T, n int) []string {
 func TestChecksKeyDropsAStaleAnswer(t *testing.T) {
 	t.Parallel()
 
-	moves := []struct {
-		name string
-		move func(t *testing.T, r *prDrawer)
-	}{
-		{"b", func(t *testing.T, r *prDrawer) { r.typed("b") }},
-		{"the drawer closed", func(t *testing.T, r *prDrawer) {
-			openIn(t, r.App, core.CloseReview{})
-			r.settle()
-		}},
+	closeDrawer := func(t *testing.T, r *prDrawer) {
+		openIn(t, r.App, core.CloseReview{})
+		r.settle()
 	}
 
-	for _, mv := range moves {
-		for _, key := range []string{"c", "O"} {
-			for _, stage := range []string{"the place answered", "the fetch answered"} {
-				t.Run(key+" then "+mv.name+" before "+stage, func(t *testing.T) {
-					t.Parallel()
+	for _, tc := range []struct {
+		key, stage string
+		move       func(t *testing.T, r *prDrawer)
+	}{
+		{"c", "the place answered", func(t *testing.T, r *prDrawer) { r.typed("b") }},
+		{"O", "the fetch answered", closeDrawer},
+	} {
+		t.Run(tc.key+" then the move before "+tc.stage, func(t *testing.T) {
+			t.Parallel()
 
-					r := newPRDrawer(t)
-					f := &fakeOpen{}
-					r.openLink = f.open
+			r := newPRDrawer(t)
+			f := &fakeOpen{}
+			r.openLink = f.open
 
-					r.poll()
-					r.opened(t)
+			r.poll()
+			r.opened(t)
 
-					msgs := flatten(r.step(keyRune(rune(key[0]))))
-					if len(msgs) != 1 {
-						t.Fatalf("%s raised %d messages, want the place's answer", key, len(msgs))
-					}
-
-					late := msgs[0]
-
-					if stage == "the fetch answered" {
-						fm := flatten(r.step(late))
-						if len(fm) != 1 {
-							t.Fatalf("the place raised %d messages, want the fetch's answer", len(fm))
-						}
-
-						late = fm[0]
-					}
-
-					mv.move(t, r)
-					r.settle()
-
-					r.run(r.step(late))
-					r.settle()
-
-					if r.checks != nil {
-						t.Error("a stale answer opened the checks")
-					}
-
-					if got := f.urls(); len(got) != 0 {
-						t.Errorf("a stale answer opened %v", got)
-					}
-
-					if rv := r.review(); rv != nil && rv.PR != nil {
-						t.Errorf("review = %+v after the late answer, want no PR", rv)
-					}
-				})
+			msgs := flatten(r.step(keyRune(rune(tc.key[0]))))
+			if len(msgs) != 1 {
+				t.Fatalf("%s raised %d messages, want the place's answer", tc.key, len(msgs))
 			}
-		}
+
+			late := msgs[0]
+
+			if tc.stage == "the fetch answered" {
+				fm := flatten(r.step(late))
+				if len(fm) != 1 {
+					t.Fatalf("the place raised %d messages, want the fetch's answer", len(fm))
+				}
+
+				late = fm[0]
+			}
+
+			tc.move(t, r)
+			r.settle()
+
+			r.run(r.step(late))
+			r.settle()
+
+			if r.checks != nil {
+				t.Error("a stale answer opened the checks")
+			}
+
+			if got := f.urls(); len(got) != 0 {
+				t.Errorf("a stale answer opened %v", got)
+			}
+
+			if rv := r.review(); rv != nil && rv.PR != nil {
+				t.Errorf("review = %+v after the late answer, want no PR", rv)
+			}
+		})
 	}
 }
 

@@ -149,7 +149,7 @@ func TestReviewBackDuringSlides(t *testing.T) {
 	t.Run("open slide", func(t *testing.T) {
 		t.Parallel()
 
-		r := newKeysRig(t, keysRepo(t))
+		r, _ := fakeKeysRig(t)
 		r.leader('d')
 		r.until(t, "the drawer to open", func() bool { return r.store.State().Tab().Review != nil })
 

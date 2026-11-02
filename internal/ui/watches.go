@@ -72,7 +72,7 @@ type mdAcquiredMsg struct {
 }
 
 type watchState struct {
-	set    *git.WatchSet
+	set    watchSet
 	open   func(context.Context, string) (git.Repo, error)
 	panes  map[core.PaneID]*paneWatch
 	pins   map[core.TabID]*pinWatch
@@ -471,7 +471,7 @@ func (a *App) pinAcquire(tab core.TabID, root string) tea.Cmd {
 // acquireRoot opens root's repository and takes a reference on its watch,
 // registered with holds so App.Close frees it. A root that is gone answers
 // errWorktreeRemoved. It blocks, so it runs off the update loop.
-func (a *App) acquireRoot(ctx context.Context, set *git.WatchSet, open func(context.Context, string) (git.Repo, error), root string) (func(), error) {
+func (a *App) acquireRoot(ctx context.Context, set watchSet, open func(context.Context, string) (git.Repo, error), root string) (func(), error) {
 	octx, cancel := context.WithTimeout(ctx, watchResolveTimeout)
 	defer cancel()
 

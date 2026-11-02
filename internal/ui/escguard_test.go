@@ -141,7 +141,7 @@ func TestEscGuardCloses(t *testing.T) {
 		{"review drawer", func(t *testing.T) (*App, *fakeClock) {
 			t.Helper()
 
-			r := newKeysRig(t, keysRepo(t))
+			r, _ := fakeKeysRig(t)
 			r.opened(t)
 
 			return r.App, r.clk
@@ -330,7 +330,7 @@ func TestEscGuardSparesUI(t *testing.T) {
 	t.Run("an esc the drawer takes after an overlay over it closes", func(t *testing.T) {
 		t.Parallel()
 
-		r := newKeysRig(t, keysRepo(t))
+		r, _ := fakeKeysRig(t)
 		r.opened(t)
 		id := r.store.State().Tab().Focus
 		_ = r.openChecks("github.com/acme/api", 7)

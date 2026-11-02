@@ -2,12 +2,10 @@ package ui
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -23,12 +21,19 @@ import (
 	"github.com/mhersson/aim/internal/ui/palette"
 )
 
-// pickerApp is an app over fake processes whose first shell starts in cwd,
-// after its first size of 100x30. $HOME reads as /home/me.
+// pickerApp is pickerAppOn a git that knows no repository.
 func pickerApp(t *testing.T, cwd string) (*App, *starts) {
 	t.Helper()
 
-	a, st := lifeApp(t)
+	return pickerAppOn(t, newFakeGit(t), cwd)
+}
+
+// pickerAppOn is an app over fake processes and the fake git f whose first
+// shell starts in cwd, after its first size of 100x30. $HOME reads as /home/me.
+func pickerAppOn(t *testing.T, f *fakeGit, cwd string) (*App, *starts) {
+	t.Helper()
+
+	a, st := lifeAppWith(t, gitOf(f))
 	a.cwd = cwd
 	a.getenv = func(k string) string {
 		if k == "HOME" {
@@ -37,12 +42,6 @@ func pickerApp(t *testing.T, cwd string) (*App, *starts) {
 
 		return testGetenv(k)
 	}
-
-	set := git.NewWatchSet(context.Background(), git.WatchOptions{})
-
-	t.Cleanup(func() { _ = set.Close() })
-
-	a.watches.set = set
 
 	sized(t, a, 100, 30)
 
@@ -53,29 +52,23 @@ func pickerApp(t *testing.T, cwd string) (*App, *starts) {
 func plainDir(t *testing.T) string {
 	t.Helper()
 
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not installed")
-	}
-
 	dir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(dir))
-
 	return dir
 }
 
 // committedRepo is a repository on main with one commit.
-func committedRepo(t *testing.T) string {
+func committedRepo(t *testing.T, f *fakeGit) *fakeRepo {
 	t.Helper()
 
-	dir := newRepoDir(t)
-	write(t, filepath.Join(dir, "a.txt"), "a\n")
-	commitEverything(t, dir, "init")
+	r := f.repo(t, "")
+	write(t, filepath.Join(r.Root(), "a.txt"), "a\n")
+	r.commit("init")
 
-	return dir
+	return r
 }
 
 // deliver runs cmd, the one command a picker step raised, and delivers its
@@ -177,6 +170,7 @@ func openSampleForm(t *testing.T, a *App) {
 }
 
 func TestPickerOutsideARepoOpensAtOnce(t *testing.T) {
+	t.Parallel()
 	dir := plainDir(t)
 	a, st := pickerApp(t, dir)
 
@@ -210,6 +204,7 @@ func TestPickerOutsideARepoOpensAtOnce(t *testing.T) {
 }
 
 func TestPickerGitFailureOpensTheAgent(t *testing.T) {
+	t.Parallel()
 	gone := filepath.Join(plainDir(t), "gone")
 	a, st := pickerApp(t, gone)
 
@@ -233,6 +228,7 @@ func TestPickerGitFailureOpensTheAgent(t *testing.T) {
 }
 
 func TestPickerGitFailureKeepsThePaneNotice(t *testing.T) {
+	t.Parallel()
 	gone := filepath.Join(plainDir(t), "gone")
 	a, st := pickerApp(t, gone)
 	st.err = errors.New("no such directory")
@@ -372,11 +368,14 @@ func TestPickerNavigationWraps(t *testing.T) {
 
 func TestPickerOpensAnAgentInTheWorktree(t *testing.T) {
 	t.Parallel()
-	dir := committedRepo(t)
-	wt := filepath.Join(dir, ".worktrees", "feat-x")
-	gitIn(t, "git", dir, "worktree", "add", "-q", "-b", "feat/x", wt)
 
-	a, st := pickerApp(t, dir)
+	f := newFakeGit(t)
+	main := committedRepo(t, f)
+	dir := main.Root()
+	wt := filepath.Join(dir, ".worktrees", "feat-x")
+	main.worktree(t, wt, "feat/x")
+
+	a, st := pickerAppOn(t, f, dir)
 	askPicker(t, a)
 
 	if a.picker.open == nil {
@@ -454,8 +453,10 @@ func TestPickerEscCloses(t *testing.T) {
 
 func TestNewWorktreeCreatesAndOpens(t *testing.T) {
 	t.Parallel()
-	dir := committedRepo(t)
-	a, st := pickerApp(t, dir)
+
+	f := newFakeGit(t)
+	dir := committedRepo(t, f).Root()
+	a, st := pickerAppOn(t, f, dir)
 	askPicker(t, a)
 
 	press(a, keyUp)
@@ -478,9 +479,24 @@ func TestNewWorktreeCreatesAndOpens(t *testing.T) {
 		t.Errorf("path row %q, want .worktrees/feat-x", got)
 	}
 
-	deliver(t, a, press(a, keyEnter))
+	create := press(a, keyEnter)
+	if create == nil {
+		t.Fatal("enter raised no creation")
+	}
+
+	// The first worktree under .worktrees is the one that adds it to the exclude file.
+	made, ok := create().(pickerCreatedMsg)
+	if !ok {
+		t.Fatal("the creation did not answer with the created worktree")
+	}
+
+	a.Update(made)
 
 	want := filepath.Join(dir, ".worktrees", "feat-x")
+
+	if !made.created.Excluded || made.created.Worktree.Path != want || made.created.Worktree.Branch != "feat/x" {
+		t.Errorf("created = %+v, want %s on feat/x with .worktrees excluded", made.created, want)
+	}
 
 	if a.picker.open != nil {
 		t.Error("the picker stays open after a created worktree")
@@ -494,31 +510,12 @@ func TestNewWorktreeCreatesAndOpens(t *testing.T) {
 		t.Errorf("second start = %+v, want claude in %s", c, want)
 	}
 
-	if a.notice != "created .worktrees/feat-x" {
-		t.Errorf("notice = %q, want %q", a.notice, "created .worktrees/feat-x")
+	if !strings.Contains(a.notice, ".worktrees/feat-x") || a.noticeLevel() != levelNotice {
+		t.Errorf("notice = %q at level %v, want a notice naming .worktrees/feat-x", a.notice, a.noticeLevel())
 	}
 
-	repo, err := git.Open(context.Background(), dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	list, err := git.ListWorktrees(context.Background(), repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if !slices.ContainsFunc(list, func(w git.Worktree) bool { return w.Path == want && w.Branch == "feat/x" }) {
-		t.Errorf("worktrees = %+v, want %s on feat/x", list, want)
-	}
-
-	exclude, err := os.ReadFile(filepath.Join(dir, ".git", "info", "exclude"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if !slices.Contains(strings.Split(string(exclude), "\n"), "/.worktrees/") {
-		t.Errorf("info/exclude = %q, want a /.worktrees/ line", exclude)
+	if got := f.calls("CreateWorktree"); len(got) != 1 || !slices.Equal(got[0].Args, []string{"feat/x", "main", "inside"}) {
+		t.Errorf("CreateWorktree calls = %+v, want feat/x from main under .worktrees", got)
 	}
 }
 
@@ -527,15 +524,18 @@ func TestNewWorktreeCreatesAndOpens(t *testing.T) {
 // a cleaned name would not be.
 func TestNewWorktreeBaseIsCleanedOnlyForDisplay(t *testing.T) {
 	t.Parallel()
-	dir := committedRepo(t)
+
+	f := newFakeGit(t)
+	repo := committedRepo(t, f)
+	dir := repo.Root()
 
 	// origin/HEAD names a branch with a bidi override, which git allows in a ref name.
 	const hostile = "e\u202evil"
 
-	gitIn(t, "git", dir, "update-ref", "refs/remotes/origin/"+hostile, "HEAD")
-	gitIn(t, "git", dir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/"+hostile)
+	repo.track("origin", hostile, repo.headOID())
+	repo.setDefault("origin/" + hostile)
 
-	a, st := pickerApp(t, dir)
+	a, st := pickerAppOn(t, f, dir)
 	askPicker(t, a)
 
 	press(a, keyUp)
@@ -562,7 +562,11 @@ func TestNewWorktreeBaseIsCleanedOnlyForDisplay(t *testing.T) {
 
 	want := filepath.Join(dir, ".worktrees", "feat")
 	if st.count() != 2 || st.cmds[1].Dir != want {
-		t.Fatalf("starts = %d, want an agent in %s: the raw base did not reach git", st.count(), want)
+		t.Fatalf("starts = %d, want an agent in %s", st.count(), want)
+	}
+
+	if got := f.calls("CreateWorktree"); len(got) != 1 || got[0].Args[1] != "origin/"+hostile {
+		t.Errorf("CreateWorktree calls = %+v, want the base as git named it, origin/%s", got, hostile)
 	}
 }
 
@@ -606,91 +610,83 @@ func TestFieldViewDrawsCleanTextAndMapsTheCursor(t *testing.T) {
 	}
 }
 
+// A refused creation leaves the page open with the reason in the Error colour,
+// and an edit clears it. The reason's wording per cause is worktreeReason's.
 func TestNewWorktreeErrorStaysInThePage(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name   string
-		trunk  bool // the only branch is trunk: no default base
-		prep   func(t *testing.T, dir string)
-		branch string
-		want   string
-	}{
-		{
-			name: "path exists", branch: "feat/x", want: "that path already exists",
-			prep: func(t *testing.T, dir string) {
-				t.Helper()
+	f := newFakeGit(t)
+	dir := committedRepo(t, f).Root()
 
-				if err := os.MkdirAll(filepath.Join(dir, ".worktrees", "feat-x"), 0o755); err != nil {
-					t.Fatal(err)
-				}
-			},
-		},
-		{name: "bad branch", branch: "a..b", want: "not a valid branch name"},
-		{name: "no base", trunk: true, branch: "feat/x", want: "no usable base branch; name one in the base field"},
+	if err := os.MkdirAll(filepath.Join(dir, ".worktrees", "feat-x"), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			dir := committedRepo(t)
-			if tt.trunk {
-				gitIn(t, "git", dir, "branch", "-m", "trunk")
-			}
 
-			if tt.prep != nil {
-				tt.prep(t, dir)
-			}
+	a, st := pickerAppOn(t, f, dir)
+	askPicker(t, a)
+	openForm(t, a)
+	typeText(a, "feat/x")
+	deliver(t, a, press(a, keyEnter))
 
-			a, st := pickerApp(t, dir)
-			askPicker(t, a)
-			openForm(t, a)
-			typeText(a, tt.branch)
-			deliver(t, a, press(a, keyEnter))
+	if a.picker.open == nil || a.picker.open.page != pageNewWorktree {
+		t.Fatal("the page closed on an error")
+	}
 
-			if a.picker.open == nil || a.picker.open.page != pageNewWorktree {
-				t.Fatal("the page closed on an error")
-			}
+	if st.count() != 1 {
+		t.Errorf("starts = %d, want no agent", st.count())
+	}
 
-			if st.count() != 1 {
-				t.Errorf("starts = %d, want no agent", st.count())
-			}
+	want := a.picker.open.form.err
+	if want == "" {
+		t.Fatal("the page holds no error")
+	}
 
-			view := viewText(a)
-			if !strings.Contains(view, tt.want) || !strings.Contains(view, " New worktree ") {
-				t.Errorf("page lacks %q:\n%s", tt.want, view)
-			}
+	view := viewText(a)
+	if !strings.Contains(view, want) || !strings.Contains(view, " New worktree ") {
+		t.Errorf("page lacks %q:\n%s", want, view)
+	}
 
-			ui := a.current().theme.UI
+	ui := a.current().theme.UI
 
-			if raw := a.View().Content; !strings.Contains(raw, "\x1b[38;2;"+rgb(ui.Error)+"m"+tt.want) {
-				t.Errorf("the error is not drawn in the Error colour:\n%q", lineWith(raw, tt.want))
-			}
+	if raw := a.View().Content; !strings.Contains(raw, "\x1b[38;2;"+rgb(ui.Error)+"m"+want) {
+		t.Errorf("the error is not drawn in the Error colour:\n%q", lineWith(raw, want))
+	}
 
-			// An edit clears the error.
-			typeText(a, "q")
+	// An edit clears the error.
+	typeText(a, "q")
 
-			if view = viewText(a); strings.Contains(view, tt.want) {
-				t.Errorf("page still shows %q after an edit:\n%s", tt.want, view)
-			}
-		})
+	if view = viewText(a); strings.Contains(view, want) || a.picker.open.form.err != "" {
+		t.Errorf("page still shows %q after an edit:\n%s", want, view)
 	}
 }
 
 func TestNewWorktreeShowsGitsReason(t *testing.T) {
 	t.Parallel()
 
+	// The failure is shaped as git's run reports one: the wrapper, the exit
+	// status, then what git printed.
+	failure := func(reason string) error {
+		return fmt.Errorf("create worktree: git worktree: exit status 128: %s", reason)
+	}
+
 	tests := []struct {
 		name         string
 		branch, base string
-		want         string
+		reason       string
 		cut          bool // the reason is longer than the row
 	}{
-		{name: "base does not exist", branch: "feat/x", base: "nobase", want: "fatal: invalid reference: nobase"},
-		{name: "branch is checked out", branch: "main", want: "fatal: 'main' is already", cut: true},
+		{name: "base does not exist", branch: "feat/x", base: "nobase", reason: "fatal: invalid reference: nobase"},
+		{name: "branch is checked out", branch: "main", reason: "fatal: 'main' is already checked out at '" + strings.Repeat("x", 100) + "'", cut: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			dir := committedRepo(t)
-			a, st := pickerApp(t, dir)
+			t.Parallel()
+
+			f := newFakeGit(t)
+			dir := committedRepo(t, f).Root()
+			f.fail("CreateWorktree", failure(tt.reason))
+
+			a, st := pickerAppOn(t, f, dir)
 			askPicker(t, a)
 			openForm(t, a)
 			typeText(a, tt.branch)
@@ -702,11 +698,18 @@ func TestNewWorktreeShowsGitsReason(t *testing.T) {
 
 			deliver(t, a, press(a, keyEnter))
 
+			// The call carries what was typed.
+			if got := f.calls("CreateWorktree"); len(got) != 1 || got[0].Args[0] != tt.branch || (tt.base != "" && got[0].Args[1] != tt.base) {
+				t.Errorf("CreateWorktree calls = %+v, want %s from %q", got, tt.branch, tt.base)
+			}
+
+			// The row shows the reason's start, as far as the row reaches.
+			show := tt.reason[:min(len(tt.reason), 40)]
 			view := viewText(a)
-			row := lineWith(view, tt.want)
+			row := lineWith(view, show)
 
 			if row == "" {
-				t.Fatalf("page lacks git's reason %q:\n%s", tt.want, view)
+				t.Fatalf("page lacks git's reason %q:\n%s", show, view)
 			}
 
 			for _, junk := range []string{"create worktree", "exit status", "git worktree:"} {
@@ -733,12 +736,14 @@ func TestNewWorktreeShowsGitsReason(t *testing.T) {
 func TestNewWorktreeRetryAfterAnError(t *testing.T) {
 	t.Parallel()
 
-	dir := committedRepo(t)
+	f := newFakeGit(t)
+
+	dir := committedRepo(t, f).Root()
 	if err := os.MkdirAll(filepath.Join(dir, ".worktrees", "feat-x"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	a, st := pickerApp(t, dir)
+	a, st := pickerAppOn(t, f, dir)
 	askPicker(t, a)
 	openForm(t, a)
 	typeText(a, "feat/x")
@@ -847,10 +852,13 @@ func TestNewWorktreeSiblingRoot(t *testing.T) {
 func TestNewWorktreeShowsIgnoreWarnings(t *testing.T) {
 	t.Parallel()
 	t.Run("inside", func(t *testing.T) {
-		dir := committedRepo(t)
+		t.Parallel()
+
+		f := newFakeGit(t)
+		dir := committedRepo(t, f).Root()
 		write(t, filepath.Join(dir, ".vscode", "settings.json"), "{}\n")
 
-		a, _ := pickerApp(t, dir)
+		a, _ := pickerAppOn(t, f, dir)
 		askPicker(t, a)
 		openForm(t, a)
 
@@ -869,10 +877,13 @@ func TestNewWorktreeShowsIgnoreWarnings(t *testing.T) {
 	})
 
 	t.Run("sibling root asks for nothing", func(t *testing.T) {
-		dir := committedRepo(t)
+		t.Parallel()
+
+		f := newFakeGit(t)
+		dir := committedRepo(t, f).Root()
 		write(t, filepath.Join(dir, ".vscode", "settings.json"), "{}\n")
 
-		a, _ := pickerApp(t, dir)
+		a, _ := pickerAppOn(t, f, dir)
 		a.picker.cfg = core.WorktreesConfig{Root: "sibling"}
 		askPicker(t, a)
 		openForm(t, a)
@@ -883,10 +894,13 @@ func TestNewWorktreeShowsIgnoreWarnings(t *testing.T) {
 	})
 
 	t.Run("icons off", func(t *testing.T) {
-		dir := committedRepo(t)
+		t.Parallel()
+
+		f := newFakeGit(t)
+		dir := committedRepo(t, f).Root()
 		write(t, filepath.Join(dir, ".vscode", "settings.json"), "{}\n")
 
-		a, _ := pickerApp(t, dir)
+		a, _ := pickerAppOn(t, f, dir)
 		a.icons = false
 		askPicker(t, a)
 		openForm(t, a)
@@ -943,8 +957,11 @@ func TestNewWorktreeFieldsAndBack(t *testing.T) {
 func TestPickerStaleAnswersAreDropped(t *testing.T) {
 	t.Parallel()
 	t.Run("open", func(t *testing.T) {
-		dir := committedRepo(t)
-		a, _ := pickerApp(t, dir)
+		t.Parallel()
+
+		f := newFakeGit(t)
+		dir := committedRepo(t, f).Root()
+		a, _ := pickerAppOn(t, f, dir)
 
 		first := press(a, keyLeader, keyRune('n'))
 		second := press(a, keyLeader, keyRune('n'))
@@ -963,8 +980,11 @@ func TestPickerStaleAnswersAreDropped(t *testing.T) {
 	})
 
 	t.Run("open after the focus moved", func(t *testing.T) {
-		dir := committedRepo(t)
-		a, _ := pickerApp(t, dir)
+		t.Parallel()
+
+		f := newFakeGit(t)
+		dir := committedRepo(t, f).Root()
+		a, _ := pickerAppOn(t, f, dir)
 
 		cmd := press(a, keyLeader, keyRune('n'))
 		openIn(t, a, core.OpenPane{Kind: core.KindShell, Cwd: dir, Split: core.SplitVertical, Area: a.bodyArea()})
@@ -976,8 +996,11 @@ func TestPickerStaleAnswersAreDropped(t *testing.T) {
 	})
 
 	t.Run("open under a palette", func(t *testing.T) {
-		dir := committedRepo(t)
-		a, _ := pickerApp(t, dir)
+		t.Parallel()
+
+		f := newFakeGit(t)
+		dir := committedRepo(t, f).Root()
+		a, _ := pickerAppOn(t, f, dir)
 
 		cmd := press(a, keyLeader, keyRune('n'))
 		press(a, keyLeader, keyRune(':'))
@@ -989,8 +1012,11 @@ func TestPickerStaleAnswersAreDropped(t *testing.T) {
 	})
 
 	t.Run("created after the picker closed", func(t *testing.T) {
-		dir := committedRepo(t)
-		a, st := pickerApp(t, dir)
+		t.Parallel()
+
+		f := newFakeGit(t)
+		dir := committedRepo(t, f).Root()
+		a, st := pickerAppOn(t, f, dir)
 
 		var logs bytes.Buffer
 
@@ -1016,8 +1042,11 @@ func TestPickerStaleAnswersAreDropped(t *testing.T) {
 	})
 
 	t.Run("created for an earlier picker", func(t *testing.T) {
-		dir := committedRepo(t)
-		a, st := pickerApp(t, dir)
+		t.Parallel()
+
+		f := newFakeGit(t)
+		dir := committedRepo(t, f).Root()
+		a, st := pickerAppOn(t, f, dir)
 		askPicker(t, a)
 		openForm(t, a)
 		typeText(a, "feat/x")
@@ -1051,8 +1080,11 @@ func TestPickerDoesNotOpenOverAModal(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			dir := committedRepo(t)
-			a, st := pickerApp(t, dir)
+			t.Parallel()
+
+			f := newFakeGit(t)
+			dir := committedRepo(t, f).Root()
+			a, st := pickerAppOn(t, f, dir)
 
 			cmd := press(a, keyLeader, keyRune('n'))
 
@@ -1207,7 +1239,10 @@ func railHasKeys(t *testing.T, a *App) {
 }
 
 func TestPickerReleasesTheRailsKeyboard(t *testing.T) {
+	t.Parallel()
 	t.Run("outside a repository", func(t *testing.T) {
+		t.Parallel()
+
 		dir := plainDir(t)
 		a, _ := pickerApp(t, dir)
 		railHasKeys(t, a)
@@ -1220,10 +1255,14 @@ func TestPickerReleasesTheRailsKeyboard(t *testing.T) {
 	})
 
 	t.Run("choosing a worktree", func(t *testing.T) {
-		dir := committedRepo(t)
-		gitIn(t, "git", dir, "worktree", "add", "-q", "-b", "feat/x", filepath.Join(dir, ".worktrees", "feat-x"))
+		t.Parallel()
 
-		a, st := pickerApp(t, dir)
+		f := newFakeGit(t)
+		main := committedRepo(t, f)
+		dir := main.Root()
+		main.worktree(t, filepath.Join(dir, ".worktrees", "feat-x"), "feat/x")
+
+		a, st := pickerAppOn(t, f, dir)
 		railHasKeys(t, a)
 
 		askPicker(t, a)
@@ -1242,8 +1281,11 @@ func TestPickerReleasesTheRailsKeyboard(t *testing.T) {
 	})
 
 	t.Run("creating a worktree", func(t *testing.T) {
-		dir := committedRepo(t)
-		a, st := pickerApp(t, dir)
+		t.Parallel()
+
+		f := newFakeGit(t)
+		dir := committedRepo(t, f).Root()
+		a, st := pickerAppOn(t, f, dir)
 		railHasKeys(t, a)
 
 		askPicker(t, a)
@@ -1258,7 +1300,10 @@ func TestPickerReleasesTheRailsKeyboard(t *testing.T) {
 }
 
 func TestPickerReleasesTheDrawersKeyboard(t *testing.T) {
+	t.Parallel()
 	t.Run("a drawer over the new pane closes", func(t *testing.T) {
+		t.Parallel()
+
 		dir := plainDir(t)
 		a, st := pickerApp(t, dir)
 		openIn(t, a, core.OpenReview{Pane: a.store.State().Tab().Focus, Mode: core.ReviewBranch})
@@ -1277,10 +1322,14 @@ func TestPickerReleasesTheDrawersKeyboard(t *testing.T) {
 	})
 
 	t.Run("choosing a worktree", func(t *testing.T) {
-		dir := committedRepo(t)
-		gitIn(t, "git", dir, "worktree", "add", "-q", "-b", "feat/x", filepath.Join(dir, ".worktrees", "feat-x"))
+		t.Parallel()
 
-		a, st := pickerApp(t, dir)
+		f := newFakeGit(t)
+		main := committedRepo(t, f)
+		dir := main.Root()
+		main.worktree(t, filepath.Join(dir, ".worktrees", "feat-x"), "feat/x")
+
+		a, st := pickerAppOn(t, f, dir)
 		openIn(t, a, core.OpenReview{Pane: a.store.State().Tab().Focus, Mode: core.ReviewBranch})
 		a.drawerTake()
 

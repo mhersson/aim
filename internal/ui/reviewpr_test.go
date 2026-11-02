@@ -19,16 +19,17 @@ import (
 	"github.com/mhersson/aim/internal/github"
 )
 
-// prDrawer is a drawer rig on a worktree of feat/x whose origin is a local bare
-// repository that holds main and refs/pull/7/head. The worktree has a commit of
-// its own that the pull request lacks.
+// prDrawer is a drawer rig on a worktree of feat/x whose origin holds main and
+// pull request 7. The worktree has a commit of its own that the pull request
+// lacks.
 type prDrawer struct {
 	*drawerRig
 	rec     *refreshRec
 	dir     string
 	root    string
-	bare    string
-	prHead  string // the commit refs/pull/7/head holds on the remote
+	repo    *fakeRepo
+	origin  *fakeRemote
+	prHead  string // the commit pull request 7 holds on the remote
 	localOK string // the worktree's HEAD
 
 	notGitHub atomic.Bool
@@ -38,61 +39,78 @@ type prDrawer struct {
 	found   map[string]github.PR
 }
 
-// prWorktree makes the repository dir (on feat/x, two commits past main) with a
-// bare origin that has main and refs/pull/7/head, and a commit past the pull
-// request in dir. It returns the bare repository, the pull request's head and
-// the worktree's.
-func prWorktree(t *testing.T, dir string) (bare, prHead, local string) {
+const prOriginURL = "https://github.com/o/r.git"
+
+// prTwoCommits is a repository on main whose first commit holds a.txt and
+// b.txt and whose second changes a.txt and adds new.txt.
+func prTwoCommits(t *testing.T, f *fakeGit) *fakeRepo {
 	t.Helper()
 
-	bare, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
+	r := f.repo(t, "")
+	write(t, filepath.Join(r.Root(), "a.txt"), "a\n")
+	write(t, filepath.Join(r.Root(), "b.txt"), "b\n")
+	r.commit("init")
+	write(t, filepath.Join(r.Root(), "a.txt"), "a changed\n")
+	write(t, filepath.Join(r.Root(), "new.txt"), "new\n")
+	r.commit("feature work")
+
+	return r
+}
+
+// prOrigin gives r, two commits on main, an origin that holds main at the first
+// commit and pull request 7 at the second.
+func prOrigin(t *testing.T, r *fakeRepo) {
+	t.Helper()
+
+	var chain []string
+
+	r.f.edit(func() { chain = r.f.chain(r.headOID()) })
+
+	if len(chain) != 2 {
+		t.Fatalf("prOrigin: %d commits, want 2", len(chain))
 	}
 
-	gitIn(t, "git", bare, "init", "-q", "--bare", "-b", "main")
-	gitIn(t, "git", dir, "remote", "add", "origin", bare)
-
-	base := gitRead(t, "git", dir, "rev-list", "--max-parents=0", "HEAD")
-	gitIn(t, "git", dir, "push", "-q", "origin", base+":refs/heads/main")
-	gitIn(t, "git", dir, "switch", "-q", "-c", "feat/x")
-	gitIn(t, "git", dir, "push", "-q", "origin", "HEAD:refs/pull/7/head")
-
-	prHead = gitRead(t, "git", dir, "rev-parse", "HEAD")
-
-	write(t, filepath.Join(dir, "local.txt"), "not pushed\n")
-	commitEverything(t, dir, "local only")
-
-	return bare, prHead, gitRead(t, "git", dir, "rev-parse", "HEAD")
+	head, base := chain[0], chain[1]
+	rm := r.remote("origin", prOriginURL)
+	rm.setBranch("main", base)
+	r.track("origin", "main", base)
+	rm.pr(7, head)
 }
 
-// prFeatureRepo is a repository whose first commit holds a.txt and b.txt and
-// whose second changes a.txt and adds new.txt.
-func prFeatureRepo(t *testing.T) string {
+// prScaffold is prOrigin, then moves r to feat/x with a commit of its own.
+func prScaffold(t *testing.T, r *fakeRepo) *fakeRepo {
 	t.Helper()
 
-	dir := newRepoDir(t)
-	write(t, filepath.Join(dir, "a.txt"), "a\n")
-	write(t, filepath.Join(dir, "b.txt"), "b\n")
-	commitEverything(t, dir, "init")
-	write(t, filepath.Join(dir, "a.txt"), "a changed\n")
-	write(t, filepath.Join(dir, "new.txt"), "new\n")
-	commitEverything(t, dir, "feature work")
+	prOrigin(t, r)
+	r.branch("feat/x")
+	write(t, filepath.Join(r.Root(), "local.txt"), "not pushed\n")
+	r.commit("local only")
 
-	return dir
+	return r
 }
 
-func newPRDrawerOn(t *testing.T, dir string, opts ...func(*Options)) *prDrawer {
+// prFeatureRepo is prTwoCommits on feat/x, scaffolded by prScaffold.
+func prFeatureRepo(t *testing.T, f *fakeGit) *fakeRepo {
 	t.Helper()
 
-	bare, prHead, local := prWorktree(t, dir)
+	return prScaffold(t, prTwoCommits(t, f))
+}
+
+// newPRDrawerOn is a PR drawer rig on r, a scaffolded repository of f.
+func newPRDrawerOn(t *testing.T, f *fakeGit, r *fakeRepo, opts ...func(*Options)) *prDrawer {
+	t.Helper()
+
 	p := &prDrawer{
-		rec: &refreshRec{fakePRs: newFakePRs()}, dir: dir, root: rootOf(t, dir),
-		bare: bare, prHead: prHead, localOK: local, found: map[string]github.PR{},
+		rec: &refreshRec{fakePRs: newFakePRs()}, dir: r.Root(), root: r.Root(), repo: r, found: map[string]github.PR{},
 	}
 
-	opts = append([]func(*Options){func(o *Options) { o.PRs, o.PRLookup = p.rec, p.lookup }}, opts...)
-	p.drawerRig = newKeysRig(t, dir, opts...)
+	f.edit(func() {
+		p.origin = r.c.remotes["origin"]
+		p.prHead, p.localOK = p.origin.prs[7], r.headOID()
+	})
+
+	opts = append([]func(*Options){gitOf(f), func(o *Options) { o.PRs, o.PRLookup = p.rec, p.lookup }}, opts...)
+	p.drawerRig = newKeysRig(t, p.dir, opts...)
 	p.prs.resolve = p.resolve
 
 	return p
@@ -101,7 +119,9 @@ func newPRDrawerOn(t *testing.T, dir string, opts ...func(*Options)) *prDrawer {
 func newPRDrawer(t *testing.T, opts ...func(*Options)) *prDrawer {
 	t.Helper()
 
-	return newPRDrawerOn(t, prFeatureRepo(t), opts...)
+	f := newFakeGit(t)
+
+	return newPRDrawerOn(t, f, prFeatureRepo(t, f), opts...)
 }
 
 func (p *prDrawer) resolve(_ context.Context, _, _ string) (github.Repo, error) {
@@ -199,14 +219,14 @@ func TestPRModeNotices(t *testing.T) {
 		setup func(t *testing.T, r *prDrawer)
 		want  string
 	}{
-		{"no pull request for the branch", func(t *testing.T, r *prDrawer) {}, "no pull request for feat/x"},
-		{"a remote not on GitHub", func(t *testing.T, r *prDrawer) { r.notGitHub.Store(true) }, "feat/x's remote is not on GitHub"},
-		{"a detached head", func(t *testing.T, r *prDrawer) { gitIn(t, "git", r.dir, "checkout", "-q", "--detach") }, "pull request: HEAD is detached"},
+		{"no pull request for the branch", func(t *testing.T, r *prDrawer) {}, fmt.Sprintf(noticePRNone, "feat/x")},
+		{"a remote not on GitHub", func(t *testing.T, r *prDrawer) { r.notGitHub.Store(true) }, fmt.Sprintf(noticePRNotGitHub, "feat/x")},
+		{"a detached head", func(t *testing.T, r *prDrawer) { r.repo.detach() }, noticePRDetached},
 		{"the pull request is not on the remote", func(t *testing.T, r *prDrawer) {
 			pr := prSeven()
 			pr.Number = 8
 			r.run(r.step(snapshotOf(pr)))
-		}, "#8 is not on origin"},
+		}, fmt.Sprintf(noticePRNotOnRemote, 8, "origin")},
 	}
 
 	for _, tc := range tests {
@@ -252,18 +272,23 @@ func TestPRModeHoldsItsPR(t *testing.T) {
 	r := newPRDrawer(t)
 	r.poll()
 
-	other := newRepoDir(t)
-	write(t, filepath.Join(other, "only-in-other.txt"), "other\n")
-	commitEverything(t, other, "other")
-	write(t, filepath.Join(other, "dirty.txt"), "dirty\n")
+	other := r.fake.repo(t, "other")
+	write(t, filepath.Join(other.Root(), "only-in-other.txt"), "other\n")
+	other.commit("other")
+	write(t, filepath.Join(other.Root(), "dirty.txt"), "dirty\n")
 
 	r.opened(t)
 	r.typed("p")
 	r.until(t, "PR mode", r.inPRMode(7))
 
-	openIn(t, r.App, core.SetPaneCwd{ID: r.focus(), Cwd: other})
+	openIn(t, r.App, core.SetPaneCwd{ID: r.focus(), Cwd: other.Root()})
 	r.settle()
-	r.quiet(t, 50e6)
+	r.until(t, "the follow to resolve", func() bool {
+		w := r.watches.panes[r.focus()]
+
+		return w != nil && w.want == other.Root()
+	})
+	r.settled(t)
 
 	if rv := r.review(); rv.PR == nil || rv.PR.Number != 7 || r.view().pr.Number != 7 || r.view().root != r.root {
 		t.Fatalf("review %+v, view root %q: want #7 held on %q", rv, r.view().root, r.root)
@@ -271,7 +296,7 @@ func TestPRModeHoldsItsPR(t *testing.T) {
 
 	r.typed("b")
 	r.until(t, "the followed place", r.viewHolds(func(v *reviewView) bool {
-		return v.root == rootOf(t, other) && v.loaded && !v.loading && v.pr == (core.ReviewPR{})
+		return v.root == other.Root() && v.loaded && !v.loading && v.pr == (core.ReviewPR{})
 	}))
 
 	if rv := r.review(); rv.PR != nil {
@@ -302,14 +327,15 @@ func TestPRModeLeaves(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			dir := prFeatureRepo(t)
-			snapshotTurn(t, dir, testSession)
-			write(t, filepath.Join(dir, "turn.txt"), "turn\n")
-			snapshotTurn(t, dir, testSession)
+			f := newFakeGit(t)
+			rp := prTwoCommits(t, f)
+			rp.turn(string(testSession))
+			write(t, filepath.Join(rp.Root(), "turn.txt"), "turn\n")
+			rp.turn(string(testSession))
 
-			r := newPRDrawerOn(t, dir)
+			r := newPRDrawerOn(t, f, prScaffold(t, rp))
 			r.poll()
-			id := r.agent(t, dir, testSession)
+			id := r.agent(t, r.dir, testSession)
 			r.run(r.openReview(id, true))
 			r.until(t, "the drawer", func() bool { return r.review() != nil })
 			r.idle(t)
@@ -337,19 +363,20 @@ func TestPRModeLateAnswers(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		move func(t *testing.T, r *prDrawer)
+		name   string
+		move   func(t *testing.T, r *prDrawer)
+		stages []string
 	}{
 		{"the drawer closed", func(t *testing.T, r *prDrawer) {
 			openIn(t, r.App, core.CloseReview{})
 			r.settle()
-		}},
-		{"b", func(t *testing.T, r *prDrawer) { r.typed("b") }},
-		{"a second p", func(t *testing.T, r *prDrawer) { r.pressP() }},
+		}, []string{"the place answered", "the fetch answered"}},
+		{"b", func(t *testing.T, r *prDrawer) { r.typed("b") }, []string{"the place answered", "the fetch answered"}},
+		{"a second p", func(t *testing.T, r *prDrawer) { r.pressP() }, []string{"the fetch answered"}},
 	}
 
 	for _, tc := range tests {
-		for _, stage := range []string{"the place answered", "the fetch answered"} {
+		for _, stage := range tc.stages {
 			t.Run(tc.name+" before "+stage, func(t *testing.T) {
 				t.Parallel()
 
@@ -439,10 +466,8 @@ func TestPRModeRefresh(t *testing.T) {
 		r.until(t, "PR mode", r.inPRMode(7))
 
 		write(t, filepath.Join(r.dir, "pushed-later.txt"), "later\n")
-		commitEverything(t, r.dir, "pushed later")
-		gitIn(t, "git", r.dir, "push", "-q", "-f", "origin", "HEAD:refs/pull/7/head")
-
-		newHead := gitRead(t, "git", r.dir, "rev-parse", "HEAD")
+		newHead := r.repo.commit("pushed later")
+		r.origin.pr(7, newHead)
 
 		r.typed("r")
 		r.until(t, "the new head", func() bool { return r.view().res.Head == newHead && !r.view().loading })
@@ -597,6 +622,7 @@ func TestOpenWithPR(t *testing.T) {
 		r.poll()
 
 		pane := r.focus()
+		asked := r.drawer.prSeq
 		stale := r.openWithPR(pane, &prWant{repo: prRepoKey, number: 7, root: r.root}, thenNothing)
 
 		r.leader('d')
@@ -604,11 +630,18 @@ func TestOpenWithPR(t *testing.T) {
 		r.idle(t)
 
 		for _, m := range flatten(stale) {
-			r.run(r.step(m))
+			// A live answer would start the fetch; deliver its result too.
+			if fetch := r.step(m); fetch != nil {
+				r.run(r.step(fetch()))
+			}
 		}
 
 		r.settle()
-		r.quiet(t, 50e6)
+		r.settled(t)
+
+		if r.drawer.prSeq != asked {
+			t.Error("the stale open asked for the pull request")
+		}
 
 		if rv := r.review(); rv == nil || rv.PR != nil {
 			t.Errorf("review = %+v, want a drawer that shows no pull request", rv)
@@ -658,15 +691,16 @@ func TestPRPlaceErrors(t *testing.T) {
 	t.Parallel()
 
 	resolve := func(context.Context, string, string) (github.Repo, error) { return prRepo, nil }
+	f := newFakeGit(t)
 
-	if _, err := resolvePRPlace(context.Background(), resolve, t.TempDir()); !errors.Is(err, errPRNoRepo) {
+	if _, err := resolvePRPlace(context.Background(), f, resolve, t.TempDir()); !errors.Is(err, errPRNoRepo) {
 		t.Errorf("outside a repository: err = %v, want %v", err, errPRNoRepo)
 	}
 
-	dir := prFeatureRepo(t)
-	gitIn(t, "git", dir, "switch", "-q", "-c", "feat/y")
+	r := prTwoCommits(t, f)
+	r.branch("feat/y")
 
-	if _, err := resolvePRPlace(context.Background(), resolve, dir); !errors.Is(err, errPRNoRemote) {
+	if _, err := resolvePRPlace(context.Background(), f, resolve, r.Root()); !errors.Is(err, errPRNoRemote) {
 		t.Errorf("with no remote: err = %v, want %v", err, errPRNoRemote)
 	}
 }

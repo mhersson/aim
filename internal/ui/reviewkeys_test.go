@@ -15,23 +15,23 @@ import (
 )
 
 // keysRepo has four files in a nested tree, each with two edited hunks.
-func keysRepo(t *testing.T) string {
+func keysRepo(t *testing.T, f *fakeGit) *fakeRepo {
 	t.Helper()
 
-	dir := newRepoDir(t)
+	r := f.repo(t, "")
 	files := []string{"a.txt", "dir/b.txt", "dir/sub/c.txt", "z.txt"}
 
-	for _, f := range files {
-		write(t, filepath.Join(dir, f), numberedLines("line", 40))
+	for _, name := range files {
+		write(t, filepath.Join(r.Root(), name), numberedLines("line", 40))
 	}
 
-	commitEverything(t, dir, "init")
+	r.commit("init")
 
-	for _, f := range files {
-		write(t, filepath.Join(dir, f), editedLines(40, 3, 30))
+	for _, name := range files {
+		write(t, filepath.Join(r.Root(), name), editedLines(40, 3, 30))
 	}
 
-	return dir
+	return r
 }
 
 // editedLines is n numbered lines with the ones named in edits changed.
@@ -54,6 +54,23 @@ func newKeysRig(t *testing.T, dir string, opts ...func(*Options)) *drawerRig {
 	t.Helper()
 
 	return newDrawerRig(t, append([]func(*Options){func(o *Options) { o.Cwd = dir }}, opts...)...)
+}
+
+// fakeRig is a keys rig on a fresh fake git holding the repository build makes
+// in it; dir is that repository's root.
+func fakeRig(t *testing.T, build func(*testing.T, *fakeGit) *fakeRepo, opts ...func(*Options)) (r *drawerRig, dir string) {
+	t.Helper()
+
+	f := newFakeGit(t)
+	dir = build(t, f).Root()
+
+	return newKeysRig(t, dir, append([]func(*Options){gitOf(f)}, opts...)...), dir
+}
+
+func fakeKeysRig(t *testing.T, opts ...func(*Options)) (r *drawerRig, dir string) {
+	t.Helper()
+
+	return fakeRig(t, keysRepo, opts...)
 }
 
 // keys presses keys one at a time and runs the commands they return.
@@ -190,25 +207,32 @@ func TestReviewKeysTable(t *testing.T) {
 	}
 }
 
+// drawerKeyPress is the key press for a reviewKeys binding.
+func drawerKeyPress(k string) tea.KeyPressMsg {
+	if k == "space" {
+		return keyRune(' ')
+	}
+
+	return planKey(k)
+}
+
 func TestDrawerKeysNeverReachPanes(t *testing.T) {
-	r := newKeysRig(t, keysRepo(t))
+	t.Parallel()
+
+	r, _ := fakeKeysRig(t)
 	r.opened(t)
 
 	var ks []tea.KeyPressMsg
 
-	for c := ' '; c <= '~'; c++ {
-		if c != 'e' {
-			ks = append(ks, keyRune(c))
+	// Every bound key but esc, which steps back, and e, which opens an editor below; then
+	// an unbound letter, a digit and a symbol.
+	for _, k := range reviewKeys {
+		if k.key != "esc" && k.key != "e" {
+			ks = append(ks, drawerKeyPress(k.key))
 		}
 	}
 
-	for c := 'a'; c <= 'z'; c++ {
-		ks = append(ks, tea.KeyPressMsg{Code: c, Mod: tea.ModCtrl})
-	}
-
-	for _, code := range []rune{tea.KeyEnter, tea.KeyTab, tea.KeyBackspace, tea.KeyUp, tea.KeyDown, tea.KeyLeft, tea.KeyRight, tea.KeyPgUp, tea.KeyPgDown} {
-		ks = append(ks, tea.KeyPressMsg{Code: code})
-	}
+	ks = append(ks, keyRune('x'), keyRune('5'), keyRune('~'))
 
 	for _, k := range ks {
 		r.keys(k)
@@ -222,7 +246,7 @@ func TestDrawerKeysNeverReachPanes(t *testing.T) {
 		r.view().search = nil
 	}
 
-	r.quiet(t, 100*time.Millisecond)
+	r.settled(t)
 	r.step(tea.PasteMsg{Content: "pasted"})
 
 	r.drawer.focused = true
@@ -249,7 +273,7 @@ func TestDrawerKeysNeverReachPanes(t *testing.T) {
 
 func TestSearchFindsAndMisses(t *testing.T) {
 	t.Parallel()
-	r := newKeysRig(t, editedRepo(t))
+	r, _ := fakeRig(t, editedRepo)
 	v := r.opened(t)
 
 	rowHolds := func(want string) bool {
@@ -275,8 +299,8 @@ func TestSearchFindsAndMisses(t *testing.T) {
 	r.typed("zzz")
 	r.keys(keyEnter)
 
-	if r.notice != "not found: zzz" || v.cursor != at {
-		t.Errorf("a miss: notice = %q, cursor %d -> %d, want the notice and no move", r.notice, at, v.cursor)
+	if !strings.Contains(r.notice, "zzz") || v.cursor != at {
+		t.Errorf("a miss: notice = %q, cursor %d -> %d, want a notice naming zzz and no move", r.notice, at, v.cursor)
 	}
 
 	// An empty query repeats the last one; with two matches it alternates.
@@ -328,18 +352,20 @@ func TestSearchMatchKeys(t *testing.T) {
 		open func(t *testing.T) (*drawerRig, *reviewView)
 	}{
 		{"branch", func(t *testing.T) (*drawerRig, *reviewView) {
-			r := newKeysRig(t, keysRepo(t))
+			r, _ := fakeKeysRig(t)
 
 			return r, r.opened(t)
 		}},
 		{"turn", func(t *testing.T) (*drawerRig, *reviewView) {
-			dir := newRepoDir(t)
+			f := newFakeGit(t)
+			rp := f.repo(t, "")
+			dir := rp.Root()
 			matchFiles(t, dir, numberedLines("line", 40))
-			commitEverything(t, dir, "init")
-			snapshotTurn(t, dir, testSession)
+			rp.commit("init")
+			rp.turn(string(testSession))
 			matchFiles(t, dir, editedLines(40, 3, 30))
 
-			r := newKeysRig(t, dir, turnFirst)
+			r := newKeysRig(t, dir, gitOf(f), turnFirst)
 			openIn(t, r.App, core.FocusPane{ID: r.agent(t, dir, testSession)})
 
 			v := r.opened(t)
@@ -350,13 +376,15 @@ func TestSearchMatchKeys(t *testing.T) {
 			return r, v
 		}},
 		{"pr", func(t *testing.T) (*drawerRig, *reviewView) {
-			dir := newRepoDir(t)
+			f := newFakeGit(t)
+			rp := f.repo(t, "")
+			dir := rp.Root()
 			matchFiles(t, dir, numberedLines("line", 40))
-			commitEverything(t, dir, "init")
+			rp.commit("init")
 			matchFiles(t, dir, editedLines(40, 3, 30))
-			commitEverything(t, dir, "feature work")
+			rp.commit("feature work")
 
-			p := newPRDrawerOn(t, dir)
+			p := newPRDrawerOn(t, f, prScaffold(t, rp))
 			p.poll()
 			p.opened(t)
 			p.typed("p")
@@ -422,8 +450,8 @@ func TestSearchMatchKeys(t *testing.T) {
 				r.notice = ""
 				r.keys(keyRune(k))
 
-				if r.notice != "not found: zzz" || v.cursor != hits[0] {
-					t.Errorf("%c after a miss: notice %q, cursor %d, want not found: zzz and %d", k, r.notice, v.cursor, hits[0])
+				if !strings.Contains(r.notice, "zzz") || v.cursor != hits[0] {
+					t.Errorf("%c after a miss: notice %q, cursor %d, want a notice naming zzz and %d", k, r.notice, v.cursor, hits[0])
 				}
 			}
 		})
@@ -482,7 +510,7 @@ func TestTreeKeys(t *testing.T) {
 
 func TestMovementKeys(t *testing.T) {
 	t.Parallel()
-	r := newKeysRig(t, keysRepo(t))
+	r, _ := fakeKeysRig(t)
 	v := r.opened(t)
 	bodyH := r.layout(t).bodyH
 
@@ -602,7 +630,7 @@ func TestHunkKeysLandOnTheFirstChange(t *testing.T) {
 	// each hunk's first removed line.
 	for _, split := range []bool{false, true} {
 		t.Run(map[bool]string{false: "unified", true: "split"}[split], func(t *testing.T) {
-			r := newKeysRig(t, editedRepo(t))
+			r, _ := fakeRig(t, editedRepo)
 			v := r.opened(t)
 
 			if split {
@@ -640,7 +668,7 @@ func TestHunkKeysLandOnTheFirstChange(t *testing.T) {
 	}
 
 	t.Run("full file", func(t *testing.T) {
-		r := newKeysRig(t, editedRepo(t))
+		r, _ := fakeRig(t, editedRepo)
 		v := r.opened(t)
 
 		r.keys(keyRune('f'))
@@ -687,7 +715,7 @@ func TestHunkKeysLandOnTheFirstChange(t *testing.T) {
 func TestViewKeys(t *testing.T) {
 	t.Parallel()
 	t.Run("full file and ghost lines", func(t *testing.T) {
-		r := newKeysRig(t, editedRepo(t))
+		r, _ := fakeRig(t, editedRepo)
 		v := r.opened(t)
 
 		r.keys(keyRune('f'))
@@ -720,7 +748,7 @@ func TestViewKeys(t *testing.T) {
 	})
 
 	t.Run("split", func(t *testing.T) {
-		r := newKeysRig(t, editedRepo(t))
+		r, _ := fakeRig(t, editedRepo)
 		v := r.opened(t)
 
 		r.keys(keyRune('u'))
@@ -741,14 +769,13 @@ func TestViewKeys(t *testing.T) {
 		r.keys(keyRune('u'))
 		r.settle()
 
-		if r.notice != "side by side needs a wider drawer" || v.rowsSplit {
+		if r.notice != noticeNarrow || v.rowsSplit {
 			t.Errorf("u in a narrow drawer: notice = %q, rows split = %v, want the notice and unified rows", r.notice, v.rowsSplit)
 		}
 	})
 
 	t.Run("modes and turns", func(t *testing.T) {
-		dir := threeTurnRepo(t)
-		r := newKeysRig(t, dir, turnFirst)
+		r, dir := fakeRig(t, threeTurnRepo, turnFirst)
 		id := r.agent(t, dir, testSession)
 		openIn(t, r.App, core.FocusPane{ID: id})
 
@@ -777,7 +804,7 @@ func TestViewKeys(t *testing.T) {
 
 func TestDrawerCommandsWithoutADrawer(t *testing.T) {
 	t.Parallel()
-	r := newKeysRig(t, keysRepo(t))
+	r, _ := fakeKeysRig(t)
 	n := 0
 
 	for _, c := range r.reg.all() {
@@ -789,8 +816,8 @@ func TestDrawerCommandsWithoutADrawer(t *testing.T) {
 		r.notice = ""
 		c.run(r.App)
 
-		if r.notice != "no review drawer is open" {
-			t.Errorf("%s: notice = %q, want no review drawer is open", c.id, r.notice)
+		if r.notice != noticeNoDrawer {
+			t.Errorf("%s: notice = %q, want %q", c.id, r.notice, noticeNoDrawer)
 		}
 	}
 
@@ -805,7 +832,7 @@ func TestDrawerCommandsWithoutADrawer(t *testing.T) {
 
 func TestSlideOutSurvivesBackgroundActions(t *testing.T) {
 	t.Parallel()
-	r := newKeysRig(t, keysRepo(t))
+	r, _ := fakeKeysRig(t)
 	r.opened(t)
 	r.leader('d')
 

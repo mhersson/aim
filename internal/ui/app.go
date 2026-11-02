@@ -61,12 +61,14 @@ type Options struct {
 	// IndexCache is the directory where git keeps a refreshed index copy per
 	// worktree; empty disables the cache.
 	IndexCache string
+	// Git is every git call the app makes; required.
+	Git Git
 	// Watches shares one git watcher per worktree among the agent panes in it;
 	// nil means no watches.
-	Watches *git.WatchSet
+	Watches watchSet
 	// Places answers which worktree an edited file belongs to; nil means a cache
-	// of the app's own over git.EditPlace.
-	Places *git.PlaceCache
+	// of the app's own over Git.EditPlace.
+	Places placeFinder
 	// Diff is the [diff] config: the review drawer's starting layout and mode and
 	// the diff engine's limits. The zero value means the defaults.
 	Diff core.DiffConfig
@@ -169,34 +171,36 @@ type App struct {
 	later        []tea.Cmd             // commands raised outside the update's return path; Update batches them
 	outerFocused bool                  // the outer terminal has focus; true until a BlurMsg
 
-	pictures  *pictures      // Kitty graphics support and the pictures sent
-	loader    *pictureLoader // loads the pictures off the update loop
-	getenv    func(string) string
-	cwd       string
-	recordDir string // empty unless recording
-	icons     bool   // draw Nerd Font glyphs
-	started   bool   // the first size message was handled; it opens the first pane only once
-	restoring bool   // startRestored is running; its dispatches are not saved
-	save      func(core.State)
-	clock     clock           // where the app reads the time; tests inject a fake one
-	sweepRefs bool            // sweep stale refs/aim once per repository; see Options.SweepRefs
-	swept     map[string]bool // repositories whose sweep started, by common dir
-	tray      trayState
-	rail      railState
-	drawer    drawerState
-	picker    pickerState
-	watches   watchState
-	prs       prState
-	edits     editState
-	storeVer  uint64        // counts the dispatches the store accepted
-	marks     markFiles     // the reviewed-hunk files; nil keeps marks for the session only
-	engine    *git.Engine   // nil when the rail's diff stats and the review drawer's diffs are off
-	probeSem  chan struct{} // its capacity bounds the head, stats and name probes running at once
-	clip      *clipboard
-	sel       *paneSelection // a pane's selection; survives tab switches
-	text      *textSelection // the selection of a text view when no pane holds one
-	copy      *copyState     // copy mode; owns every key and ignores the mouse while set
-	mouse     mouseState
+	pictures    *pictures      // Kitty graphics support and the pictures sent
+	loader      *pictureLoader // loads the pictures off the update loop
+	getenv      func(string) string
+	cwd         string
+	recordDir   string // empty unless recording
+	icons       bool   // draw Nerd Font glyphs
+	started     bool   // the first size message was handled; it opens the first pane only once
+	restoring   bool   // startRestored is running; its dispatches are not saved
+	save        func(core.State)
+	clock       clock           // where the app reads the time; tests inject a fake one
+	sweepRefs   bool            // sweep stale refs/aim once per repository; see Options.SweepRefs
+	swept       map[string]bool // repositories whose sweep started, by common dir
+	tray        trayState
+	rail        railState
+	drawer      drawerState
+	picker      pickerState
+	watches     watchState
+	prs         prState
+	edits       editState
+	storeVer    uint64        // counts the dispatches the store accepted
+	marks       markFiles     // the reviewed-hunk files; nil keeps marks for the session only
+	git         Git           // every git call the app makes
+	engine      DiffEngine    // nil when the rail's diff stats and the review drawer's diffs are off
+	probeSem    chan struct{} // its capacity bounds the head, stats and name probes running at once
+	probeBudget time.Duration // each probe's time limit, counted from the start of its run
+	clip        *clipboard
+	sel         *paneSelection // a pane's selection; survives tab switches
+	text        *textSelection // the selection of a text view when no pane holds one
+	copy        *copyState     // copy mode; owns every key and ignores the mouse while set
+	mouse       mouseState
 
 	focusFollows, copyOnSelect bool
 	harness                    harness.Harness
@@ -229,6 +233,10 @@ func New(opts Options) (*App, error) {
 
 	if opts.Store == nil {
 		return nil, errors.New("ui: Options.Store is nil")
+	}
+
+	if opts.Git == nil {
+		return nil, errors.New("ui: Options.Git is nil")
 	}
 
 	getenv := opts.Getenv
@@ -275,19 +283,20 @@ func New(opts Options) (*App, error) {
 
 	places := opts.Places
 	if places == nil {
-		places = git.NewPlaceCache(git.EditPlace, time.Now)
+		places = git.NewPlaceCache(opts.Git.EditPlace, time.Now)
 	}
 
 	a := &App{
-		harness: h, tick: tea.Tick, hookSettings: opts.HookSettings, hookSock: opts.HookSock, shell: opts.Shell,
+		git: opts.Git, harness: h, tick: tea.Tick, hookSettings: opts.HookSettings, hookSock: opts.HookSock, shell: opts.Shell,
 		events: opts.Events, notice: opts.Notice, save: opts.Save, marks: opts.Marks,
 		log: opts.Logger, store: opts.Store, reg: reg, keymap: km, keys: tables,
 		panes: map[core.PaneID]*pane{}, outerFocused: true,
-		watches:  watchState{set: opts.Watches, open: git.Open, panes: map[core.PaneID]*paneWatch{}, pins: map[core.TabID]*pinWatch{}, failed: map[string]bool{}},
+		watches:  watchState{set: opts.Watches, open: opts.Git.Open, panes: map[core.PaneID]*paneWatch{}, pins: map[core.TabID]*pinWatch{}, failed: map[string]bool{}},
 		pictures: newPictures(nil, getenv, opts.Logger),
 		getenv:   getenv, cwd: cwd, recordDir: opts.RecordDir, icons: opts.Icons, clock: realClock{}, start: termStart, sweepRefs: opts.SweepRefs,
 		load:         newSysLoad(opts.Logger),
 		probeSem:     make(chan struct{}, railProbeMax),
+		probeBudget:  railProbeTimeout,
 		edits:        editState{resolve: places.Place},
 		focusFollows: opts.FocusFollowsMouse, copyOnSelect: opts.CopyOnSelect,
 		clip: newClipboard(clipboardConfig{OSC52: !opts.NoOSC52, Native: !opts.NoNativeClipboard}, getenv, runtime.GOOS, opts.Logger),
@@ -303,7 +312,7 @@ func New(opts Options) (*App, error) {
 	}
 
 	if opts.PRs != nil {
-		a.prs = newPRState(opts.PRs, opts.PRLookup)
+		a.prs = newPRState(opts.PRs, opts.PRLookup, opts.Git)
 	}
 
 	a.drawer.cfg = opts.Diff
@@ -314,7 +323,7 @@ func New(opts Options) (*App, error) {
 	a.runDir = opts.GitTempDir
 
 	if opts.GitTempDir != "" {
-		a.engine = git.NewEngine(git.EngineOptions{
+		a.engine = opts.Git.NewEngine(git.EngineOptions{
 			TempDir: opts.GitTempDir, IndexCache: opts.IndexCache,
 			Limits: git.Limits{Files: opts.Diff.MaxFiles, Bytes: opts.Diff.MaxBytes, Lines: opts.Diff.MaxLines},
 		})
