@@ -523,7 +523,8 @@ func TestShimLeavesTheTerminalAlone(t *testing.T) {
 		t.Skip("/proc is Linux only")
 	}
 
-	const probe = "#!/bin/sh\n{ grep -E '^(SigBlk|SigIgn)' /proc/$$/status; ls /proc/$$/fd; } > \"$OUT_DIR/$STATE_NAME.tmp\"\nmv \"$OUT_DIR/$STATE_NAME.tmp\" \"$OUT_DIR/$STATE_NAME\"\n"
+	// The mask is read with builtins: a forked grep would see dash's block-all around fork and wait.
+	const probe = "#!/bin/sh\n{ while IFS= read -r l; do case $l in SigBlk:*|SigIgn:*) printf '%s\\n' \"$l\";; esac; done < /proc/$$/status; ls /proc/$$/fd; } > \"$OUT_DIR/$STATE_NAME.tmp\"\nmv \"$OUT_DIR/$STATE_NAME.tmp\" \"$OUT_DIR/$STATE_NAME\"\n"
 
 	r := newShimRig(t, probe)
 
