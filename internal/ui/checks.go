@@ -14,6 +14,7 @@ import (
 const (
 	noticeChecksLoading = "loading checks…"
 	noticeChecksNone    = "no checks on %s"
+	noticeChecksUnread  = "could not read the checks: %s"
 	noticeCheckNoPage   = "no page for that check"
 )
 

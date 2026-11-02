@@ -12,7 +12,7 @@ AIM talks to GitHub with a token it finds the way `gh` does, for `github.com` an
 - the token in `gh`'s own config;
 - the answer of `gh auth token --secure-storage --hostname <host>`, when `gh` is on your `PATH`.
 
-Without a token, everything that does not talk to GitHub keeps working: panes, diffs, review and push. The pull request data does not load, and the notice is `pull requests for <host>/<owner>/<name>: run gh auth login --hostname <host>`. A creating, approving or merging action fails with the reason. A remote that is not on a host AIM knows says `<branch>'s remote is not on GitHub`.
+Without a token, everything that does not talk to GitHub keeps working: panes, diffs, review and push. The pull request data does not load, and the notice is `pull requests for <host>/<owner>/<name>: run gh auth login --hostname <host>`. A creating, approving or merging action fails with the reason. A remote that is not on a host AIM knows says `<branch>'s remote is not on GitHub`. When GitHub refuses a token that has been revoked or has expired, AIM looks the token up again at the next poll or action, so the pull requests, checks and actions pick up a new `gh auth login` without a restart.
 
 ## Push
 
@@ -65,7 +65,7 @@ The keys are in [Keys](keys.md#pr-list): `j` and `k` move; `enter` shows the dif
 
 ## Checks
 
-To see the checks of the drawer's pull request, press `c` in the drawer, or `c` on a list row. The overlay lists each check with how long it took, failed first, then running, passed and skipped; before they arrive it says `loading checks…`, and with none `no checks on <sha7>`.
+To see the checks of the drawer's pull request, press `c` in the drawer, or `c` on a list row. The overlay lists each check with how long it took, failed first, then running, passed and skipped; before they arrive it says `loading checks…`, and with none `no checks on <sha7>`. When GitHub refuses them, as it does a token without access to checks, it says `could not read the checks: <reason>`; the pull requests keep updating, and each poll and `r` try again.
 
 The keys are in [Keys](keys.md#checks-overlay). `j` and `k` select, `l` opens a log or summary page, `O` opens the check's page in the browser (`no page for that check` when it has none), `r` refreshes and `esc` closes.
 

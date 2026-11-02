@@ -27,7 +27,8 @@ func githubClients(ctx context.Context, host string) (*github.Client, error) {
 
 // clientCache keeps the first client built for each host, so the poller and the
 // branch lookups ask the factory (which may run gh) once per host. A failure is
-// not kept.
+// not kept, and a client whose token the host refused is built again, so a new
+// login takes effect without a restart.
 type clientCache struct {
 	factory clientFactory
 
@@ -35,14 +36,15 @@ type clientCache struct {
 	clients map[string]*github.Client
 }
 
-// client returns the kept client for host, or builds one. The lock is not held
-// while the factory runs; a lost race keeps the first client.
+// client returns the kept client for host, or builds one when none is kept or
+// the host refused its token. The lock is not held while the factory runs; a
+// lost race keeps the first client.
 func (c *clientCache) client(ctx context.Context, host string) (*github.Client, error) {
 	c.mu.Lock()
 	kept := c.clients[host]
 	c.mu.Unlock()
 
-	if kept != nil {
+	if kept != nil && !kept.TokenRefused() {
 		return kept, nil
 	}
 
@@ -54,7 +56,7 @@ func (c *clientCache) client(ctx context.Context, host string) (*github.Client, 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if kept := c.clients[host]; kept != nil {
+	if kept := c.clients[host]; kept != nil && !kept.TokenRefused() {
 		return kept, nil
 	}
 

@@ -29,6 +29,7 @@ type FocusedChecks struct {
 	Number  int
 	HeadOID string
 	Checks  []Check
+	Err     error // the checks could not be read; Checks is empty
 }
 
 // Snapshot is the result of one poll of one repository.
@@ -44,7 +45,8 @@ type Snapshot struct {
 
 // PollerOptions configure a Poller.
 type PollerOptions struct {
-	// Client returns the client for a host; a success is kept per host.
+	// Client returns the client for a host; a success is kept per host until
+	// the host refuses its token.
 	Client                 func(ctx context.Context, host string) (*Client, error)
 	Fast, Slow, MaxBackoff time.Duration // 0 = 10 s, 60 s, 5 min
 
@@ -243,7 +245,7 @@ func (p *Poller) run(ctx context.Context, rp *repoPoller) {
 		now := p.opts.now()
 		wait = p.nextWait(snap, pending, &failures, now)
 
-		if errors.Is(snap.Err, ErrRateLimited) {
+		if _, limited := rateLimitOf(snap); limited {
 			notBefore = now.Add(wait)
 		} else {
 			notBefore = time.Time{}
@@ -279,29 +281,41 @@ func (p *Poller) sleepUntil(ctx context.Context, t time.Time) bool {
 // nextWait is how long to wait after a poll: the error backoff, the rate
 // limit reset, or the cadence for the checks' state.
 func (p *Poller) nextWait(s Snapshot, pending bool, failures *int, now time.Time) time.Duration {
-	var rl *RateLimitError
+	if s.Err == nil {
+		*failures = 0
+	}
+
+	rl, limited := rateLimitOf(s)
 
 	switch {
-	case s.Err == nil:
-		*failures = 0
-
-		if pending {
-			return p.opts.Fast
-		}
-
-		return p.opts.Slow
-	case errors.As(s.Err, &rl):
+	case limited:
 		return min(max(rl.Reset.Sub(now), p.opts.Fast), maxRateLimitWait)
-	default:
-		*failures++
-
-		wait := p.opts.Fast
-		for i := 1; i < *failures && wait < p.opts.MaxBackoff; i++ {
-			wait *= 2
-		}
-
-		return min(wait, p.opts.MaxBackoff)
+	case s.Err == nil && pending:
+		return p.opts.Fast
+	case s.Err == nil:
+		return p.opts.Slow
 	}
+
+	*failures++
+
+	wait := p.opts.Fast
+	for i := 1; i < *failures && wait < p.opts.MaxBackoff; i++ {
+		wait *= 2
+	}
+
+	return min(wait, p.opts.MaxBackoff)
+}
+
+// rateLimitOf is the rate limit a poll met: its own, else the focused checks'.
+func rateLimitOf(s Snapshot) (*RateLimitError, bool) {
+	switch {
+	case s.Err != nil:
+		return errors.AsType[*RateLimitError](s.Err)
+	case s.Focused != nil:
+		return errors.AsType[*RateLimitError](s.Focused.Err)
+	}
+
+	return nil, false
 }
 
 // poll fetches one repository; pending reports whether a visible or focused
@@ -334,12 +348,10 @@ func (p *Poller) poll(ctx context.Context, rp *repoPoller) (snap Snapshot, pendi
 			continue
 		}
 
+		// Checks the token may not read fail only themselves, so the pull
+		// requests stay fresh.
 		checks, err := c.Checks(ctx, rp.repo, pr.HeadOID)
-		if err != nil {
-			return fail(err)
-		}
-
-		focused = &FocusedChecks{Number: pr.Number, HeadOID: pr.HeadOID, Checks: checks}
+		focused = &FocusedChecks{Number: pr.Number, HeadOID: pr.HeadOID, Checks: checks, Err: err}
 
 		break
 	}
@@ -361,14 +373,15 @@ func containsInt(s []int, v int) bool {
 	return slices.Contains(s, v)
 }
 
-// client returns the kept client for host, or builds one. The lock is not
-// held while the factory runs; a lost race keeps the first client.
+// client returns the kept client for host, or builds one when none is kept or
+// the host refused its token. The lock is not held while the factory runs; a
+// lost race keeps the first client.
 func (p *Poller) client(ctx context.Context, host string) (*Client, error) {
 	p.mu.Lock()
 	c := p.clients[host]
 	p.mu.Unlock()
 
-	if c != nil {
+	if c != nil && !c.TokenRefused() {
 		return c, nil
 	}
 
@@ -388,7 +401,7 @@ func (p *Poller) client(ctx context.Context, host string) (*Client, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if kept := p.clients[host]; kept != nil {
+	if kept := p.clients[host]; kept != nil && !kept.TokenRefused() {
 		return kept, nil
 	}
 

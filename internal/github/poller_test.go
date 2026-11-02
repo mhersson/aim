@@ -15,6 +15,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/cli/go-gh/v2/pkg/api"
 )
 
 const (
@@ -34,8 +36,10 @@ type pollServer struct {
 	pendingPR atomic.Int64 // the PR number whose checks are pending; 0 = none
 	gql, rest atomic.Int64
 
-	// handle, when set, may answer the nth GraphQL request itself.
-	handle func(n int64, w http.ResponseWriter, r *http.Request) bool
+	// handle, when set, may answer the nth GraphQL request itself, and
+	// restHandle the nth REST request.
+	handle     func(n int64, w http.ResponseWriter, r *http.Request) bool
+	restHandle func(n int64, w http.ResponseWriter, r *http.Request) bool
 
 	mu       sync.Mutex
 	gqlTimes []time.Time
@@ -97,11 +101,15 @@ func (s *pollServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.rest.Add(1)
+	n := s.rest.Add(1)
 
 	s.mu.Lock()
 	s.restPath = append(s.restPath, r.URL.Path)
 	s.mu.Unlock()
+
+	if s.restHandle != nil && s.restHandle(n, w, r) {
+		return
+	}
 
 	if strings.HasSuffix(r.URL.Path, "/status") {
 		fmt.Fprint(w, `{"state":"success","statuses":[]}`)
@@ -419,6 +427,117 @@ func TestPollerFocusChangePollsNow(t *testing.T) {
 	})
 }
 
+func TestPollerUnreadableChecksKeepThePoll(t *testing.T) {
+	t.Parallel()
+
+	clk := newFakeClock()
+	srv := &pollServer{}
+	srv.restHandle = func(n int64, w http.ResponseWriter, _ *http.Request) bool {
+		if n != 1 {
+			return false
+		}
+
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, `{"message":"Resource not accessible by personal access token"}`)
+
+		return true
+	}
+
+	p, col := startPoller(t, srv, clk.options(PollerOptions{Slow: testSlow}), nil)
+
+	p.Set([]Watch{{Repo: repoA, Focused: 2}})
+	clk.next(t).end()
+
+	s := col.waitFor(5*time.Second, "poll", anySnap)
+	if s.Err != nil || len(s.PRs) != 2 {
+		t.Fatalf("Err = %v with %d PRs, want the poll kept", s.Err, len(s.PRs))
+	}
+
+	f := s.Focused
+	if f == nil || f.Number != 2 || f.HeadOID != "aaa2" || len(f.Checks) != 0 || f.Err == nil {
+		t.Fatalf("Focused = %+v, want PR 2 at aaa2 with the error and no checks", f)
+	}
+
+	if he, ok := errors.AsType[*api.HTTPError](f.Err); !ok || he.StatusCode != http.StatusForbidden {
+		t.Errorf("Focused.Err = %v, want the 403", f.Err)
+	}
+
+	for _, secret := range []string{testToken, "http://", "https://"} {
+		if strings.Contains(f.Err.Error(), secret) {
+			t.Errorf("Focused.Err %q holds %q", f.Err, secret)
+		}
+	}
+
+	a := clk.next(t)
+	if a.d != testSlow {
+		t.Fatalf("waits %v after the poll, want Slow (%v): unreadable checks fail no poll", a.d, testSlow)
+	}
+
+	a.end()
+
+	s = col.waitFor(5*time.Second, "poll with readable checks", func(s Snapshot) bool {
+		return s.Focused != nil && s.Focused.Err == nil
+	})
+	if len(s.Focused.Checks) != 1 {
+		t.Errorf("Focused = %+v, want the check read again", s.Focused)
+	}
+}
+
+func TestPollerRateLimitedChecksWaitForTheReset(t *testing.T) {
+	t.Parallel()
+
+	clk := newFakeClock()
+	reset := clk.at.Add(90 * time.Second)
+	srv := &pollServer{}
+	srv.restHandle = func(n int64, w http.ResponseWriter, _ *http.Request) bool {
+		if n != 1 {
+			return false
+		}
+
+		w.Header().Set("X-RateLimit-Remaining", "0")
+		w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(reset.Unix(), 10))
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, `{"message":"API rate limit exceeded"}`)
+
+		return true
+	}
+
+	p, col := startPoller(t, srv, clk.options(PollerOptions{}), nil)
+
+	p.Set([]Watch{{Repo: repoA, Focused: 2}})
+	clk.next(t).end()
+
+	s := col.waitFor(5*time.Second, "poll", anySnap)
+	if s.Err != nil || len(s.PRs) != 2 {
+		t.Fatalf("Err = %v with %d PRs, want the poll kept", s.Err, len(s.PRs))
+	}
+
+	if s.Focused == nil || !errors.Is(s.Focused.Err, ErrRateLimited) {
+		t.Fatalf("Focused = %+v, want the rate limit", s.Focused)
+	}
+
+	if a := clk.next(t); a.d != 90*time.Second {
+		t.Fatalf("waits %v after the poll, want the 90s to the reset", a.d)
+	}
+
+	// The scheduled poll never comes; a refresh still waits for the reset.
+	p.Refresh(repoA)
+
+	a := clk.next(t)
+	if a.d != 90*time.Second {
+		t.Fatalf("a refresh waits %v, want the 90s to the reset", a.d)
+	}
+
+	if n := srv.rest.Load(); n != 1 {
+		t.Fatalf("%d checks requests before the reset, want 1", n)
+	}
+
+	a.end()
+	col.waitFor(5*time.Second, "poll after the reset", func(s Snapshot) bool {
+		return s.Focused != nil && s.Focused.Err == nil
+	})
+}
+
 func TestPollerRemovedRepoStops(t *testing.T) {
 	srv := &pollServer{}
 	srv.pendingPR.Store(1)
@@ -559,6 +678,10 @@ func TestNextWait(t *testing.T) {
 	limited := func(d time.Duration) Snapshot {
 		return Snapshot{Err: fmt.Errorf("poll: %w", &RateLimitError{Reset: now.Add(d)})}
 	}
+	unreadable := Snapshot{Focused: &FocusedChecks{Err: errors.New("HTTP 403")}}
+	checksLimited := func(d time.Duration) Snapshot {
+		return Snapshot{Focused: &FocusedChecks{Err: fmt.Errorf("checks: %w", &RateLimitError{Reset: now.Add(d)})}}
+	}
 
 	type step struct {
 		snap    Snapshot
@@ -601,6 +724,18 @@ func TestNextWait(t *testing.T) {
 			{fail, false, 2 * fast},
 			{limited(time.Second), false, time.Second},
 			{fail, false, 4 * fast},
+		}},
+		{"unreadable checks keep the cadence and reset the backoff", []step{
+			{fail, false, fast},
+			{unreadable, true, fast},
+			{unreadable, false, slow},
+			{fail, false, fast},
+		}},
+		{"rate-limited checks wait for the reset and reset the backoff", []step{
+			{fail, false, fast},
+			{fail, false, 2 * fast},
+			{checksLimited(time.Second), true, time.Second},
+			{fail, false, fast},
 		}},
 	}
 
@@ -676,6 +811,87 @@ func TestPollerClientKeptPerHost(t *testing.T) {
 
 	if n := calls.Load(); n != 1 {
 		t.Errorf("factory called %d times, want the client kept", n)
+	}
+}
+
+func TestPollerRebuildsAClientItsHostRefused(t *testing.T) {
+	t.Parallel()
+
+	repoE := Repo{Host: "ghe.example.com", Owner: "octo", Name: "e"}
+
+	tests := []struct {
+		name   string
+		status int
+		builds int64 // of the first host's client
+	}{
+		{"a 401 rebuilds it", http.StatusUnauthorized, 2},
+		{"a 403 keeps it", http.StatusForbidden, 1},
+		{"a 502 keeps it", http.StatusBadGateway, 1},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			first, other := &pollServer{}, &pollServer{}
+			first.pendingPR.Store(1)
+			other.pendingPR.Store(1)
+
+			first.handle = func(n int64, w http.ResponseWriter, _ *http.Request) bool {
+				if n != 1 {
+					return false
+				}
+
+				w.WriteHeader(tc.status)
+				fmt.Fprint(w, `{"message":"Bad credentials"}`)
+
+				return true
+			}
+
+			firstClients := make([]*Client, 2)
+			for i := range firstClients {
+				firstClients[i], _ = newTestClient(t, repoA.Host, first)
+			}
+
+			otherClient, _ := newTestClient(t, repoE.Host, other)
+
+			var firstBuilds, otherBuilds atomic.Int64
+
+			p, col := startPoller(t, first, PollerOptions{
+				Client: func(_ context.Context, host string) (*Client, error) {
+					if host == repoE.Host {
+						otherBuilds.Add(1)
+
+						return otherClient, nil
+					}
+
+					n := firstBuilds.Add(1)
+
+					return firstClients[min(n, 2)-1], nil
+				},
+			}, nil)
+
+			p.Set([]Watch{{Repo: repoA, Visible: []int{1}}, {Repo: repoE, Visible: []int{1}}})
+
+			col.waitFor(5*time.Second, "the first host's failed poll", func(s Snapshot) bool {
+				return s.Repo == repoA && s.Err != nil
+			})
+			col.waitFor(5*time.Second, "a later good poll of the first host", func(s Snapshot) bool {
+				return s.Repo == repoA && s.Err == nil
+			})
+
+			for len(col.forRepo(repoA)) < 4 || len(col.forRepo(repoE)) < 4 {
+				col.waitCount(5*time.Second, len(col.all())+1)
+			}
+
+			if n := firstBuilds.Load(); n != tc.builds {
+				t.Errorf("the first host's client was built %d times after a %d, want %d", n, tc.status, tc.builds)
+			}
+
+			if n := otherBuilds.Load(); n != 1 {
+				t.Errorf("the other host's client was built %d times, want it kept", n)
+			}
+		})
 	}
 }
 

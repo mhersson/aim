@@ -279,6 +279,56 @@ func TestGraphQLHTTPErrors(t *testing.T) {
 	}
 }
 
+func TestClientTokenRefused(t *testing.T) {
+	t.Parallel()
+
+	rest := func(c *Client) error { return c.rest(context.Background(), http.MethodGet, "user", nil, nil) }
+	gql := func(c *Client) error {
+		var q viewerQuery
+
+		return c.query(context.Background(), "Viewer", &q, nil)
+	}
+
+	tests := []struct {
+		name    string
+		call    func(*Client) error
+		status  int
+		refused bool
+	}{
+		{"a 401 to a REST call", rest, http.StatusUnauthorized, true},
+		{"a 401 to a GraphQL query", gql, http.StatusUnauthorized, true},
+		{"a 403 to a REST call", rest, http.StatusForbidden, false},
+		{"a 403 to a GraphQL query", gql, http.StatusForbidden, false},
+		{"a 500 to a REST call", rest, http.StatusInternalServerError, false},
+		{"a 502 to a GraphQL query", gql, http.StatusBadGateway, false},
+		{"a success", rest, http.StatusOK, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			c, _ := newTestClient(t, "github.com", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				_, _ = io.WriteString(w, `{"message":"Bad credentials"}`)
+			}))
+
+			if c.TokenRefused() {
+				t.Fatal("a new client is refused")
+			}
+
+			if err := tc.call(c); (err != nil) != (tc.status != http.StatusOK) {
+				t.Fatalf("call error = %v for a %d", err, tc.status)
+			}
+
+			if got := c.TokenRefused(); got != tc.refused {
+				t.Errorf("TokenRefused() = %v after a %d, want %v", got, tc.status, tc.refused)
+			}
+		})
+	}
+}
+
 func TestGraphQLRateLimitWaitsForItsReset(t *testing.T) {
 	const body = `{"data":null,"errors":[{"type":"RATE_LIMITED","message":"API rate limit exceeded"}]}`
 
