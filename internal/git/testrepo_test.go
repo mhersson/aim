@@ -25,11 +25,12 @@ type repoTemplate struct {
 }
 
 var (
-	seedTemplate   repoTemplate
-	baseTemplate   repoTemplate
-	seededTemplate repoTemplate
-	updateTemplate repoTemplate
-	pushTemplate   repoTemplate
+	seedTemplate     repoTemplate
+	baseTemplate     repoTemplate
+	seededTemplate   repoTemplate
+	updateTemplate   repoTemplate
+	pushTemplate     repoTemplate
+	trackingTemplate repoTemplate
 )
 
 // copyTemplate copies tpl into a fresh symlink-free temp dir and returns its
@@ -138,7 +139,7 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 
-	for _, tpl := range []*repoTemplate{&seedTemplate, &baseTemplate, &seededTemplate, &updateTemplate, &pushTemplate} {
+	for _, tpl := range []*repoTemplate{&seedTemplate, &baseTemplate, &seededTemplate, &updateTemplate, &pushTemplate, &trackingTemplate} {
 		if tpl.dir != "" {
 			_ = os.RemoveAll(tpl.dir)
 		}

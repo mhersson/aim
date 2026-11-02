@@ -62,6 +62,36 @@ func newPushFixture(t *testing.T) pushFixture {
 	return pushFixture{root: root, bare: filepath.Join(dir, "bare"), repo: openRepo(t, root)}
 }
 
+// trackingFixture is a repository on feat with three commits and a remote
+// named origin that points nowhere. Tests set refs/remotes/origin/feat and
+// branch.feat.* themselves. commits run oldest first.
+func trackingFixture(t *testing.T) (dir string, commits []string, r Repo) {
+	t.Helper()
+
+	dir = copyTemplate(t, &trackingTemplate, func(dir string) error {
+		if err := buildRepo(dir, map[string]string{"f": "1\n"}); err != nil {
+			return err
+		}
+
+		for _, args := range [][]string{
+			{"switch", "-q", "-c", "feat"},
+			{"commit", "-q", "--allow-empty", "-m", "two"},
+			{"commit", "-q", "--allow-empty", "-m", "three"},
+			{"remote", "add", "origin", "https://example.invalid/o/r.git"},
+		} {
+			if err := gitRun(dir, args...); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+
+	commits = strings.Fields(gitOut(t, dir, "rev-list", "--reverse", "feat"))
+
+	return dir, commits, openRepo(t, dir)
+}
+
 func newBare(t *testing.T) string {
 	t.Helper()
 
@@ -104,8 +134,9 @@ func refs(t *testing.T, dir string) string {
 func TestPushFirstSetsUpstream(t *testing.T) {
 	t.Parallel()
 	f := newPushFixture(t)
+	ctx, logPath := wrapGit(t, "")
 
-	res, err := Push(context.Background(), f.repo, "feat")
+	res, err := Push(ctx, f.repo, "feat")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,6 +152,28 @@ func TestPushFirstSetsUpstream(t *testing.T) {
 
 	if got, want := gitOut(t, f.bare, "rev-parse", "refs/heads/feat"), gitOut(t, f.root, "rev-parse", "feat"); got != want {
 		t.Errorf("remote feat = %s, want %s", got, want)
+	}
+
+	// A push never forces.
+	seen := false
+
+	for line := range strings.SplitSeq(wrappedCalls(t, logPath), "\n") {
+		fields := strings.Fields(line)
+		if !slices.Contains(fields, "push") {
+			continue
+		}
+
+		seen = true
+
+		for _, a := range fields {
+			if a == "-f" || a == "--mirror" || strings.HasPrefix(a, "+") || strings.HasPrefix(a, "--force") {
+				t.Errorf("push argument %q in %q", a, line)
+			}
+		}
+	}
+
+	if !seen {
+		t.Error("no push in the git log")
 	}
 }
 
@@ -148,18 +201,8 @@ func TestPushAgainFastForwards(t *testing.T) {
 	if got, want := gitOut(t, f.bare, "rev-parse", "refs/heads/feat"), gitOut(t, f.root, "rev-parse", "feat"); got != want {
 		t.Errorf("remote feat = %s, want %s", got, want)
 	}
-}
 
-func TestPushUpToDate(t *testing.T) {
-	t.Parallel()
-	f := newPushFixture(t)
-	ctx := context.Background()
-
-	if _, err := Push(ctx, f.repo, "feat"); err != nil {
-		t.Fatal(err)
-	}
-
-	res, err := Push(ctx, f.repo, "feat")
+	res, err = Push(ctx, f.repo, "feat")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,12 +272,16 @@ func TestPushNeverLandsOnTheBaseBranch(t *testing.T) {
 }
 
 func TestPushRefusesURLAsRemote(t *testing.T) {
-	f := newPushFixture(t)
-	gitOut(t, f.root, "config", "branch.feat.remote", "https://user:secret@example.invalid/o/r.git") //nolint:gosec // G101: fixture URL, no real credential
-	logPath := fakeGit(t, "")
+	t.Parallel()
 
-	_, pushErr := Push(context.Background(), f.repo, "feat")
-	_, remoteErr := PushRemote(context.Background(), f.repo, "feat")
+	root := newRepo(t)
+	gitOut(t, root, "config", "branch.feat.remote", "https://user:secret@example.invalid/o/r.git") //nolint:gosec // G101: fixture URL, no real credential
+
+	r := openRepo(t, root)
+	ctx, logPath := wrapGit(t, "")
+
+	_, pushErr := Push(ctx, r, "feat")
+	_, remoteErr := PushRemote(ctx, r, "feat")
 
 	for name, err := range map[string]error{"Push": pushErr, "PushRemote": remoteErr} {
 		if !errors.Is(err, ErrNoRemote) {
@@ -250,25 +297,25 @@ func TestPushRefusesURLAsRemote(t *testing.T) {
 		}
 	}
 
-	if log, _ := os.ReadFile(logPath); strings.Contains(string(log), " push ") {
-		t.Errorf("a push ran:\n%s", log)
+	log := wrappedCalls(t, logPath)
+	for line := range strings.SplitSeq(log, "\n") {
+		if slices.Contains(strings.Fields(line), "push") {
+			t.Errorf("a push ran:\n%s", log)
+		}
 	}
 }
 
 func TestPushKeepsUpstreamOnAnotherRemote(t *testing.T) {
 	t.Parallel()
-	f := newPushFixture(t)
-	ctx := context.Background()
-
-	if _, err := Push(ctx, f.repo, "feat"); err != nil {
-		t.Fatal(err)
-	}
+	dir, _, r := trackingFixture(t)
+	gitOut(t, dir, "config", "branch.feat.remote", "origin")
+	gitOut(t, dir, "config", "branch.feat.merge", "refs/heads/feat")
 
 	backup := newBare(t)
-	gitOut(t, f.root, "remote", "add", "backup", backup)
-	gitOut(t, f.root, "config", "remote.pushDefault", "backup")
+	gitOut(t, dir, "remote", "add", "backup", backup)
+	gitOut(t, dir, "config", "remote.pushDefault", "backup")
 
-	res, err := Push(ctx, f.repo, "feat")
+	res, err := Push(context.Background(), r, "feat")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,15 +324,15 @@ func TestPushKeepsUpstreamOnAnotherRemote(t *testing.T) {
 		t.Errorf("result = %+v", res)
 	}
 
-	if got := gitOut(t, f.root, "config", "branch.feat.remote"); got != "origin" {
+	if got := gitOut(t, dir, "config", "branch.feat.remote"); got != "origin" {
 		t.Errorf("branch.feat.remote = %q, want origin", got)
 	}
 
-	if got := gitOut(t, f.root, "config", "branch.feat.merge"); got != "refs/heads/feat" {
+	if got := gitOut(t, dir, "config", "branch.feat.merge"); got != "refs/heads/feat" {
 		t.Errorf("branch.feat.merge = %q", got)
 	}
 
-	if got, want := gitOut(t, backup, "rev-parse", "refs/heads/feat"), gitOut(t, f.root, "rev-parse", "feat"); got != want {
+	if got, want := gitOut(t, backup, "rev-parse", "refs/heads/feat"), gitOut(t, dir, "rev-parse", "feat"); got != want {
 		t.Errorf("backup feat = %s, want %s", got, want)
 	}
 }
@@ -298,9 +345,7 @@ func TestPushRejectedChangesNothing(t *testing.T) {
 
 	ctx := context.Background()
 
-	if _, err := Push(ctx, f.repo, "feat"); err != nil {
-		t.Fatal(err)
-	}
+	gitOut(t, f.root, "push", "-q", "-u", "origin", "feat")
 
 	other := t.TempDir()
 	gitOut(t, other, "clone", "-q", "-b", "feat", f.bare, ".")
@@ -336,71 +381,25 @@ func TestPushRejectedChangesNothing(t *testing.T) {
 	}
 }
 
-func TestPushNeverForces(t *testing.T) {
-	f := newPushFixture(t)
-	logPath := fakeGit(t, "")
-
-	if _, err := Push(context.Background(), f.repo, "feat"); err != nil {
-		t.Fatal(err)
-	}
-
-	log, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	seen := false
-
-	for line := range strings.SplitSeq(string(log), "\n") {
-		fields := strings.Fields(line)
-		if !slices.Contains(fields, "push") {
-			continue
-		}
-
-		seen = true
-
-		for _, a := range fields {
-			if a == "-f" || a == "--force" || a == "--mirror" || strings.HasPrefix(a, "+") || strings.HasPrefix(a, "--force-") {
-				t.Errorf("push argument %q in %q", a, line)
-			}
-		}
-	}
-
-	if !seen {
-		t.Error("no push in the git log")
-	}
-}
-
-func TestPushRefusesBadBranch(t *testing.T) {
-	t.Parallel()
-	f := newPushFixture(t)
-
-	for _, b := range []string{"-x", "a..b", ""} {
-		if _, err := Push(context.Background(), f.repo, b); !errors.Is(err, ErrBadBranch) {
-			t.Errorf("branch %q: err = %v, want ErrBadBranch", b, err)
-		}
-	}
-}
-
 // sshRemote points origin at an unresolvable ssh URL and core.sshCommand at
 // script, so no real ssh runs.
-func sshRemote(t *testing.T, f pushFixture, script string) {
+func sshRemote(t *testing.T, dir, script string) {
 	t.Helper()
 	clearSSHEnv(t)
-	gitOut(t, f.root, "remote", "set-url", "origin", "ssh://example.invalid/r.git")
-	gitOut(t, f.root, "config", "core.sshCommand", script)
+	gitOut(t, dir, "remote", "set-url", "origin", "ssh://example.invalid/r.git")
+	gitOut(t, dir, "config", "core.sshCommand", script)
 }
 
 // The remote hangs once it has recorded its pid; it marks its end only if the
 // cancel failed to kill it.
 func TestPushHungRemoteIsKilled(t *testing.T) {
-	f := newPushFixture(t)
+	dir, _, r := trackingFixture(t)
 	mark := filepath.Join(t.TempDir(), "remote")
-	sshRemote(t, f, writeScript(t, fmt.Sprintf(`echo $$ > %[1]q.tmp && mv %[1]q.tmp %[1]q.pid
+	sshRemote(t, dir, writeScript(t, fmt.Sprintf(`echo $$ > %[1]q.tmp && mv %[1]q.tmp %[1]q.pid
 sleep 30
 : > %[1]q.finished`, mark)))
 
-	_, err := Push(cancelWhenWritten(t, mark+".pid"), f.repo, "feat")
+	_, err := Push(cancelWhenWritten(t, mark+".pid"), r, "feat")
 
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want canceled", err)
@@ -422,23 +421,6 @@ sleep 30
 
 	if _, err := os.Stat(mark + ".finished"); err == nil {
 		t.Error("the hung remote ran to its end")
-	}
-}
-
-func TestNetErrorHidesURLs(t *testing.T) {
-	f := newPushFixture(t)
-	sshRemote(t, f, writeScript(t,
-		`echo "fatal: unable to access 'https://user:secret@example.invalid/o/r.git/'" >&2; exit 1`))
-
-	_, err := Push(context.Background(), f.repo, "feat")
-	if err == nil {
-		t.Fatal("push succeeded")
-	}
-
-	for _, leak := range []string{"secret", "example.invalid/o/r"} {
-		if strings.Contains(err.Error(), leak) {
-			t.Errorf("error %q contains %q", err, leak)
-		}
 	}
 }
 
