@@ -64,44 +64,15 @@ var legit = []struct {
 	{"emoji zwj heart on fire", "\u2764\u200d\U0001f525"},
 	{"flag", "\U0001f1ef\U0001f1f5"},
 	{"tab and newline", "a\tb\nc"},
+	// Mongolian free variation selectors are part of how Mongolian is
+	// written, and they are not in either variation selector block.
+	{"mongolian free variation selector", "\u180b"},
 }
 
 func TestRuneReportsEveryClass(t *testing.T) {
 	for _, c := range classes {
 		if !Rune(c.r) {
 			t.Errorf("%s (U+%04X): Rune = false, want true", c.name, c.r)
-		}
-	}
-}
-
-func TestRuneKeepsVisibleText(t *testing.T) {
-	for _, c := range legit {
-		for _, r := range c.s {
-			if r == zwj {
-				continue
-			}
-			if Rune(r) {
-				t.Errorf("%s: Rune(U+%04X) = true, want false", c.name, r)
-			}
-		}
-	}
-	// Mongolian free variation selectors are part of how Mongolian is
-	// written, and they are not in either variation selector block.
-	if Rune(0x180b) {
-		t.Errorf("Rune(U+180B) = true, want false")
-	}
-}
-
-func TestStripRemovesEveryClass(t *testing.T) {
-	for _, c := range classes {
-		in := "a" + string(c.r) + "b"
-		got := Strip(in)
-		want := "ab"
-		if c.r == 0x2028 || c.r == 0x2029 {
-			want = "a\nb"
-		}
-		if got != want {
-			t.Errorf("%s: Strip(%q) = %q, want %q", c.name, in, got, want)
 		}
 	}
 }

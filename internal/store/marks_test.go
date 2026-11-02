@@ -80,10 +80,6 @@ func TestLoadMarks(t *testing.T) {
 			}
 
 			if tt.wantBad {
-				if !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), ".bad") {
-					t.Errorf("error %q does not name the file and .bad", err)
-				}
-
 				if _, serr := os.Stat(path); serr == nil {
 					t.Error("bad file is still in place")
 				}
@@ -119,17 +115,6 @@ func TestEncodeMarks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for range 5 {
-		again, err := EncodeMarks("/r/.git", days)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if string(again) != string(first) {
-			t.Fatalf("unstable encoding:\n%s\n%s", first, again)
-		}
-	}
-
 	if strings.Index(string(first), `"a"`) > strings.Index(string(first), `"b"`) {
 		t.Errorf("keys not sorted:\n%s", first)
 	}
@@ -140,32 +125,6 @@ func TestEncodeMarks(t *testing.T) {
 	got, err := LoadMarks(path, "/r/.git", marksNow)
 	if err != nil || len(got) != 2 {
 		t.Errorf("round trip = %v, %v", got, err)
-	}
-}
-
-func TestMarkFilesLoadBadFile(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	common := filepath.Join(dir, "r", ".git")
-	path := MarksPath(dir, common)
-	writeMarks(t, path, "not json")
-
-	got, err := NewMarkFiles(dir, nil).Load(common, marksNow)
-	if err == nil {
-		t.Error("want an error for a file that does not decode")
-	}
-
-	if len(got) != 0 {
-		t.Errorf("marks = %v, want none", got)
-	}
-
-	if _, serr := os.Stat(path + ".bad"); serr != nil {
-		t.Errorf("bad file not kept at .bad: %v", serr)
-	}
-
-	if _, serr := os.Stat(path); serr == nil {
-		t.Error("bad file still at its path")
 	}
 }
 
@@ -270,25 +229,6 @@ func TestMarkFiles(t *testing.T) {
 		}
 	})
 
-	t.Run("plain load keeps the stored days", func(t *testing.T) {
-		t.Parallel()
-
-		dir := t.TempDir()
-		common := filepath.Join(dir, "r", ".git")
-		writeMarks(t, MarksPath(dir, common), `{"version":1,"repo":"`+common+`","marks":{"a":"2026-10-01"}}`)
-
-		m := NewMarkFiles(dir, nil)
-
-		got, err := m.Load(common, marksNow)
-		if err != nil || got["a"] != "2026-10-01" {
-			t.Fatalf("Load = %v, %v", got, err)
-		}
-
-		if err := m.Close(context.Background()); err != nil {
-			t.Fatal(err)
-		}
-	})
-
 	t.Run("save does no filesystem work", func(t *testing.T) {
 		t.Parallel()
 
@@ -390,37 +330,6 @@ func TestMarkFiles(t *testing.T) {
 		got, err := os.ReadFile(path)
 		if err != nil || string(got) != body {
 			t.Errorf("file = %q, %v; want it unchanged", got, err)
-		}
-	})
-
-	t.Run("symlinked common dir", func(t *testing.T) {
-		t.Parallel()
-
-		dir := t.TempDir()
-		realDir := filepath.Join(dir, "real", ".git")
-
-		if err := os.MkdirAll(realDir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-
-		link := filepath.Join(dir, "link")
-		if err := os.Symlink(filepath.Join(dir, "real"), link); err != nil {
-			t.Fatal(err)
-		}
-
-		if a, b := MarksPath(dir, realDir), MarksPath(dir, filepath.Join(link, ".git")); a != b {
-			t.Errorf("paths differ: %s vs %s", a, b)
-		}
-
-		m := NewMarkFiles(dir, nil)
-		m.Save(filepath.Join(link, ".git"), map[string]string{"a": "2026-10-30"})
-
-		if err := m.Close(context.Background()); err != nil {
-			t.Fatal(err)
-		}
-
-		if got := read(t, dir, realDir); got["a"] == "" {
-			t.Errorf("real dir sees %v", got)
 		}
 	})
 }

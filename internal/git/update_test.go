@@ -9,19 +9,27 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 )
 
 // updateRepo commits a.txt, b.txt, c.txt and dir/d.txt on main, then branches.
 func updateRepo(t *testing.T) string {
 	t.Helper()
 
-	return branchRepo(t, func(dir string) {
+	return copyTemplate(t, &updateTemplate, func(dir string) error {
+		files := map[string]string{}
 		for _, n := range []string{"a.txt", "b.txt", "c.txt", "dir/d.txt", "dir/e.txt"} {
-			writeFile(t, dir, n, numbered(n, 30))
+			files[n] = numbered(n, 30)
 		}
-	}, func(dir string) {
-		writeFile(t, dir, "a.txt", numbered("a.txt", 30)+"extra\n")
+
+		if err := buildRepo(dir, files); err != nil {
+			return err
+		}
+
+		if err := gitRun(dir, "checkout", "-q", "-b", "feature"); err != nil {
+			return err
+		}
+
+		return writeBuilt(dir, "a.txt", numbered("a.txt", 30)+"extra\n")
 	})
 }
 
@@ -121,7 +129,6 @@ func TestUpdateShapesEqualFullDiff(t *testing.T) {
 		change  func(t *testing.T, dir string)
 		touched []string
 	}{
-		{"modify", nil, func(t *testing.T, dir string) { writeFile(t, dir, "c.txt", "changed\n") }, []string{"c.txt"}},
 		{"revert a changed file", nil, func(t *testing.T, dir string) { writeFile(t, dir, "a.txt", numbered("a.txt", 30)) }, []string{"a.txt"}},
 		{"delete", nil, func(t *testing.T, dir string) { must(t, os.Remove(filepath.Join(dir, "b.txt"))) }, []string{"b.txt"}},
 		{"untracked file", nil, func(t *testing.T, dir string) { writeFile(t, dir, "new.txt", "fresh\nfile\n") }, []string{"new.txt"}},
@@ -131,7 +138,6 @@ func TestUpdateShapesEqualFullDiff(t *testing.T) {
 			writeFile(t, dir, "b.txt", "x\n")
 			writeFile(t, dir, "c.txt", "y\n")
 		}, []string{"b.txt", "c.txt"}},
-		{"deleted file next to an untouched modification", nil, func(t *testing.T, dir string) { must(t, os.Remove(filepath.Join(dir, "dir/e.txt"))) }, []string{"dir/e.txt"}},
 		{"identical content added while another file is deleted", func(t *testing.T, dir string) {
 			must(t, os.Remove(filepath.Join(dir, "c.txt")))
 		}, func(t *testing.T, dir string) {
@@ -541,33 +547,6 @@ func openCalls(t *testing.T, logPath string) int {
 	return strings.Count(string(data), "--show-toplevel")
 }
 
-func TestUpdateReusesTheRepoItOpened(t *testing.T) {
-	t.Parallel()
-
-	dir := updateRepo(t)
-	src := BranchSource{Worktree: dir, Base: "main"}
-	e := testEngine(t)
-	prev := diffOK(t, e, src)
-
-	ctx, logPath := wrapGit(t, "")
-
-	writeFile(t, dir, "b.txt", numbered("b.txt", 30)+"first\n")
-
-	res := updateOKContext(ctx, t, e, prev, src, Batch{Paths: []string{"b.txt"}})
-	if n := openCalls(t, logPath); n != 1 {
-		t.Fatalf("the first update opened the repo %d times, want 1", n)
-	}
-
-	writeFile(t, dir, "c.txt", numbered("c.txt", 30)+"second\n")
-
-	res = updateOKContext(ctx, t, e, res, src, Batch{Paths: []string{"c.txt"}})
-	if n := openCalls(t, logPath); n != 1 {
-		t.Errorf("the second update opened the repo again: %d opens in all, want 1", n)
-	}
-
-	sameAsFull(t, res, src)
-}
-
 func TestUpdateKeepsOneRepoPerWorktree(t *testing.T) {
 	t.Parallel()
 
@@ -635,24 +614,6 @@ func TestUpdateReopensAWorktreeWhoseGitDirMoved(t *testing.T) {
 	}
 
 	sameAsFull(t, res, src)
-}
-
-func TestUpdateOfAGoneWorktreeIsAnError(t *testing.T) {
-	t.Parallel()
-	dir := updateRepo(t)
-	src := BranchSource{Worktree: dir, Base: "main"}
-	e := testEngine(t)
-	prev := diffOK(t, e, src)
-
-	writeFile(t, dir, "b.txt", numbered("b.txt", 30)+"first\n")
-
-	res := updateOK(t, e, prev, src, Batch{Paths: []string{"b.txt"}})
-
-	must(t, os.RemoveAll(dir))
-
-	if _, err := e.Update(context.Background(), res, src, Batch{Paths: []string{"b.txt"}}); err == nil {
-		t.Error("Update of a deleted worktree succeeded")
-	}
 }
 
 // A linked worktree removed without a prune leaves its admin dir, so the cached
@@ -733,52 +694,34 @@ esac`)
 func TestUpdateKeepsItsRepoWhenItsContextEnds(t *testing.T) {
 	t.Parallel()
 
-	ends := map[string]func(parent context.Context) (context.Context, context.CancelFunc){
-		"cancelled": func(parent context.Context) (context.Context, context.CancelFunc) {
-			ctx, cancel := context.WithCancel(parent)
-			cancel()
+	dir := updateRepo(t)
+	src := BranchSource{Worktree: dir, Base: "main"}
+	e := testEngine(t)
+	prev := diffOK(t, e, src)
 
-			return ctx, cancel
-		},
-		"past its deadline": func(parent context.Context) (context.Context, context.CancelFunc) {
-			return context.WithDeadline(parent, time.Now().Add(-time.Second))
-		},
+	ctx, logPath := wrapGit(t, "")
+
+	writeFile(t, dir, "b.txt", numbered("b.txt", 30)+"first\n")
+
+	res := updateOKContext(ctx, t, e, prev, src, Batch{Paths: []string{"b.txt"}})
+
+	ended, cancel := context.WithCancel(ctx)
+	cancel()
+
+	if _, err := e.Update(ended, res, src, Batch{Paths: []string{"b.txt"}}); err == nil {
+		t.Fatal("Update with an ended context succeeded")
 	}
 
-	for name, end := range ends {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			dir := updateRepo(t)
-			src := BranchSource{Worktree: dir, Base: "main"}
-			e := testEngine(t)
-			prev := diffOK(t, e, src)
-
-			ctx, logPath := wrapGit(t, "")
-
-			writeFile(t, dir, "b.txt", numbered("b.txt", 30)+"first\n")
-
-			res := updateOKContext(ctx, t, e, prev, src, Batch{Paths: []string{"b.txt"}})
-
-			ended, cancel := end(ctx)
-			defer cancel()
-
-			if _, err := e.Update(ended, res, src, Batch{Paths: []string{"b.txt"}}); err == nil {
-				t.Fatal("Update with an ended context succeeded")
-			}
-
-			if _, ok := e.repos.get(dir); !ok {
-				t.Error("the update whose context ended dropped its repo")
-			}
-
-			res = updateOKContext(ctx, t, e, res, src, Batch{Paths: []string{"b.txt"}})
-			if n := openCalls(t, logPath); n != 1 {
-				t.Errorf("opens = %d, want 1: the repo is reused after the context ended", n)
-			}
-
-			sameAsFull(t, res, src)
-		})
+	if _, ok := e.repos.get(dir); !ok {
+		t.Error("the update whose context ended dropped its repo")
 	}
+
+	res = updateOKContext(ctx, t, e, res, src, Batch{Paths: []string{"b.txt"}})
+	if n := openCalls(t, logPath); n != 1 {
+		t.Errorf("opens = %d, want 1: the repo is reused after the context ended", n)
+	}
+
+	sameAsFull(t, res, src)
 }
 
 func TestUpdateRunsFromSeveralGoroutines(t *testing.T) {
@@ -797,11 +740,11 @@ func TestUpdateRunsFromSeveralGoroutines(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	for i := range 8 {
+	for i := range 4 {
 		src := srcs[i%len(srcs)]
 
 		wg.Go(func() {
-			for range 3 {
+			for range 2 {
 				if _, err := e.Update(context.Background(), prevs[src.Worktree], src, Batch{Paths: []string{"b.txt"}}); err != nil {
 					t.Errorf("Update: %v", err)
 

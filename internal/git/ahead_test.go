@@ -2,92 +2,60 @@ package git
 
 import (
 	"context"
-	"errors"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 )
 
+// trackUpstream makes origin/feat the upstream of feat and puts its
+// remote-tracking ref at tip.
+func trackUpstream(t *testing.T, dir, tip string) {
+	t.Helper()
+	gitOut(t, dir, "config", "branch.feat.remote", "origin")
+	gitOut(t, dir, "config", "branch.feat.merge", "refs/heads/feat")
+	gitOut(t, dir, "update-ref", "refs/remotes/origin/feat", tip)
+}
+
 func TestAhead(t *testing.T) {
+	t.Parallel()
+	dir, c, r := trackingFixture(t)
+
+	// The cases share one repository and run in order, each setting the refs it needs.
 	tests := []struct {
 		name   string
-		setup  func(t *testing.T, f pushFixture)
+		setup  func()
 		want   int
 		wantOK bool
 	}{
+		{name: "no upstream", setup: func() {}},
+		{name: "up to date", setup: func() { trackUpstream(t, dir, c[2]) }, wantOK: true},
 		{
-			name:  "no upstream",
-			setup: func(*testing.T, pushFixture) {},
-		},
-		{
-			name: "up to date",
-			setup: func(t *testing.T, f pushFixture) {
-				gitOut(t, f.root, "push", "-q", "-u", "origin", "feat")
-			},
+			name:   "two local commits",
+			setup:  func() { gitOut(t, dir, "update-ref", "refs/remotes/origin/feat", c[0]) },
+			want:   2,
 			wantOK: true,
 		},
+		{name: "upstream ref gone", setup: func() { gitOut(t, dir, "update-ref", "-d", "refs/remotes/origin/feat") }},
 		{
-			name: "two local commits",
-			setup: func(t *testing.T, f pushFixture) {
-				gitOut(t, f.root, "push", "-q", "-u", "origin", "feat")
-				writeFile(t, f.root, "f", "2\n")
-				commitAll(t, f.root, "two")
-				writeFile(t, f.root, "f", "3\n")
-				commitAll(t, f.root, "three")
-			},
+			name:   "upstream on a local branch",
+			setup:  func() { gitOut(t, dir, "branch", "--set-upstream-to=main") },
 			want:   2,
 			wantOK: true,
 		},
 		{
 			name: "behind only",
-			setup: func(t *testing.T, f pushFixture) {
-				gitOut(t, f.root, "push", "-q", "-u", "origin", "feat")
-				writeFile(t, f.root, "f", "2\n")
-				commitAll(t, f.root, "two")
-				gitOut(t, f.root, "push", "-q", "origin", "feat")
-				gitOut(t, f.root, "reset", "-q", "--hard", "HEAD~1")
+			setup: func() {
+				gitOut(t, dir, "update-ref", "refs/heads/main", c[2])
+				gitOut(t, dir, "update-ref", "refs/heads/feat", c[1])
 			},
 			wantOK: true,
 		},
-		{
-			name: "upstream on a local branch",
-			setup: func(t *testing.T, f pushFixture) {
-				gitOut(t, f.root, "branch", "--set-upstream-to=main")
-				writeFile(t, f.root, "f", "2\n")
-				commitAll(t, f.root, "two")
-			},
-			want:   1,
-			wantOK: true,
-		},
-		{
-			name: "detached",
-			setup: func(t *testing.T, f pushFixture) {
-				gitOut(t, f.root, "push", "-q", "-u", "origin", "feat")
-				gitOut(t, f.root, "checkout", "-q", "--detach")
-			},
-		},
-		{
-			name: "unborn branch",
-			setup: func(t *testing.T, f pushFixture) {
-				gitOut(t, f.root, "checkout", "-q", "--orphan", "fresh")
-			},
-		},
-		{
-			name: "upstream ref gone",
-			setup: func(t *testing.T, f pushFixture) {
-				gitOut(t, f.root, "push", "-q", "-u", "origin", "feat")
-				gitOut(t, f.root, "update-ref", "-d", "refs/remotes/origin/feat")
-			},
-		},
+		{name: "detached", setup: func() { gitOut(t, dir, "update-ref", "--no-deref", "HEAD", c[1]) }},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := newPushFixture(t)
-			tt.setup(t, f)
+			tt.setup()
 
-			n, ok, err := Ahead(context.Background(), f.repo)
+			n, ok, err := Ahead(context.Background(), r)
 			if err != nil {
 				t.Fatalf("Ahead: %v", err)
 			}
@@ -100,76 +68,58 @@ func TestAhead(t *testing.T) {
 }
 
 func TestAheadReportsFailures(t *testing.T) {
-	f := newPushFixture(t)
-	gitOut(t, f.root, "push", "-q", "-u", "origin", "feat")
+	t.Parallel()
+	dir, c, r := trackingFixture(t)
+	trackUpstream(t, dir, c[2])
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if n, ok, err := Ahead(ctx, f.repo); err == nil {
+	if n, ok, err := Ahead(ctx, r); err == nil {
 		t.Errorf("cancelled context: Ahead = (%d, %v), want an error", n, ok)
 	}
 
 	// An upstream that resolves but a history that cannot be walked is an error, not "no upstream".
-	if err := os.WriteFile(filepath.Join(f.root, ".git", "refs", "remotes", "origin", "feat"), []byte(strings.Repeat("1", 40)+"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeFile(t, dir, ".git/refs/remotes/origin/feat", "1111111111111111111111111111111111111111\n")
 
-	if n, ok, err := Ahead(context.Background(), f.repo); err == nil {
+	if n, ok, err := Ahead(context.Background(), r); err == nil {
 		t.Errorf("upstream ref to a missing object: Ahead = (%d, %v), want an error", n, ok)
 	}
 }
 
 func TestUnpushed(t *testing.T) {
+	t.Parallel()
+	dir, c, r := trackingFixture(t)
+
+	// The cases share one repository and run in order; HEAD is the third commit.
 	tests := []struct {
 		name  string
-		setup func(t *testing.T, f pushFixture)
+		setup func()
 		want  int
 	}{
+		{name: "origin has HEAD", setup: func() { gitOut(t, dir, "update-ref", "refs/remotes/origin/feat", c[2]) }},
 		{
-			name:  "before a first push counts every commit",
-			setup: func(*testing.T, pushFixture) {},
+			name:  "origin one commit behind",
+			setup: func() { gitOut(t, dir, "update-ref", "refs/remotes/origin/feat", c[1]) },
 			want:  1,
 		},
 		{
-			name: "two commits and no push",
-			setup: func(t *testing.T, f pushFixture) {
-				writeFile(t, f.root, "f", "2\n")
-				commitAll(t, f.root, "two")
-			},
-			want: 2,
+			name:  "no tracking ref counts every commit",
+			setup: func() { gitOut(t, dir, "update-ref", "-d", "refs/remotes/origin/feat") },
+			want:  3,
 		},
 		{
-			name: "pushed",
-			setup: func(t *testing.T, f pushFixture) {
-				gitOut(t, f.root, "push", "-q", "-u", "origin", "feat")
-			},
-		},
-		{
-			name: "one commit after a push",
-			setup: func(t *testing.T, f pushFixture) {
-				gitOut(t, f.root, "push", "-q", "origin", "feat")
-				writeFile(t, f.root, "f", "2\n")
-				commitAll(t, f.root, "two")
-			},
-			want: 1,
-		},
-		{
-			name: "another remote does not count",
-			setup: func(t *testing.T, f pushFixture) {
-				gitOut(t, f.root, "remote", "add", "backup", newBare(t))
-				gitOut(t, f.root, "push", "-q", "backup", "feat")
-			},
-			want: 1,
+			name:  "another remote does not count",
+			setup: func() { gitOut(t, dir, "update-ref", "refs/remotes/backup/feat", c[2]) },
+			want:  3,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := newPushFixture(t)
-			tt.setup(t, f)
+			tt.setup()
 
-			got, err := Unpushed(context.Background(), f.repo, "origin")
+			got, err := Unpushed(context.Background(), r, "origin")
 			if err != nil {
 				t.Fatalf("Unpushed: %v", err)
 			}
@@ -178,60 +128,5 @@ func TestUnpushed(t *testing.T) {
 				t.Errorf("Unpushed = %d, want %d", got, tt.want)
 			}
 		})
-	}
-}
-
-func TestUnpushedRefusesOptionNames(t *testing.T) {
-	f := newPushFixture(t)
-	log := fakeGit(t, "")
-
-	for _, remote := range []string{"--all", "-x", ""} {
-		if _, err := Unpushed(context.Background(), f.repo, remote); !errors.Is(err, ErrNoRemote) {
-			t.Errorf("remote %q: err = %v, want ErrNoRemote", remote, err)
-		}
-	}
-
-	if calls, err := os.ReadFile(log); err == nil && len(calls) > 0 {
-		t.Errorf("a refused remote ran git:\n%s", calls)
-	}
-}
-
-func TestAheadAndUnpushedAreReads(t *testing.T) {
-	f := newPushFixture(t)
-	gitOut(t, f.root, "push", "-q", "-u", "origin", "feat")
-
-	log := fakeGit(t, `echo "locks=$GIT_OPTIONAL_LOCKS" >> "$LOG.locks"`)
-
-	if _, ok, err := Ahead(context.Background(), f.repo); err != nil || !ok {
-		t.Fatalf("Ahead = ok %v, err %v", ok, err)
-	}
-
-	if _, err := Unpushed(context.Background(), f.repo, "origin"); err != nil {
-		t.Fatalf("Unpushed: %v", err)
-	}
-
-	calls, err := os.ReadFile(log)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	for _, want := range []string{"rev-list --count @{upstream}..HEAD", "rev-list --count HEAD --not --remotes=origin"} {
-		if !strings.Contains(string(calls), want) {
-			t.Errorf("git calls lack %q:\n%s", want, calls)
-		}
-	}
-
-	// One call each: an upstream that resolves needs no second look.
-	if n := strings.Count(string(calls), "\n"); n != 2 {
-		t.Errorf("git ran %d times, want 2:\n%s", n, calls)
-	}
-
-	locks, err := os.ReadFile(log + ".locks")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if got := strings.TrimSpace(string(locks)); got != "locks=0\nlocks=0" {
-		t.Errorf("GIT_OPTIONAL_LOCKS per call = %q, want 0 for both", got)
 	}
 }

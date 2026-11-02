@@ -42,7 +42,12 @@ func fastestLayout(t *testing.T, name string, src []byte) time.Duration {
 }
 
 func TestPathologicalBudget(t *testing.T) {
-	for _, tt := range pathologicalInputs() {
+	inputs := append(pathologicalInputs(), pathological{
+		name: "quote markers to the size limit",
+		src:  strings.Repeat(">", MaxBytes-len(" deep")) + " deep",
+	})
+
+	for _, tt := range inputs {
 		t.Run(tt.name, func(t *testing.T) {
 			if best := fastestLayout(t, tt.name, []byte(tt.src)); best >= pathologicalBudget {
 				t.Errorf("fastest layout took %v, want under %v", best, pathologicalBudget)

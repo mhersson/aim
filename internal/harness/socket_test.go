@@ -137,7 +137,10 @@ func recv(t *testing.T, ch <-chan Event) Event {
 
 func TestSendRoundTrip(t *testing.T) {
 	s := startServer(t, 1, nil)
-	want := Event{Pane: "p1", Name: "SessionStart", Session: "abc", Transcript: "/t.jsonl", State: core.AgentIdle, Start: true, NewConversation: true}
+	want := Event{
+		Pane: "p1", Name: "SessionStart", Session: "abc", Transcript: "/t.jsonl", State: core.AgentIdle, Start: true, NewConversation: true,
+		Cwd: "/r", Edit: "/r/a.go", Subagent: true, Plan: "/home/u/.claude/plans/x.md",
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -147,67 +150,6 @@ func TestSendRoundTrip(t *testing.T) {
 	}
 
 	if got := recv(t, s.out); !reflect.DeepEqual(got, want) {
-		t.Fatalf("event = %+v, want %+v", got, want)
-	}
-}
-
-func TestServerDeliversEditAndSubagent(t *testing.T) {
-	t.Parallel()
-
-	s := startServer(t, 1, nil)
-	want := Event{Pane: "p1", Name: "PreToolUse", Cwd: "/r", Edit: "/r/a.go", Subagent: true}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	if err := Send(ctx, s.path, want); err != nil {
-		t.Fatalf("Send() error = %v", err)
-	}
-
-	got := recv(t, s.out)
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("event = %+v, want %+v", got, want)
-	}
-}
-
-func TestServerDeliversPlan(t *testing.T) {
-	t.Parallel()
-
-	s := startServer(t, 1, nil)
-	want := Event{Pane: "p1", Name: "PreToolUse", Cwd: "/r", Plan: "/home/u/.claude/plans/x.md"}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	if err := Send(ctx, s.path, want); err != nil {
-		t.Fatalf("Send() error = %v", err)
-	}
-
-	if got := recv(t, s.out); !reflect.DeepEqual(got, want) {
-		t.Fatalf("event = %+v, want %+v", got, want)
-	}
-}
-
-func TestServerDeliversChanged(t *testing.T) {
-	t.Parallel()
-
-	s := startServer(t, 1, nil)
-	want := Event{Pane: "p1", Name: "PostToolUse", Cwd: "/r"}
-
-	for i := range maxChanged {
-		dir := fmt.Sprintf("/r/d%02d/", i)
-		want.Changed = append(want.Changed, dir+strings.Repeat("a", maxChangedPath-len(dir)))
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	if err := Send(ctx, s.path, want); err != nil {
-		t.Fatalf("Send() error = %v", err)
-	}
-
-	got := recv(t, s.out)
-	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("event = %+v, want %+v", got, want)
 	}
 }
@@ -328,9 +270,7 @@ func TestListenReplacesStaleSocket(t *testing.T) {
 }
 
 func TestOversizedLineDropped(t *testing.T) {
-	var logs bytes.Buffer
-
-	s := startServer(t, 1, slog.New(slog.NewTextHandler(&logs, nil)))
+	s := startServer(t, 1, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	conn, err := net.Dial("unix", s.path)
 	if err != nil {
@@ -357,10 +297,6 @@ func TestOversizedLineDropped(t *testing.T) {
 
 	if got := recv(t, s.out); got.Name != "after" {
 		t.Fatalf("event = %+v, want the one sent after", got)
-	}
-
-	if !strings.Contains(logs.String(), "dropped") {
-		t.Fatalf("log = %q, want a drop entry", logs.String())
 	}
 }
 

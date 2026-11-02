@@ -2,8 +2,10 @@ package git
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -21,10 +23,20 @@ func TestLog(t *testing.T) {
 		"third",
 		"fourth\n\np1\n\np2",
 	}
+
+	var stream strings.Builder
+
 	for i, m := range msgs {
-		writeFile(t, dir, fmt.Sprintf("f%d.txt", i), "x\n")
-		commitAll(t, dir, m)
+		fmt.Fprintf(&stream, "commit refs/heads/feat\ncommitter Test <test@example.com> %d +0000\ndata %d\n%s\n", 1700000000+i, len(m), m)
+
+		if i == 0 {
+			stream.WriteString("from refs/heads/feat^0\n")
+		}
+
+		stream.WriteString("\n")
 	}
+
+	gitInput(t, dir, stream.String(), "fast-import", "--quiet")
 
 	got, err := Log(context.Background(), openRepo(t, dir), "main")
 	if err != nil {
@@ -106,21 +118,18 @@ func TestLogRefusesOptionBase(t *testing.T) {
 		}
 	}
 
+	// A missing base is a git failure, not a refusal: its error keeps git's exit status.
+	_, err := Log(context.Background(), openRepo(t, dir), "nope")
+
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+		t.Errorf("Log with an unknown base: err = %v, want an exit status 1", err)
+	}
+
 	calls, err := os.ReadFile(logPath)
 	for _, opt := range []string{"--all", "-n1"} {
 		if err == nil && strings.Contains(string(calls), opt) {
 			t.Errorf("git ran with the option base %q: %s", opt, calls)
 		}
-	}
-}
-
-func TestLogUnknownBase(t *testing.T) {
-	t.Parallel()
-	dir := newRepo(t)
-	writeFile(t, dir, "a.txt", "a\n")
-	commitAll(t, dir, "init")
-
-	if _, err := Log(context.Background(), openRepo(t, dir), "nope"); err == nil {
-		t.Error("Log with an unknown base succeeded")
 	}
 }

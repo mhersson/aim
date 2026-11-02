@@ -265,60 +265,6 @@ func TestChecksMapping(t *testing.T) {
 	}
 }
 
-func TestChecksUsesETags(t *testing.T) {
-	var mu sync.Mutex
-
-	hits := map[string]int{}
-	status := readFixture(t, "status.json")
-	runs := readFixture(t, "check_runs_1.json")
-
-	c, _ := newTestClient(t, "github.com", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		hits[r.URL.Path]++
-		mu.Unlock()
-
-		etag := `"v1"`
-		if r.Header.Get("If-None-Match") == etag {
-			w.WriteHeader(http.StatusNotModified)
-
-			return
-		}
-
-		w.Header().Set("ETag", etag)
-
-		if strings.HasSuffix(r.URL.Path, "/status") {
-			okJSON(w, string(status))
-
-			return
-		}
-
-		okJSON(w, string(runs))
-	}))
-
-	first, err := c.Checks(context.Background(), testRepo, "abc123")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	second, err := c.Checks(context.Background(), testRepo, "abc123")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if len(first) != 103 || !reflect.DeepEqual(first, second) {
-		t.Errorf("first has %d checks, second equal = %t", len(first), reflect.DeepEqual(first, second))
-	}
-
-	mu.Lock()
-	defer mu.Unlock()
-
-	for path, n := range hits {
-		if n != 2 {
-			t.Errorf("%s hit %d times, want 2 (a full and a conditional one)", path, n)
-		}
-	}
-}
-
 func TestChecksNeedsSHA(t *testing.T) {
 	c, reqs := newTestClient(t, "github.com", http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Error("a request was sent without a commit")

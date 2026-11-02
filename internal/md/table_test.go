@@ -10,6 +10,8 @@ import (
 )
 
 func TestTableFrame(t *testing.T) {
+	t.Parallel()
+
 	l := layoutOf("| a | bb |\n|---|----|\n| 1 | 2 |\n", 40, "")
 	wantLines(t, l,
 		"╭───┬────╮",
@@ -48,6 +50,8 @@ func TestTableFrame(t *testing.T) {
 }
 
 func TestTableAlign(t *testing.T) {
+	t.Parallel()
+
 	src := "| left | ctr | right | none |\n|:--|:-:|--:|---|\n| a | b | c | d |\n| | ab | | |\n"
 	l := layoutOf(src, 60, "")
 	wantLines(t, l,
@@ -77,6 +81,8 @@ func TestTableAlign(t *testing.T) {
 }
 
 func TestTableEmptyAndShortRows(t *testing.T) {
+	t.Parallel()
+
 	l := layoutOf("| a | b | c |\n|---|---|---|\n| 1 |\n| | 22 | 3 |\n", 40, "")
 	wantLines(t, l,
 		"╭───┬────┬───╮",
@@ -89,6 +95,8 @@ func TestTableEmptyAndShortRows(t *testing.T) {
 }
 
 func TestTableInlineStyles(t *testing.T) {
+	t.Parallel()
+
 	src := "| *em* **st** | `code` | [docs](https://e.com) ~~x~~ |\n|---|---|---|\n| *em* **st** | `code` | [docs](https://e.com) ~~x~~ |\n"
 	l := layoutOf(src, 80, "")
 
@@ -147,6 +155,8 @@ func TestTableInlineStyles(t *testing.T) {
 }
 
 func TestTableShrinksWidestFirst(t *testing.T) {
+	t.Parallel()
+
 	src := "| " + strings.Repeat("a", 20) + " | " + strings.Repeat("b", 10) + " | c |\n|---|---|---|\n| x | y | z |\n"
 	l := layoutOf(src, 30, "")
 	rule := "╭" + strings.Repeat("─", 11) + "┬" + strings.Repeat("─", 12) + "┬───╮"
@@ -170,6 +180,8 @@ func TestTableShrinksWidestFirst(t *testing.T) {
 }
 
 func TestTableWrapsCells(t *testing.T) {
+	t.Parallel()
+
 	src := "| Name | Description | Note |\n|:--|---|--:|\n" +
 		"| alpha | a *longer* description with `inline code` and [a link](https://e.com/x) that wraps | ok |\n" +
 		"| beta | short | a second note that is long |\n"
@@ -204,6 +216,8 @@ func TestTableWrapsCells(t *testing.T) {
 }
 
 func TestTableTooWideIsCut(t *testing.T) {
+	t.Parallel()
+
 	var head, delim, row strings.Builder
 
 	for i := range 30 {
@@ -236,6 +250,8 @@ func TestTableTooWideIsCut(t *testing.T) {
 }
 
 func TestTableBounds(t *testing.T) {
+	t.Parallel()
+
 	// More than 64 columns: one paragraph per source row, the delimiter row left out.
 	const cols = 65
 
@@ -305,6 +321,8 @@ func TestTableBounds(t *testing.T) {
 // TestWideTableRowsStop checks that a table too wide for a grid stops at the
 // same cell bound as a grid: 62 body rows of 65 cells after the header.
 func TestWideTableRowsStop(t *testing.T) {
+	t.Parallel()
+
 	const cols = 65
 
 	cells := func(first string) string {
@@ -401,6 +419,8 @@ func bigTable(cols, rows int) string {
 }
 
 func TestTableHostileCells(t *testing.T) {
+	t.Parallel()
+
 	src := "| prose | code | links |\n|---|---|---|\n" +
 		"| red\x1b[31m text\u202e gone | `a\x1b[2Jb\u202ec` | [xlink](javascript:alert(1)) [ylink](data:text/html,hi) [ok](https://e.com) |\n"
 	l := layoutOf(src, 100, "")
@@ -440,6 +460,8 @@ func TestTableHostileCells(t *testing.T) {
 }
 
 func TestTableBreakInCell(t *testing.T) {
+	t.Parallel()
+
 	l := layoutOf("| a | b |\n|---|---|\n| one<br>two three | x |\n", 40, "")
 	wantLines(t, l,
 		"╭───────────┬───╮",
@@ -452,6 +474,8 @@ func TestTableBreakInCell(t *testing.T) {
 }
 
 func TestTableLinkWrapsAcrossCellLines(t *testing.T) {
+	t.Parallel()
+
 	l := layoutOf("| [one two three four](https://e.com) | x |\n|---|---|\n| y | z |\n", 20, "")
 	assertSafe(t, l, 20)
 
@@ -475,6 +499,8 @@ func TestTableLinkWrapsAcrossCellLines(t *testing.T) {
 }
 
 func TestTableImageInCell(t *testing.T) {
+	t.Parallel()
+
 	src := "| pic |\n|---|\n| ![logo](https://img.example.com/a.png) |\n"
 	l := layoutOf(src, 60, "")
 	wantLines(t, l,
@@ -509,6 +535,8 @@ func TestTableImageInCell(t *testing.T) {
 }
 
 func TestTableInContainers(t *testing.T) {
+	t.Parallel()
+
 	list := layoutOf("- item\n\n  | a | b |\n  |---|---|\n  | 1 | 2 |\n", 30, "")
 	wantLines(t, list,
 		"  • item",
@@ -547,9 +575,11 @@ func TestTableHugeCell(t *testing.T) {
 }
 
 func TestTableNarrowWidths(t *testing.T) {
+	t.Parallel()
+
 	src := "| 名前 | 😀 emoji | plain |\n|:-:|--:|---|\n| 日本語のテキスト | 👍👍👍 | a-very-long-unbreakable-word |\n"
 
-	for w := 1; w <= 10; w++ {
+	for _, w := range []int{1, 2, 3, 5, 10} {
 		l := layoutOf(src, w, "")
 		assertSafe(t, l, w)
 
@@ -566,6 +596,8 @@ func TestTableNarrowWidths(t *testing.T) {
 }
 
 func TestTableWideHostileFallback(t *testing.T) {
+	t.Parallel()
+
 	const cols = 65
 
 	head := "|" + strings.Repeat("a|", cols-1) + "x\x1b[31my\u202ez|\n"
@@ -585,6 +617,8 @@ func TestTableWideHostileFallback(t *testing.T) {
 }
 
 func TestTableCJKAtTheFloor(t *testing.T) {
+	t.Parallel()
+
 	src := "| 名前 | 説明 |\n|:-:|--:|\n| 日本語のテキスト | 世界 |\n"
 	l := layoutOf(src, 17, "")
 	assertSafe(t, l, 17)

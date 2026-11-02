@@ -14,8 +14,9 @@ import (
 	"github.com/mhersson/aim/internal/git/invisible"
 )
 
-// corpusWidths are the widths of the goldens; 130 must lay out as 100.
-var corpusWidths = []int{20, 40, 80, 100, 130}
+// corpusWidths are the widths of the goldens; 130 lays out as 100, which the
+// caps-at-100 subtest checks.
+var corpusWidths = []int{20, 40, 80, 100}
 
 type corpusDoc struct {
 	name string
@@ -294,6 +295,8 @@ func structural(role Role, text string) bool {
 }
 
 func TestMarkLost(t *testing.T) {
+	t.Parallel()
+
 	spaces := func(n int) Run { return Run{Text: strings.Repeat(" ", n), Link: -1} }
 
 	tests := []struct {
@@ -321,6 +324,8 @@ func TestMarkLost(t *testing.T) {
 }
 
 func TestCorpusGoldens(t *testing.T) {
+	t.Parallel()
+
 	if *update {
 		if err := os.MkdirAll(filepath.Join("testdata", "corpus"), 0o755); err != nil {
 			t.Fatal(err)
@@ -332,12 +337,16 @@ func TestCorpusGoldens(t *testing.T) {
 
 		for _, w := range corpusWidths {
 			t.Run(fmt.Sprintf("%s.%d", doc.name, w), func(t *testing.T) {
+				t.Parallel()
+
 				l := d.Layout(LayoutOptions{Width: w, Icons: true})
 				goldenText(t, fmt.Sprintf("corpus/%s.%d", doc.name, w), l.debug())
 			})
 		}
 
 		t.Run(doc.name+" caps at 100", func(t *testing.T) {
+			t.Parallel()
+
 			at100 := d.Layout(LayoutOptions{Width: 100, Icons: true}).debug()
 			at130 := d.Layout(LayoutOptions{Width: 130, Icons: true}).debug()
 
@@ -349,7 +358,9 @@ func TestCorpusGoldens(t *testing.T) {
 }
 
 func TestCorpusWidths(t *testing.T) {
-	widths := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 40, 80, 100, 130}
+	t.Parallel()
+
+	widths := []int{1, 2, 3, 5, 10, 20, 80, 130}
 
 	for _, doc := range corpusDocs(t) {
 		d := Parse(doc.src, ParseOptions{Base: "https://github.com/example/repo/blob/main/"})
@@ -360,10 +371,17 @@ func TestCorpusWidths(t *testing.T) {
 					o := LayoutOptions{Width: w, Icons: icons, Highlight: hl}
 					limit := min(w, maxWidth)
 
-					for name, l := range map[string]Layout{"default": d.Layout(o), "open": layoutAllOpen(d, o)} {
+					for _, name := range []string{"default", "open"} {
 						label := fmt.Sprintf("%s w=%d icons=%v hl=%v %s", doc.name, w, icons, hl != nil, name)
 
 						t.Run(label, func(t *testing.T) {
+							t.Parallel()
+
+							l := d.Layout(o)
+							if name == "open" {
+								l = layoutAllOpen(d, o)
+							}
+
 							assertSafe(t, l, limit)
 							assertReferences(t, l, icons, limit)
 							assertSource(t, l, len(d.starts))
@@ -394,6 +412,8 @@ func assertImageSrcs(t *testing.T, l Layout) {
 }
 
 func TestCorpusLinks(t *testing.T) {
+	t.Parallel()
+
 	counts := map[string]int{}
 
 	for _, doc := range corpusDocs(t) {
@@ -433,6 +453,8 @@ func TestCorpusLinks(t *testing.T) {
 // widths, with folds open and a highlighter, and checks each result against a
 // sequential layout. The race detector catches a layout that writes to the Doc.
 func TestConcurrentLayout(t *testing.T) {
+	t.Parallel()
+
 	widths := []int{1, 20, 80, 130}
 	opts := func(w int) LayoutOptions {
 		return LayoutOptions{Width: w, Icons: true, Highlight: everyOtherByte}
@@ -440,6 +462,8 @@ func TestConcurrentLayout(t *testing.T) {
 
 	for _, doc := range corpusDocs(t) {
 		t.Run(doc.name, func(t *testing.T) {
+			t.Parallel()
+
 			d := Parse(doc.src, ParseOptions{Base: "https://example.test/docs/"})
 
 			want := make([]string, len(widths))

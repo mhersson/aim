@@ -112,14 +112,13 @@ func TestEditPlace(t *testing.T) {
 func TestEditPlaceFailureIsNotRefusal(t *testing.T) {
 	t.Parallel()
 
-	proj := newRepo(t)
-	writeFile(t, proj, "a.go", "package p\n")
-	commitAll(t, proj, "init")
+	dir := t.TempDir()
+	writeFile(t, dir, "a.go", "package p\n")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := EditPlace(ctx, filepath.Join(proj, "a.go"))
+	_, err := EditPlace(ctx, filepath.Join(dir, "a.go"))
 	if err == nil || errors.Is(err, ErrNotCounted) {
 		t.Fatalf("err = %v, want a failure that is not ErrNotCounted", err)
 	}
@@ -132,14 +131,29 @@ func TestEditPlaceFailureIsNotRefusal(t *testing.T) {
 func TestRepoName(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	tests := []struct {
+		name      string
+		commonDir string
+		want      string
+	}{
+		{"main checkout", filepath.Join("work", "proj", ".git"), "proj"},
+		{"bare repository", filepath.Join("srv", "proj.git"), "proj"},
+	}
 
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := (Repo{CommonDir: tt.commonDir}).Name(); got != tt.want {
+				t.Errorf("Name = %q, want %q", got, tt.want)
+			}
+		})
+	}
+
+	// Open must give a worktree of a bare repository the bare common dir.
 	main := newRepo(t)
 	writeFile(t, main, "a.txt", "a\n")
 	commitAll(t, main, "init")
-
-	linked := filepath.Join(resolvedTemp(t), "linked")
-	gitOut(t, main, "worktree", "add", "-q", "-b", "feat", linked)
 
 	bare := filepath.Join(resolvedTemp(t), "proj.git")
 	gitOut(t, main, "clone", "-q", "--bare", main, bare)
@@ -147,28 +161,12 @@ func TestRepoName(t *testing.T) {
 	bareLinked := filepath.Join(resolvedTemp(t), "bare-linked")
 	gitOut(t, bare, "worktree", "add", "-q", "-b", "other", bareLinked)
 
-	tests := []struct {
-		name string
-		dir  string
-		want string
-	}{
-		{"main checkout", main, filepath.Base(main)},
-		{"linked worktree", linked, filepath.Base(main)},
-		{"worktree of a bare repository", bareLinked, "proj"},
+	repo, err := Open(context.Background(), bareLinked)
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			repo, err := Open(ctx, tt.dir)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			if got := repo.Name(); got != tt.want {
-				t.Errorf("Name = %q, want %q", got, tt.want)
-			}
-		})
+	if got := repo.Name(); got != "proj" {
+		t.Errorf("Name of a worktree of a bare repository = %q, want proj", got)
 	}
 }

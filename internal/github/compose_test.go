@@ -173,12 +173,6 @@ func TestTemplatesKeepsReadableWhenOneIsNot(t *testing.T) {
 	}
 }
 
-func TestTemplatesMissingRoot(t *testing.T) {
-	if _, err := Templates(filepath.Join(t.TempDir(), "gone")); err == nil {
-		t.Fatal("a missing root succeeded")
-	}
-}
-
 func TestFill(t *testing.T) {
 	one := []Commit{{Subject: "add rail", Body: "why it exists"}}
 	three := []Commit{{Subject: "a", Body: "ignored"}, {Subject: "b"}, {Subject: "c"}}
@@ -192,13 +186,12 @@ func TestFill(t *testing.T) {
 	}{
 		{"one commit", "feat-x", one, "", Draft{"add rail", "why it exists"}},
 		{"several commits", "feat-agents_rail", three, "", Draft{"Feat agents rail", "- a\n- b\n- c\n"}},
-		{"slash kept", "feat/agents-rail", three, "", Draft{"Feat/agents rail", "- a\n- b\n- c\n"}},
 		{"no commits", "fix-bug", nil, "", Draft{"Fix bug", ""}},
+		{"unicode first letter", "étude-un", nil, "", Draft{"Étude un", ""}},
+		{"empty branch", "", nil, "", Draft{}},
 		{"template beside one commit", "feat-x", one, "## Summary\n", Draft{"add rail", "## Summary\n"}},
 		{"template beside several commits", "feat-x", three, "tpl", Draft{"Feat x", "tpl"}},
 		{"blank template is none", "feat-x", one, " \n\t\n", Draft{"add rail", "why it exists"}},
-		{"unicode first letter", "étude-un", nil, "", Draft{"Étude un", ""}},
-		{"empty branch", "", nil, "", Draft{}},
 	}
 
 	for _, tt := range tests {

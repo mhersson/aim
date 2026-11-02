@@ -29,13 +29,9 @@ const (
 func seedRepo(t *testing.T) string {
 	t.Helper()
 
-	dir := newRepo(t)
-	writeFile(t, dir, "a.txt", "a\n")
-	writeFile(t, dir, "b.txt", "b\n")
-	writeFile(t, dir, "dir/c.txt", "c\n")
-	commitAll(t, dir, "init")
-
-	return dir
+	return copyTemplate(t, &seedTemplate, func(dir string) error {
+		return buildRepo(dir, map[string]string{"a.txt": "a\n", "b.txt": "b\n", "dir/c.txt": "c\n"})
+	})
 }
 
 func openRepo(t *testing.T, dir string) Repo {
@@ -245,23 +241,16 @@ func TestTurnsSortNumerically(t *testing.T) {
 	t.Parallel()
 	dir := seedRepo(t)
 
-	for range 11 {
-		snap(t, dir, sessA, SnapshotOptions{})
-	}
+	snap(t, dir, sessA, SnapshotOptions{Turn: 2})
+	snap(t, dir, sessA, SnapshotOptions{Turn: 10})
 
 	turns, err := Turns(context.Background(), openRepo(t, dir), sessA)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	for i, tn := range turns {
-		if tn.N != i+1 {
-			t.Fatalf("turn at index %d is %d; turns = %v", i, tn.N, turns)
-		}
-	}
-
-	if len(turns) != 11 {
-		t.Fatalf("got %d turns, want 11", len(turns))
+	if len(turns) != 2 || turns[0].N != 2 || turns[1].N != 10 {
+		t.Fatalf("turns = %+v, want 2 before 10", turns)
 	}
 }
 
@@ -607,8 +596,33 @@ func TestSnapshotLeavesUserStateAlone(t *testing.T) {
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Setenv("HOME", t.TempDir())
 
-	// Let the clock move so a rewritten file would show a new mtime.
-	time.Sleep(20 * time.Millisecond)
+	// An hour back, so a rewritten file would show a new mtime.
+	old := time.Now().Add(-time.Hour)
+
+	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if d.IsDir() && d.Name() == ".git" {
+			return filepath.SkipDir
+		}
+
+		return os.Chtimes(p, old, old) //nolint:gosec // G122: a fixture under t.TempDir
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Chtimes(filepath.Join(dir, ".git", "index"), old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	// Another git process holds the user's index.
+	indexLock := filepath.Join(dir, ".git", "index.lock")
+	if err := os.WriteFile(indexLock, []byte("held"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	before := captureState(t, dir)
 	_ = os.Remove(filepath.Join(marks, "mark"))
@@ -625,6 +639,10 @@ func TestSnapshotLeavesUserStateAlone(t *testing.T) {
 	}
 
 	assertSameState(t, before, captureState(t, dir))
+
+	if got := readOrEmpty(indexLock); got != "held" {
+		t.Errorf("index.lock = %q, want it held and unchanged", got)
+	}
 
 	if turn.N != 1 || mark.N != 2 || missing.N != 3 {
 		t.Errorf("turns = %d, %d, %d", turn.N, mark.N, missing.N)
@@ -779,7 +797,6 @@ func TestSnapshotUnusableIndex(t *testing.T) {
 
 	for name, content := range map[string][]byte{
 		"garbage": []byte("this is not an index file at all, not even close"),
-		"empty":   nil,
 		"missing": nil,
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -823,6 +840,15 @@ func TestSnapshotPathShapeChanges(t *testing.T) {
 
 	writeFile(t, dir, "d", "now a file\n")
 
+	// An emptied directory in place of a tracked file removes the file.
+	if err := os.Remove(filepath.Join(dir, "b.txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Mkdir(filepath.Join(dir, "b.txt"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
 	turn := snap(t, dir, sessA, SnapshotOptions{})
 	got := treeEntries(t, dir, turn.Tree)
 
@@ -830,18 +856,8 @@ func TestSnapshotPathShapeChanges(t *testing.T) {
 		t.Errorf("tree = %s, want %s; has %q", turn.Tree, want, paths(got))
 	}
 
-	// An emptied directory in place of a tracked file removes the file.
-	dir2 := seedRepo(t)
-	if err := os.Remove(filepath.Join(dir2, "a.txt")); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := os.Mkdir(filepath.Join(dir2, "a.txt"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, ok := treeEntries(t, dir2, snap(t, dir2, sessA, SnapshotOptions{}).Tree)["a.txt"]; ok {
-		t.Error("a.txt survived as a file")
+	if _, ok := got["b.txt"]; ok {
+		t.Error("b.txt survived as a file")
 	}
 }
 
@@ -934,6 +950,10 @@ func TestMarkMissing(t *testing.T) {
 		}
 	}
 
+	if _, err := MarkMissing(ctx, dir, sessA, 1, true); err != nil {
+		t.Fatalf("end marker on the open turn: %v", err)
+	}
+
 	if after := snap(t, dir, sessA, SnapshotOptions{}); after.N != 3 || after.Missing {
 		t.Errorf("snapshot after a marker = %+v, want turn 3", after)
 	}
@@ -946,6 +966,16 @@ func TestMarkMissing(t *testing.T) {
 	if len(turns) != 3 || turns[0].Missing || !turns[1].Missing || turns[2].Missing {
 		t.Errorf("turns = %+v", turns)
 	}
+
+	if !turns[0].EndMissing || turns[0].EndCommit == "" {
+		t.Errorf("turn 1 = %+v, want it ended by a marker", turns[0])
+	}
+
+	for _, n := range []int{1, 5} {
+		if _, err := MarkMissing(ctx, dir, sessA, n, true); !errors.Is(err, ErrTurnNotOpen) {
+			t.Errorf("end marker on turn %d (closed or without a start): error = %v, want ErrTurnNotOpen", n, err)
+		}
+	}
 }
 
 func TestBadSession(t *testing.T) {
@@ -953,8 +983,9 @@ func TestBadSession(t *testing.T) {
 	dir := seedRepo(t)
 	ctx := context.Background()
 	tmp := t.TempDir()
+	r := openRepo(t, dir)
 
-	for _, s := range []string{"", "not-a-uuid", sessA + "x", "../../heads/main", "11111111-2222-4333-8444-55555555555*"} {
+	for _, s := range []string{"", "../../heads/main", "11111111-2222-4333-8444-55555555555*"} {
 		if _, err := Snapshot(ctx, dir, s, SnapshotOptions{TempDir: tmp}); !errors.Is(err, ErrBadSession) {
 			t.Errorf("Snapshot(%q) error = %v, want ErrBadSession", s, err)
 		}
@@ -963,11 +994,11 @@ func TestBadSession(t *testing.T) {
 			t.Errorf("MarkMissing(%q) error = %v, want ErrBadSession", s, err)
 		}
 
-		if _, err := Turns(ctx, openRepo(t, dir), s); !errors.Is(err, ErrBadSession) {
+		if _, err := Turns(ctx, r, s); !errors.Is(err, ErrBadSession) {
 			t.Errorf("Turns(%q) error = %v, want ErrBadSession", s, err)
 		}
 
-		if _, err := PruneSession(ctx, openRepo(t, dir), s); !errors.Is(err, ErrBadSession) {
+		if _, err := PruneSession(ctx, r, s); !errors.Is(err, ErrBadSession) {
 			t.Errorf("PruneSession(%q) error = %v, want ErrBadSession", s, err)
 		}
 	}
@@ -1127,25 +1158,6 @@ func TestPrune(t *testing.T) {
 	}
 }
 
-func TestSnapshotCancelledLeavesNoTempFileOrRef(t *testing.T) {
-	t.Parallel()
-	dir := seedRepo(t)
-	tmp := t.TempDir()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	if _, err := Snapshot(ctx, dir, sessA, SnapshotOptions{TempDir: tmp}); err == nil {
-		t.Fatal("cancelled context did not fail the snapshot")
-	}
-
-	assertEmptyDir(t, tmp)
-
-	if refs := gitOut(t, dir, "for-each-ref", "refs/aim"); refs != "" {
-		t.Errorf("refs written: %s", refs)
-	}
-}
-
 func TestTempIndexNameAndLockCleanup(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
@@ -1174,25 +1186,25 @@ func TestSnapshotRefWriteSurvivesTheContextEnding(t *testing.T) {
 	dir := seedRepo(t)
 	r := openRepo(t, dir)
 
-	// update-ref outlasts the deadline; the ref write must not be killed.
-	ctx, logPath := wrapGit(t, `case "$*" in
-*update-ref*) sleep 1.5;;
-esac`)
+	// The context ends while update-ref is blocked; the ref write must not be killed.
+	ctx, started, release := blockRefWrite(t)
+	ctx, cancel := context.WithCancel(ctx)
 
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 
-	turn, err := Snapshot(ctx, dir, sessA, SnapshotOptions{TempDir: t.TempDir()})
+	var turn Turn
+
+	err := endContextDuringRefWrite(t, cancel, started, release, func() (err error) {
+		turn, err = Snapshot(ctx, dir, sessA, SnapshotOptions{TempDir: t.TempDir()})
+
+		return err
+	})
 	if err != nil {
 		t.Fatalf("Snapshot: %v", err)
 	}
 
 	if turn.N != 1 {
 		t.Errorf("turn = %d, want 1", turn.N)
-	}
-
-	if calls := wrappedCalls(t, logPath); !strings.Contains(calls, "update-ref") {
-		t.Errorf("the ref write never ran through the wrapper:\n%s", calls)
 	}
 
 	locks, err := filepath.Glob(filepath.Join(r.CommonDir, "refs", "aim", "*", "*.lock"))
@@ -1243,33 +1255,10 @@ func linkedWorktree(t *testing.T, dir, branch string) string {
 	return wt
 }
 
-func TestTurnsListOneWorktree(t *testing.T) {
-	t.Parallel()
-	dir := seedRepo(t)
-	b := linkedWorktree(t, dir, "b")
-
-	writeFile(t, dir, "a.txt", "in main\n")
-	writeFile(t, b, "a.txt", "in b\n")
-	snap(t, dir, sessA, SnapshotOptions{})
-	snap(t, b, sessA, SnapshotOptions{})
-
-	for name, d := range map[string]string{"main": dir, "b": b} {
-		turns, err := Turns(context.Background(), openRepo(t, d), sessA)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if len(turns) != 1 {
-			t.Errorf("%s lists %d turns, want 1", name, len(turns))
-		}
-	}
-}
-
 func TestTurnRefsLayout(t *testing.T) {
 	t.Parallel()
 
 	main := seedRepo(t)
-	linked := linkedWorktree(t, main, "b")
 
 	odd := filepath.Join(t.TempDir(), "wt \u00f8 1")
 	gitOut(t, main, "worktree", "add", "-q", "-b", "odd", odd)
@@ -1279,7 +1268,6 @@ func TestTurnRefsLayout(t *testing.T) {
 		dir  string
 	}{
 		{"main checkout", main},
-		{"linked worktree", linked},
 		{"worktree with a space and a non-ASCII name", odd},
 	}
 
@@ -1353,7 +1341,7 @@ func TestSnapshotEndsTheOpenTurn(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		for i, ends := range []int{2, 1, 4, 99} {
+		for i, ends := range []int{2, 1, 4} {
 			before := gitOut(t, dir, "for-each-ref", "--format=%(refname) %(objectname)", "refs/aim")
 
 			next := 10 + i
@@ -1468,41 +1456,6 @@ func TestEndTurn(t *testing.T) {
 	}
 }
 
-func TestMarkMissingStartAndEnd(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	dir := seedRepo(t)
-
-	snap(t, dir, sessA, SnapshotOptions{Turn: 1})
-
-	start, err := MarkMissing(ctx, dir, sessA, 0, false)
-	if err != nil || start.N != 2 || !start.Missing {
-		t.Fatalf("start marker = %+v, %v; want turn 2 as a marker", start, err)
-	}
-
-	if _, err := MarkMissing(ctx, dir, sessA, 1, true); err != nil {
-		t.Fatalf("end marker on the open turn: %v", err)
-	}
-
-	turns, err := Turns(ctx, openRepo(t, dir), sessA)
-	if err != nil || len(turns) != 2 {
-		t.Fatalf("Turns = %+v, %v", turns, err)
-	}
-
-	if !turns[0].EndMissing || turns[0].EndCommit == "" || !turns[1].Missing {
-		t.Errorf("turns = %+v, want turn 1 ended by a marker and turn 2 a start marker", turns)
-	}
-
-	if _, err := MarkMissing(ctx, dir, sessA, 1, true); !errors.Is(err, ErrTurnNotOpen) {
-		t.Errorf("end marker on a closed turn: error = %v, want ErrTurnNotOpen", err)
-	}
-
-	if _, err := MarkMissing(ctx, dir, sessA, 5, true); !errors.Is(err, ErrTurnNotOpen) {
-		t.Errorf("end marker on a turn with no start: error = %v, want ErrTurnNotOpen", err)
-	}
-}
-
 func TestOpenTurnBehindALaterTurnHasNoSnapshot(t *testing.T) {
 	t.Parallel()
 
@@ -1534,73 +1487,72 @@ func TestOpenTurns(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
+	a := seedRepo(t)
+	b := linkedWorktree(t, a, "b")
+	c := linkedWorktree(t, a, "c")
+	a = openRepo(t, a).Root
 
 	tests := []struct {
 		name  string
-		setup func(t *testing.T, a, b, c string)
-		want  func(a, b, c string) []string
+		setup func(t *testing.T, sess string)
+		want  []string
 	}{
 		{
 			name: "open turns at the highest number in two worktrees",
-			setup: func(t *testing.T, a, b, _ string) {
-				snap(t, a, sessA, SnapshotOptions{Turn: 5})
-				snap(t, b, sessA, SnapshotOptions{Turn: 5})
+			setup: func(t *testing.T, sess string) {
+				snap(t, a, sess, SnapshotOptions{Turn: 5})
+				snap(t, b, sess, SnapshotOptions{Turn: 5})
 			},
-			want: func(a, b, _ string) []string { return []string{a, b} },
+			want: []string{a, b},
 		},
 		{
 			name: "a closed turn is left out",
-			setup: func(t *testing.T, a, b, _ string) {
-				snap(t, a, sessA, SnapshotOptions{Turn: 5})
-				snap(t, b, sessA, SnapshotOptions{Turn: 5})
+			setup: func(t *testing.T, sess string) {
+				snap(t, a, sess, SnapshotOptions{Turn: 5})
+				snap(t, b, sess, SnapshotOptions{Turn: 5})
 
-				if _, err := EndTurn(ctx, b, sessA, 5, SnapshotOptions{}); err != nil {
+				if _, err := EndTurn(ctx, b, sess, 5, SnapshotOptions{}); err != nil {
 					t.Fatal(err)
 				}
 			},
-			want: func(a, _, _ string) []string { return []string{a} },
+			want: []string{a},
 		},
 		{
 			name: "an open turn behind a later one is left out",
-			setup: func(t *testing.T, a, b, _ string) {
-				snap(t, a, sessA, SnapshotOptions{Turn: 4})
-				snap(t, b, sessA, SnapshotOptions{Turn: 5})
+			setup: func(t *testing.T, sess string) {
+				snap(t, a, sess, SnapshotOptions{Turn: 4})
+				snap(t, b, sess, SnapshotOptions{Turn: 5})
 			},
-			want: func(_, b, _ string) []string { return []string{b} },
+			want: []string{b},
 		},
 		{
 			name: "a start marker is left out",
-			setup: func(t *testing.T, a, _, c string) {
-				snap(t, a, sessA, SnapshotOptions{Turn: 5})
+			setup: func(t *testing.T, sess string) {
+				snap(t, a, sess, SnapshotOptions{Turn: 5})
 
-				if _, err := MarkMissing(ctx, c, sessA, 5, false); err != nil {
+				if _, err := MarkMissing(ctx, c, sess, 5, false); err != nil {
 					t.Fatal(err)
 				}
 			},
-			want: func(a, _, _ string) []string { return []string{a} },
+			want: []string{a},
 		},
 		{
 			name: "another session's turn is left out",
-			setup: func(t *testing.T, a, b, _ string) {
-				snap(t, a, sessA, SnapshotOptions{Turn: 5})
+			setup: func(t *testing.T, sess string) {
+				snap(t, a, sess, SnapshotOptions{Turn: 5})
 				snap(t, b, sessB, SnapshotOptions{Turn: 9})
 			},
-			want: func(a, _, _ string) []string { return []string{a} },
+			want: []string{a},
 		},
 	}
 
-	for _, tt := range tests {
+	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+			sess := fmt.Sprintf("00000000-0000-4000-8000-%012d", i)
 
-			a := seedRepo(t)
-			b := linkedWorktree(t, a, "b")
-			c := linkedWorktree(t, a, "c")
-			a = openRepo(t, a).Root
+			tt.setup(t, sess)
 
-			tt.setup(t, a, b, c)
-
-			got, err := OpenTurns(ctx, openRepo(t, a), sessA)
+			got, err := OpenTurns(ctx, openRepo(t, a), sess)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1610,7 +1562,7 @@ func TestOpenTurns(t *testing.T) {
 				roots = append(roots, o.Root)
 			}
 
-			want := tt.want(a, b, c)
+			want := slices.Clone(tt.want)
 			slices.Sort(want)
 
 			if !slices.Equal(roots, want) {

@@ -45,10 +45,27 @@ func Lock(dir string) (unlock func() error, err error) {
 	var once sync.Once
 
 	return func() error {
-		var cerr error
+		var uerr error
 
-		once.Do(func() { cerr = f.Close() })
+		once.Do(func() {
+			// Close alone keeps the lock while a forked child still holds a copy
+			// of the descriptor; LOCK_UN releases the shared description.
+			for {
+				err := unix.Flock(int(f.Fd()), unix.LOCK_UN)
+				if !errors.Is(err, unix.EINTR) {
+					if err != nil {
+						uerr = fmt.Errorf("unlocking %s: %w", path, err)
+					}
 
-		return cerr
+					break
+				}
+			}
+
+			if cerr := f.Close(); uerr == nil && cerr != nil {
+				uerr = cerr
+			}
+		})
+
+		return uerr
 	}, nil
 }

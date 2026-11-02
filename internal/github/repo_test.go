@@ -8,7 +8,6 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-	"time"
 )
 
 func TestParseRemoteURL(t *testing.T) {
@@ -158,15 +157,12 @@ func TestResolveSSHFailureKeepsAlias(t *testing.T) {
 func TestResolveSSHContextEndIsAnError(t *testing.T) {
 	t.Parallel()
 
-	ssh, _, _ := fakeSSH(t, "exec sleep 600\n")
+	ssh, _, args := fakeSSH(t, "exec sleep 600\n")
 	r := NewResolver(ResolverOptions{SSH: ssh, KnownHosts: stubHosts()})
 
-	// The fake never answers, so the deadline always comes first.
-	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
-	defer cancel()
-
-	_, err := r.Resolve(ctx, "git@work-gh:o/r.git")
-	if !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, ErrNotGitHub) {
+	// The fake never answers; the cancel comes once it has started.
+	_, err := r.Resolve(cancelWhenWritten(t, args), "git@work-gh:o/r.git")
+	if !errors.Is(err, context.Canceled) || errors.Is(err, ErrNotGitHub) {
 		t.Fatalf("err = %v, want the context's error and not ErrNotGitHub", err)
 	}
 }

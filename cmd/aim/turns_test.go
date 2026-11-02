@@ -116,13 +116,14 @@ func within(t *testing.T, ch <-chan struct{}, d time.Duration, what string) {
 	}
 }
 
-func notWithin(t *testing.T, ch <-chan struct{}, d time.Duration, what string) {
+// notYet fails if ch is already closed; the caller holds what would close it.
+func notYet(t *testing.T, ch <-chan struct{}, what string) {
 	t.Helper()
 
 	select {
 	case <-ch:
 		t.Fatalf("%s happened too early", what)
-	case <-time.After(d):
+	default:
 	}
 }
 
@@ -157,7 +158,7 @@ func TestGateForwardsEventsInOrderWithoutWaiting(t *testing.T) {
 		}
 	}
 
-	notWithin(t, released, 100*time.Millisecond, "Done before the snapshot returned")
+	notYet(t, released, "Done before the snapshot returned")
 	close(release)
 	within(t, released, time.Second, "Done after the snapshot")
 }
@@ -199,7 +200,7 @@ func TestGateSnappedClosesWhenTheSnapshotIsDone(t *testing.T) {
 		t.Fatal("the forwarded turn start has no Snapped channel")
 	}
 
-	notWithin(t, ev.Snapped, 100*time.Millisecond, "Snapped before the snapshot returned")
+	notYet(t, ev.Snapped, "Snapped before the snapshot returned")
 	close(release)
 	within(t, ev.Snapped, time.Second, "Snapped after the snapshot")
 }
@@ -228,29 +229,9 @@ func TestGateSnappedWaitsForTheMarkerOfAFailedSnapshot(t *testing.T) {
 		t.Fatal("the forwarded turn start has no Snapped channel")
 	}
 
-	notWithin(t, ev.Snapped, 100*time.Millisecond, "Snapped before the marker was written")
+	notYet(t, ev.Snapped, "Snapped before the marker was written")
 	close(releaseMark)
 	within(t, ev.Snapped, time.Second, "Snapped after the marker")
-}
-
-// Only a turn that gets a snapshot carries Snapped: other events and turn
-// starts the gate cannot snapshot leave it nil.
-func TestGateSnappedIsNilWithoutASnapshot(t *testing.T) {
-	fn := func(context.Context, string, string, bool) error { return nil }
-	r := startGate(t, fn, fn)
-
-	r.in <- harness.Event{Name: "PreToolUse"}
-
-	for _, ev := range []struct{ session, cwd string }{{gateSession, ""}, {"not-a-uuid", "/repo"}} {
-		turn, _ := turnEvent("UserPromptSubmit", ev.session, ev.cwd)
-		r.in <- turn
-	}
-
-	for range 3 {
-		if got := forwarded(t, r); got.Snapped != nil {
-			t.Errorf("%s (session %q, cwd %q) carries Snapped, want nil", got.Name, got.Session, got.Cwd)
-		}
-	}
 }
 
 // startUnreadGate runs a gate whose out channel is unbuffered and never read.
@@ -377,9 +358,9 @@ func TestGateSnapshotsOfOneSessionStayInArrivalOrder(t *testing.T) {
 
 	var releases []<-chan struct{}
 
-	want := make([]string, 0, 12)
+	want := make([]string, 0, 3)
 
-	for i := range 12 {
+	for i := range 3 {
 		cwd := "/repo" + string(rune('A'+i%26)) + string(rune('a'+i/26))
 		turn, released := turnEvent("UserPromptSubmit", gateSession, cwd)
 		want = append(want, cwd)
@@ -405,6 +386,8 @@ func TestGateSnapshotsOfOneSessionStayInArrivalOrder(t *testing.T) {
 }
 
 func TestGateSlowSnapshotIsCancelledAtTheBudget(t *testing.T) {
+	t.Parallel()
+
 	var (
 		order      []string
 		mu         sync.Mutex
@@ -438,6 +421,7 @@ func TestGateSlowSnapshotIsCancelledAtTheBudget(t *testing.T) {
 
 	r := startGate(t, snap, mark)
 	turn, released := turnEvent("UserPromptSubmit", gateSession, "/repo")
+	turn.Deadline = time.Now().Add(300 * time.Millisecond)
 
 	r.in <- turn
 
@@ -459,76 +443,9 @@ func TestGateSlowSnapshotIsCancelledAtTheBudget(t *testing.T) {
 	}
 }
 
-func TestGateSerializesTurnsOfOneSession(t *testing.T) {
-	var (
-		mu      sync.Mutex
-		running int
-		trace   []string
-		maxRun  int
-	)
-
-	snap := func(_ context.Context, _, _ string, _ bool) error {
-		mu.Lock()
-		running++
-		maxRun = max(maxRun, running)
-
-		trace = append(trace, "snap-start")
-		mu.Unlock()
-
-		time.Sleep(100 * time.Millisecond)
-
-		mu.Lock()
-		running--
-
-		trace = append(trace, "snap-end")
-		mu.Unlock()
-
-		return errors.New("boom")
-	}
-	mark := func(context.Context, string, string, bool) error {
-		mu.Lock()
-
-		trace = append(trace, "mark")
-		mu.Unlock()
-
-		return nil
-	}
-
-	r := startGate(t, snap, mark)
-	a, relA := turnEvent("UserPromptSubmit", gateSession, "/repo")
-	b, relB := turnEvent("UserPromptSubmit", strings.ToUpper(gateSession), "/repo")
-
-	r.in <- a
-
-	r.in <- b
-
-	within(t, relA, time.Second, "first Done")
-	within(t, relB, time.Second, "second Done")
-
-	deadline := time.Now().Add(2 * time.Second)
-
-	for {
-		mu.Lock()
-		n := len(trace)
-		mu.Unlock()
-
-		if n == 6 || time.Now().After(deadline) {
-			break
-		}
-
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	mu.Lock()
-	defer mu.Unlock()
-
-	want := []string{"snap-start", "snap-end", "mark", "snap-start", "snap-end", "mark"}
-	if strings.Join(trace, ",") != strings.Join(want, ",") || maxRun != 1 {
-		t.Errorf("trace = %v (max concurrent %d), want %v one at a time", trace, maxRun, want)
-	}
-}
-
 func TestGateBudgetSpentWaitingForTheLockSkipsTheSnapshot(t *testing.T) {
+	t.Parallel()
+
 	var snaps, marks atomic.Int32
 
 	snap := func(ctx context.Context, _, _ string, _ bool) error {
@@ -537,9 +454,18 @@ func TestGateBudgetSpentWaitingForTheLockSkipsTheSnapshot(t *testing.T) {
 
 		return ctx.Err()
 	}
-	mark := func(context.Context, string, string, bool) error {
-		marks.Add(1)
-		time.Sleep(300 * time.Millisecond)
+	// The first marker holds the session's lock until the test lets it go.
+	markHold := make(chan struct{})
+	bothMarked := make(chan struct{})
+	mark := func(ctx context.Context, _, _ string, _ bool) error {
+		select {
+		case <-markHold:
+		case <-ctx.Done():
+		}
+
+		if marks.Add(1) == 2 {
+			close(bothMarked)
+		}
 
 		return nil
 	}
@@ -547,18 +473,17 @@ func TestGateBudgetSpentWaitingForTheLockSkipsTheSnapshot(t *testing.T) {
 	r := startGate(t, snap, mark)
 	a, relA := turnEvent("UserPromptSubmit", gateSession, "/repo")
 	b, relB := turnEvent("UserPromptSubmit", gateSession, "/repo")
+	a.Deadline = time.Now().Add(300 * time.Millisecond)
+	b.Deadline = a.Deadline
 
 	r.in <- a
 
 	r.in <- b
 
-	within(t, relA, turnBudget+500*time.Millisecond, "first Done")
-	within(t, relB, turnBudget+500*time.Millisecond, "second Done")
-
-	deadline := time.Now().Add(3 * time.Second)
-	for marks.Load() < 2 && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
+	within(t, relA, hangGuard, "first Done")
+	within(t, relB, hangGuard, "second Done")
+	close(markHold)
+	within(t, bothMarked, hangGuard, "both markers")
 
 	if snaps.Load() != 1 || marks.Load() != 2 {
 		t.Errorf("snapshots = %d, markers = %d, want 1 and 2", snaps.Load(), marks.Load())
@@ -583,7 +508,12 @@ func TestGateSkipsEventsItCannotSnapshot(t *testing.T) {
 		turn, released := turnEvent("UserPromptSubmit", ev.session, ev.cwd)
 		r.in <- turn
 
-		within(t, released, 200*time.Millisecond, "Done for "+ev.session+"|"+ev.cwd)
+		within(t, released, time.Second, "Done for "+ev.session+"|"+ev.cwd)
+
+		// Only a turn that gets a snapshot carries Snapped.
+		if got := forwarded(t, r); got.Snapped != nil {
+			t.Errorf("%s (session %q, cwd %q) carries Snapped, want nil", got.Name, got.Session, got.Cwd)
+		}
 	}
 
 	if calls.Load() != 0 {
@@ -690,6 +620,7 @@ func isolateGit(t *testing.T) {
 
 // No git a test runs under isolateGit may start auto-maintenance: its detached
 // run outlives the git that started it and races the removal of the repository.
+// It needs real git: it reads the trace of the commands git itself ran.
 func TestIsolateGitStartsNoAutoMaintenance(t *testing.T) {
 	dir := seededRepo(t)
 	trace := filepath.Join(t.TempDir(), "trace")
@@ -859,15 +790,23 @@ func settles(t *testing.T, base int) {
 	}
 }
 
-func TestHookAnswersAfterTheSnapshotExists(t *testing.T) {
+// It needs real git: it is the one check that gitTurnWriter maps onto
+// internal/git and that the place cache resolves real worktrees.
+func TestHooksRecordTurnsWithGit(t *testing.T) {
 	repo := seededRepo(t)
+	wt := linkedWorktree(t, repo)
 	base := runtime.NumGoroutine()
 
-	h, err := setupHooks(discardLogger(), shortDir(t), "", testWatches(t), testPlaces(), false)
+	// Long enough that a loaded machine cannot turn a snapshot into a marker.
+	h, err := setupHooks(discardLogger(), shortDir(t), "", testWatches(t), testPlaces(), false,
+		hookTimes{hold: 10 * time.Second, budget: 9 * time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	t.Cleanup(h.Stop)
+
+	// The answer comes after the snapshot exists.
 	sendTurn(t, h.Sock, repo, gateSession)
 
 	turns := gitTurns(t, repo)
@@ -884,17 +823,72 @@ func TestHookAnswersAfterTheSnapshotExists(t *testing.T) {
 		t.Fatal("the app never got the event")
 	}
 
+	// A first edit in another worktree is held until that worktree's start exists.
+	if err := sendEdit(t.Context(), h.Sock, repo, filepath.Join(wt, "new.go")); err != nil {
+		t.Fatalf("Send(edit) error = %v", err)
+	}
+
+	wtTurns, own := gitTurns(t, wt), gitTurns(t, repo)
+	if len(wtTurns) != 1 || wtTurns[0].Missing || len(own) != 1 || wtTurns[0].N != own[0].N {
+		t.Fatalf("turns = %+v, own = %+v, want the worktree's start at the turn's number", wtTurns, own)
+	}
+
+	// A turn ends at the pane's next prompt, so it keeps what changed after Stop.
+	if err := os.WriteFile(filepath.Join(repo, "during.txt"), []byte("during\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stop := harness.Event{Name: "Stop", Session: gateSession, Cwd: repo, Pane: "p"}
+	if err := harness.Send(t.Context(), h.Sock, stop); err != nil {
+		t.Fatalf("Send(Stop) error = %v", err)
+	}
+
+	if turns := gitTurns(t, repo); len(turns) != 1 || turns[0].EndCommit != "" {
+		t.Fatalf("turns after Stop = %+v, want one open turn", turns)
+	}
+
+	if err := os.WriteFile(filepath.Join(repo, "after.txt"), []byte("after\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	sendTurn(t, h.Sock, repo, gateSession)
+
+	turns = gitTurns(t, repo)
+	if len(turns) != 2 || turns[0].EndCommit == "" || turns[0].EndMissing || turns[1].EndCommit != "" {
+		t.Fatalf("turns = %+v, want the first ended and the second open", turns)
+	}
+
+	for _, name := range []string{"during.txt", "after.txt"} {
+		if out := gitOut(t, repo, "ls-tree", "--name-only", turns[0].EndTree, name); out != name {
+			t.Errorf("first turn's end tree lacks %s", name)
+		}
+	}
+
 	h.Stop()
 	settles(t, base)
 }
 
+func TestDefaultHookTimes(t *testing.T) {
+	t.Parallel()
+
+	if got, want := defaultHookTimes(), (hookTimes{hold: 1500 * time.Millisecond, budget: 1400 * time.Millisecond}); got != want {
+		t.Errorf("defaultHookTimes() = %+v, want %+v", got, want)
+	}
+
+	if turnBudget >= turnHold || turnHold >= hookBudget {
+		t.Errorf("turnBudget %v, turnHold %v, hookBudget %v, want them in increasing order", turnBudget, turnHold, hookBudget)
+	}
+}
+
+// It needs real git: the wrapper on PATH blocks a real staging call.
 func TestHookBudgetSlowSnapshot(t *testing.T) {
 	repo := seededRepo(t)
 	_ = blockedStaging(t)
 
 	base := runtime.NumGoroutine()
 
-	h, err := setupHooks(discardLogger(), shortDir(t), "", testWatches(t), testPlaces(), false)
+	h, err := setupHooks(discardLogger(), shortDir(t), "", testWatches(t), testPlaces(), false,
+		hookTimes{hold: 200 * time.Millisecond, budget: 50 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -926,13 +920,14 @@ func TestHookBudgetSlowSnapshot(t *testing.T) {
 	settles(t, base)
 }
 
+// It needs real git: the wrapper on PATH blocks a real staging call.
 func TestHookBudgetServerClosingMidSnapshot(t *testing.T) {
 	repo := seededRepo(t)
 	started := blockedStaging(t)
 
 	base := runtime.NumGoroutine()
 
-	h, err := setupHooks(discardLogger(), shortDir(t), "", testWatches(t), testPlaces(), false)
+	h, err := setupHooks(discardLogger(), shortDir(t), "", testWatches(t), testPlaces(), false, defaultHookTimes())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -974,61 +969,6 @@ func TestHookBudgetServerClosingMidSnapshot(t *testing.T) {
 		t.Errorf("turns = %+v after Stop, want none (no ref, no marker)", turns)
 	}
 
-	settles(t, base)
-}
-
-func TestHookBudgetHeldIndexLockDoesNotBlockTheSnapshot(t *testing.T) {
-	repo := seededRepo(t)
-	base := runtime.NumGoroutine()
-
-	lock := filepath.Join(repo, ".git", "index.lock")
-	if err := os.WriteFile(lock, []byte("held"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	h, err := setupHooks(discardLogger(), shortDir(t), "", testWatches(t), testPlaces(), false)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	sendTurn(t, h.Sock, repo, gateSession)
-
-	if turns := gitTurns(t, repo); len(turns) != 1 || turns[0].Missing {
-		t.Errorf("turns = %+v, want one snapshot despite the lock", turns)
-	}
-
-	if data, err := os.ReadFile(lock); err != nil || string(data) != "held" {
-		t.Errorf("index.lock = %q, %v, want it untouched", data, err)
-	}
-
-	h.Stop()
-	settles(t, base)
-}
-
-func TestHookBudgetUnsnapshottableTurnsAnswerAtOnce(t *testing.T) {
-	repo := seededRepo(t)
-	notRepo := t.TempDir()
-	base := runtime.NumGoroutine()
-
-	h, err := setupHooks(discardLogger(), shortDir(t), "", testWatches(t), testPlaces(), false)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	for name, c := range map[string]struct{ cwd, session string }{
-		"no cwd":          {"", gateSession},
-		"unknown session": {repo, "not-a-session"},
-		"not a repo":      {notRepo, gateSession},
-	} {
-		// That the gate answers these without the hold is the gate's own test.
-		t.Run(name, func(t *testing.T) { sendTurn(t, h.Sock, c.cwd, c.session) })
-	}
-
-	if turns := gitTurns(t, repo); len(turns) != 0 {
-		t.Errorf("turns = %+v, want none", turns)
-	}
-
-	h.Stop()
 	settles(t, base)
 }
 
@@ -1113,19 +1053,6 @@ func TestGateDoesNotSkipAfterAChange(t *testing.T) {
 
 	if !s.turn(t) {
 		t.Fatal("turn after the changed one was not skipped")
-	}
-}
-
-// The counter rises before the debounce, so a change whose batch has not been
-// sent yet already defeats the skip.
-func TestGateDoesNotSkipAChangeInsideTheDebounce(t *testing.T) {
-	s := newSeqRig(t)
-
-	s.turn(t)
-	s.n.Add(1) // seq rose; no batch was sent
-
-	if s.turn(t) {
-		t.Fatal("a change inside the debounce was skipped")
 	}
 }
 
@@ -1223,7 +1150,6 @@ func TestNextTurnID(t *testing.T) {
 		{"a later time", 1_700_000_000_000, 1_700_000_000_500},
 		{"the same millisecond", 1_700_000_000_500, 1_700_000_000_501},
 		{"a clock set back", 1_700_000_009_000, 1_700_000_009_001},
-		{"the pane's first turn", 0, 1_700_000_000_500},
 	}
 
 	for _, tt := range tests {
@@ -1400,6 +1326,10 @@ func TestGateEndsThePreviousTurnInTheSameWorktree(t *testing.T) {
 	if got[0].turn <= 0 || got[1].turn <= got[0].turn || got[2].turn <= got[1].turn {
 		t.Errorf("numbers %d, %d, %d do not increase", got[0].turn, got[1].turn, got[2].turn)
 	}
+
+	if e := w.endings(); len(e) != 0 {
+		t.Errorf("End calls = %+v, want none for the own root", e)
+	}
 }
 
 func TestGateEndsNothingAcrossWorktrees(t *testing.T) {
@@ -1410,7 +1340,6 @@ func TestGateEndsNothingAcrossWorktrees(t *testing.T) {
 		sends []recordedStart
 		fail  func(dir string) bool
 	}{
-		{"a start in another worktree", []recordedStart{{dir: "/a"}, {dir: "/b"}}, nil},
 		{"after a failed start", []recordedStart{{dir: "/a"}, {dir: "/a"}}, func(string) bool { return true }},
 		{"another pane", []recordedStart{{dir: "/a", pane: "p1"}, {dir: "/a", pane: "p2"}}, nil},
 	}
@@ -1432,23 +1361,6 @@ func TestGateEndsNothingAcrossWorktrees(t *testing.T) {
 				t.Errorf("ends = %d, %d, want 0 and 0", got[0].ends, got[1].ends)
 			}
 		})
-	}
-}
-
-func TestGateEndsThePreviousTurnAtTheNextPrompt(t *testing.T) {
-	t.Parallel()
-
-	w := &recordingWriter{}
-
-	sendTurns(t, w, dirSeq, recordedStart{dir: "/a"}, recordedStart{dir: "/a"})
-
-	got := w.starts()
-	if len(got) != 2 || got[1].ends != got[0].turn {
-		t.Fatalf("starts = %+v, want the second to end the first", got)
-	}
-
-	if e := w.endings(); len(e) != 0 {
-		t.Errorf("End calls = %+v, want none for the own root", e)
 	}
 }
 
@@ -2047,38 +1959,17 @@ func TestGateEditAfterStopBelongsToTheTurn(t *testing.T) {
 	}
 }
 
-func TestGateIgnoredEditsResolveOnce(t *testing.T) {
+func TestGateIgnoredEditsStartNothing(t *testing.T) {
 	t.Parallel()
 
-	var lookups atomic.Int32
-
-	cache := git.NewPlaceCache(func(context.Context, string) (git.Place, error) {
-		lookups.Add(1)
-
-		return git.Place{}, git.ErrNotCounted
-	}, time.Now)
-
 	w := &recordingWriter{}
-	r := startedTurn(t, w, cache.Place)
+	r := startedTurn(t, w, noPlaces)
 
-	var released []<-chan struct{}
+	ev, done := editEvent(gateSession, "/ignored/ledger.md", nil, nil)
+	r.in <- ev
 
-	for range 10 {
-		ev, done := editEvent(gateSession, "/ignored/ledger.md", nil, nil)
-		r.in <- ev
-
-		released = append(released, done)
-	}
-
-	for _, done := range released {
-		within(t, done, time.Second, "Done of an ignored edit")
-	}
-
+	within(t, done, time.Second, "Done of an ignored edit")
 	drain(t, r)
-
-	if n := lookups.Load(); n != 1 {
-		t.Errorf("lookups = %d, want 1", n)
-	}
 
 	if got := w.starts(); len(got) != 1 {
 		t.Errorf("starts = %+v, want only the turn's", got)
@@ -2271,29 +2162,6 @@ func sendEdit(ctx context.Context, sock, repo, path string) error {
 	return harness.Send(ctx, sock, harness.Event{
 		Name: "PreToolUse", Session: gateSession, Cwd: repo, Pane: "p", Edit: path, Before: true,
 	})
-}
-
-func TestHookHoldsAFirstEditUntilItsStartExists(t *testing.T) {
-	repo := seededRepo(t)
-	wt := linkedWorktree(t, repo)
-
-	h, err := setupHooks(discardLogger(), shortDir(t), "", testWatches(t), testPlaces(), false)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Cleanup(h.Stop)
-
-	sendTurn(t, h.Sock, repo, gateSession)
-
-	if err := sendEdit(t.Context(), h.Sock, repo, filepath.Join(wt, "new.go")); err != nil {
-		t.Fatalf("Send(edit) error = %v", err)
-	}
-
-	turns, own := gitTurns(t, wt), gitTurns(t, repo)
-	if len(turns) != 1 || turns[0].Missing || len(own) != 1 || turns[0].N != own[0].N {
-		t.Fatalf("turns = %+v, own = %+v, want the worktree's start at the turn's number", turns, own)
-	}
 }
 
 func TestGateNextPromptMarksAStartThatLandsLate(t *testing.T) {

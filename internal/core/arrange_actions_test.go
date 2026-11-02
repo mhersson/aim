@@ -185,31 +185,9 @@ func TestRotateEqualizePromoteClearZoom(t *testing.T) {
 	}
 }
 
-// widths are the pane tile widths in the active tab, in pane order.
-func widths(st *Store) []int {
-	s := st.State()
-	a := Arrange(s.Tabs[0], modeInner, s.Layout)
-
-	var out []int
-	for _, id := range s.Tabs[0].Panes {
-		out = append(out, a.Rects[id].W)
-	}
-
-	return out
-}
-
 func spread(v []int) int { return slices.Max(v) - slices.Min(v) }
 
 func TestEqualizeBSP(t *testing.T) {
-	t.Run("chain of four", func(t *testing.T) {
-		st := storeOf(t, ModeBSP, 4)
-		must(t, st, Equalize{})
-
-		w := widths(st)
-		if len(w) != 4 || spread(w) > 1 {
-			t.Fatalf("widths = %v", w)
-		}
-	})
 	t.Run("grid of four", func(t *testing.T) {
 		st := storeOf(t, ModeBSP, 1)
 		must(t, st, OpenPane{Kind: KindShell, Split: SplitVertical, Area: modeInner})
@@ -327,31 +305,6 @@ func TestPromote(t *testing.T) {
 }
 
 func TestModeSwitchClearsPreselection(t *testing.T) {
-	for _, n := range []int{1, 3, MaxPanes} {
-		for _, to := range []LayoutMode{ModeMaster, ModeScrolling} {
-			st := storeOf(t, ModeBSP, n)
-			before := st.State().Tabs[0]
-			must(t, st, ToggleZoom{})
-			must(t, st, Preselect{Dir: Left})
-			must(t, st, SetLayoutMode{Mode: to, Area: modeInner})
-
-			after := st.State().Tabs[0]
-			if after.Preselect != NoDir || after.Zoomed || after.Focus != before.Focus {
-				t.Errorf("%d panes to %s: %+v", n, to, after)
-			}
-
-			got := slices.Clone(after.Panes)
-			slices.Sort(got)
-
-			want := slices.Clone(before.Panes)
-			slices.Sort(want)
-
-			if !slices.Equal(got, want) {
-				t.Errorf("%d panes to %s: panes changed", n, to)
-			}
-		}
-	}
-
 	st := NewStore(InitialState(DefaultConfig()))
 	must(t, st, Preselect{Dir: Left})
 	must(t, st, SetLayoutMode{Mode: ModeMaster, Area: modeInner})

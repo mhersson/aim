@@ -5,14 +5,108 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 )
+
+// repoTemplate is a fixture repository built once per test binary and copied
+// per test. It is built on first use and removed by TestMain.
+type repoTemplate struct {
+	once sync.Once
+	dir  string
+	err  error
+}
+
+var (
+	seedTemplate     repoTemplate
+	baseTemplate     repoTemplate
+	seededTemplate   repoTemplate
+	updateTemplate   repoTemplate
+	pushTemplate     repoTemplate
+	trackingTemplate repoTemplate
+)
+
+// copyTemplate copies tpl into a fresh symlink-free temp dir and returns its
+// path, building tpl first with build. Templates hold no refs/aim refs, linked
+// worktrees or absolute symlinks (CopyFS keeps them, so they would point into the
+// template), and reach other repositories by relative paths only.
+func copyTemplate(t *testing.T, tpl *repoTemplate, build func(dir string) error) string {
+	t.Helper()
+
+	tpl.once.Do(func() {
+		tpl.dir, tpl.err = os.MkdirTemp("", "git-template-")
+		if tpl.err == nil {
+			tpl.err = build(tpl.dir)
+		}
+	})
+
+	if tpl.err != nil {
+		t.Fatalf("build template: %v", tpl.err)
+	}
+
+	dst, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.CopyFS(dst, os.DirFS(tpl.dir)); err != nil {
+		t.Fatalf("copy template: %v", err)
+	}
+
+	return dst
+}
+
+// gitRun runs git for a template builder, with fixed commit dates so the ids
+// are the same on every run. The error carries git's output.
+func gitRun(dir string, args ...string) error {
+	const date = "2020-01-01T00:00:00Z"
+
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+
+	cmd.Env = append(os.Environ(), "GIT_AUTHOR_DATE="+date, "GIT_COMMITTER_DATE="+date)
+
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git %s: %w\n%s", strings.Join(args, " "), err, out)
+	}
+
+	return nil
+}
+
+// buildRepo makes dir a repository on main holding files and one commit.
+func buildRepo(dir string, files map[string]string) error {
+	if err := gitRun(dir, "init", "-q", "-b", "main"); err != nil {
+		return err
+	}
+
+	for name, content := range files {
+		if err := writeBuilt(dir, name, content); err != nil {
+			return err
+		}
+	}
+
+	if err := gitRun(dir, "add", "-A"); err != nil {
+		return err
+	}
+
+	return gitRun(dir, "commit", "-q", "-m", "init")
+}
+
+func writeBuilt(dir, rel, content string) error {
+	path := filepath.Join(dir, rel)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+
+	return os.WriteFile(path, []byte(content), 0o644)
+}
 
 // TestMain isolates git from the machine's config once for the binary, so
 // tests that build repositories need no t.Setenv. Its global config turns
@@ -44,6 +138,13 @@ func TestMain(m *testing.M) {
 	}
 
 	code := m.Run()
+
+	for _, tpl := range []*repoTemplate{&seedTemplate, &baseTemplate, &seededTemplate, &updateTemplate, &pushTemplate, &trackingTemplate} {
+		if tpl.dir != "" {
+			_ = os.RemoveAll(tpl.dir)
+		}
+	}
+
 	_ = os.RemoveAll(dir)
 
 	os.Exit(code)
@@ -209,6 +310,49 @@ func wrapGit(t *testing.T, extraShell string) (ctx context.Context, logPath stri
 	script, logPath := writeGitWrapper(t, extraShell)
 
 	return context.WithValue(context.Background(), gitPathKey{}, script), logPath
+}
+
+// blockRefWrite returns a wrapGit context whose update-ref creates started,
+// then waits for release to exist before it execs git. The wait is a hang
+// guard that only expires when the test is already failing.
+func blockRefWrite(t *testing.T) (ctx context.Context, started, release string) {
+	t.Helper()
+
+	dir := t.TempDir()
+	started = filepath.Join(dir, "started")
+	release = filepath.Join(dir, "release")
+
+	ctx, _ = wrapGit(t, `case "$*" in
+*update-ref*)
+	: > '`+started+`'
+	n=0
+	while [ ! -e '`+release+`' ] && [ $n -lt 600 ]; do sleep 0.05; n=$((n+1)); done;;
+esac`)
+
+	return ctx, started, release
+}
+
+// endContextDuringRefWrite runs fn, cancels its context once its update-ref is
+// blocked, then lets the update-ref go and returns what fn returned.
+func endContextDuringRefWrite(t *testing.T, cancel context.CancelFunc, started, release string, fn func() error) error {
+	t.Helper()
+
+	done := make(chan error, 1)
+
+	go func() { done <- fn() }()
+
+	eventually(t, "the ref write to start", func() bool {
+		_, err := os.Stat(started)
+
+		return err == nil
+	})
+	cancel()
+
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	return <-done
 }
 
 // wrappedCalls returns the wrapper's log and fails when it is missing or empty,

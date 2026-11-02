@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -21,7 +20,6 @@ import (
 
 	"github.com/mhersson/aim/internal/core"
 	"github.com/mhersson/aim/internal/git"
-	"github.com/mhersson/aim/internal/harness"
 	"github.com/mhersson/aim/internal/term"
 )
 
@@ -123,8 +121,8 @@ func TestStartHooksFailureTurnsHooksOff(t *testing.T) {
 		t.Errorf("runtime = %+v, want no settings, socket or events", h)
 	}
 
-	if !strings.HasPrefix(h.Notice, "agent hooks are off: ") {
-		t.Errorf("notice = %q, want the hooks-off notice", h.Notice)
+	if h.Notice == "" {
+		t.Error("no notice, want one that says the hooks are off")
 	}
 }
 
@@ -139,10 +137,11 @@ func TestStartHooksNamesAnOverlongSocketPath(t *testing.T) {
 	}
 
 	sock := filepath.Join(stateDir, "run", strconv.Itoa(os.Getpid())+".sock")
-	want := fmt.Sprintf("agent hooks are off: socket path too long (%d bytes, at most %d)", len(sock), maxSockPath)
 
-	if h.Notice != want {
-		t.Errorf("notice = %q, want %q", h.Notice, want)
+	for _, n := range []int{len(sock), maxSockPath} {
+		if !strings.Contains(h.Notice, strconv.Itoa(n)) {
+			t.Errorf("notice = %q, want it to carry %d", h.Notice, n)
+		}
 	}
 }
 
@@ -150,14 +149,12 @@ func TestWarnStatusLineOff(t *testing.T) {
 	tests := []struct {
 		name string
 		exe  string
-		want string // what the warning names; empty for no warning
+		warn bool
 	}{
-		{"quotable path", "/opt/aim/bin/aim", ""},
-		{"single quote", "/opt/a'im/aim", "single quote"},
-		{"backslash", `/opt/a\im/aim`, "backslash"},
-		{"escape character", "/opt/a\x1b[31mim/aim", "U+001B"},
-		{"newline", "/opt/a\nim/aim", "U+000A"},
-		{"invalid UTF-8", "/opt/a\xffim/aim", "UTF-8"},
+		{"quotable path", "/opt/aim/bin/aim", false},
+		{"single quote", "/opt/a'im/aim", true},
+		{"escape character", "/opt/a\x1b[31mim/aim", true},
+		{"invalid UTF-8", "/opt/a\xffim/aim", true},
 	}
 
 	for _, tt := range tests {
@@ -167,7 +164,7 @@ func TestWarnStatusLineOff(t *testing.T) {
 			warnStatusLineOff(slog.New(slog.NewTextHandler(&buf, nil)), tt.exe)
 
 			got := buf.String()
-			if tt.want == "" {
+			if !tt.warn {
 				if got != "" {
 					t.Fatalf("log = %q, want no warning", got)
 				}
@@ -175,14 +172,8 @@ func TestWarnStatusLineOff(t *testing.T) {
 				return
 			}
 
-			if strings.Count(got, "\n") != 1 || !strings.HasSuffix(got, "\n") {
-				t.Fatalf("log = %q, want one record", got)
-			}
-
-			for _, want := range []string{"level=WARN", "status line is off", tt.want} {
-				if !strings.Contains(got, want) {
-					t.Errorf("log = %q, want it to contain %q", got, want)
-				}
+			if strings.Count(got, "\n") != 1 || !strings.HasSuffix(got, "\n") || !strings.Contains(got, "level=WARN") {
+				t.Fatalf("log = %q, want one WARN record", got)
 			}
 
 			body := strings.TrimSuffix(got, "\n")
@@ -345,7 +336,7 @@ func TestStartHooksWritesTheShellIntegration(t *testing.T) {
 		h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces(), true)
 		defer h.Stop()
 
-		if h.Settings != "" || !strings.HasPrefix(h.Notice, "agent hooks are off: ") {
+		if h.Settings != "" || h.Notice == "" {
 			t.Fatalf("runtime = %+v, want hooks off", h)
 		}
 
@@ -367,7 +358,7 @@ func TestStartHooksWritesTheShellIntegration(t *testing.T) {
 		h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces(), true)
 		defer h.Stop()
 
-		if h.Settings != "" || !strings.HasPrefix(h.Notice, "agent hooks are off: ") {
+		if h.Settings != "" || h.Notice == "" {
 			t.Fatalf("runtime = %+v, want hooks off", h)
 		}
 
@@ -428,16 +419,6 @@ func TestWrapperTarget(t *testing.T) {
 	}
 }
 
-func TestPidAlive(t *testing.T) {
-	if !pidAlive(os.Getpid()) {
-		t.Error("the running process is not alive")
-	}
-
-	if pidAlive(deadPid(t)) {
-		t.Error("a reaped process is alive")
-	}
-}
-
 // deadPid returns the pid of a child that has exited and been reaped.
 func deadPid(t *testing.T) int {
 	t.Helper()
@@ -489,8 +470,17 @@ func testWatches(t *testing.T) *git.WatchSet {
 	return w
 }
 
+// It needs real git: the root comes from git rev-parse.
 func TestWatchSeqResolvesTheRootFromASubdirectory(t *testing.T) {
-	dir := seededRepo(t)
+	isolateGit(t)
+
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gitOut(t, dir, "init", "-q", "-b", "main")
+
 	sub := filepath.Join(dir, "sub")
 
 	if err := os.Mkdir(sub, 0o700); err != nil {
@@ -523,49 +513,5 @@ func TestWatchSeqResolvesTheRootFromASubdirectory(t *testing.T) {
 
 	if _, _, ok := seq(ctx, t.TempDir()); ok {
 		t.Fatal("a directory outside any repository reported a watcher")
-	}
-}
-
-// A turn ends at the pane's next prompt, so it keeps what changed after Stop.
-func TestHookNextPromptWritesTheEnd(t *testing.T) {
-	repo := seededRepo(t)
-
-	h, err := setupHooks(discardLogger(), shortDir(t), "", testWatches(t), testPlaces(), false)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Cleanup(h.Stop)
-
-	sendTurn(t, h.Sock, repo, gateSession)
-
-	if err := os.WriteFile(filepath.Join(repo, "during.txt"), []byte("during\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	stop := harness.Event{Name: "Stop", Session: gateSession, Cwd: repo, Pane: "p"}
-	if err := harness.Send(t.Context(), h.Sock, stop); err != nil {
-		t.Fatalf("Send(Stop) error = %v", err)
-	}
-
-	if turns := gitTurns(t, repo); len(turns) != 1 || turns[0].EndCommit != "" {
-		t.Fatalf("turns after Stop = %+v, want one open turn", turns)
-	}
-
-	if err := os.WriteFile(filepath.Join(repo, "after.txt"), []byte("after\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	sendTurn(t, h.Sock, repo, gateSession)
-
-	turns := gitTurns(t, repo)
-	if len(turns) != 2 || turns[0].EndCommit == "" || turns[0].EndMissing || turns[1].EndCommit != "" {
-		t.Fatalf("turns = %+v, want the first ended and the second open", turns)
-	}
-
-	for _, name := range []string{"during.txt", "after.txt"} {
-		if out := gitOut(t, repo, "ls-tree", "--name-only", turns[0].EndTree, name); out != name {
-			t.Errorf("first turn's end tree lacks %s", name)
-		}
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -74,7 +75,7 @@ func imageCacheDir(indexCache string) string {
 // behind and yields a runtime with a notice, so agents start without hooks.
 // With shell it also writes the shell integration dir.
 func startHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.WatchSet, places *git.PlaceCache, shell bool) hookRuntime {
-	h, err := setupHooks(logger, stateDir, indexCache, watches, places, shell)
+	h, err := setupHooks(logger, stateDir, indexCache, watches, places, shell, defaultHookTimes())
 	if err != nil {
 		logger.Warn("agent hooks are off", "err", err)
 
@@ -84,7 +85,12 @@ func startHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.W
 	return h
 }
 
-func setupHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.WatchSet, places *git.PlaceCache, shell bool) (hookRuntime, error) {
+// hookTimes are the hook server's hold and the turn snapshot's budget.
+type hookTimes struct{ hold, budget time.Duration }
+
+func defaultHookTimes() hookTimes { return hookTimes{hold: turnHold, budget: turnBudget} }
+
+func setupHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.WatchSet, places *git.PlaceCache, shell bool, times hookTimes) (hookRuntime, error) {
 	runDir := filepath.Join(stateDir, "run")
 	if err := os.MkdirAll(runDir, 0o700); err != nil {
 		return hookRuntime{}, fmt.Errorf("run dir: %w", err)
@@ -149,8 +155,8 @@ func setupHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.W
 	}
 
 	srv.Log = logger
-	srv.Hold = turnHold
-	srv.Budget = turnBudget
+	srv.Hold = times.hold
+	srv.Budget = times.budget
 
 	raw := make(chan harness.Event, eventBuffer)
 	events := make(chan harness.Event, eventBuffer)

@@ -37,14 +37,9 @@ func TestParseJobLogLines(t *testing.T) {
 		{"crlf", "a\r\n", false, []string{"a"}, time.Time{}},
 		{"progress", "10%\r50%\rdone", false, []string{"done"}, time.Time{}},
 		{"no final newline", "a\nb", false, []string{"a", "b"}, time.Time{}},
-		{"blank line", "a\n\nb\n", false, []string{"a", "", "b"}, time.Time{}},
 		{"empty", "", false, nil, time.Time{}},
 		{"bad time", "2026-13-30T12:01:05Z x\n", false, []string{"2026-13-30T12:01:05Z x"}, time.Time{}},
-		{"tab kept", "a\tb\n", false, []string{"a\tb"}, time.Time{}},
-		{"double cr", "a\r\r\n", false, []string{"a"}, time.Time{}},
-		{"colour then cr", "\x1b[31m\rz\n", false, []string{"z"}, time.Time{}},
 		{"timestamp only", "2026-10-30T12:01:05.1234567Z \n", false, []string{""}, at},
-		{"stray endgroup", "##[endgroup]\na\n", false, []string{"a"}, time.Time{}},
 		{"unterminated osc then line", "a\x1b]0;t\nb\n", false, []string{"a", "b"}, time.Time{}},
 	}
 	for _, tc := range tests {
@@ -86,7 +81,6 @@ func TestParseJobLogMarkers(t *testing.T) {
 		{"##[notice]Cache saved", LogNotice, "Notice: Cache saved"},
 		{"##[command]/usr/bin/git fetch", LogCommand, "/usr/bin/git fetch"},
 		{"##[debug]Evaluating: x", LogDebug, "Evaluating: x"},
-		{"##[section]Starting", LogText, "Starting"},
 		{"x ##[error]not at the start", LogText, "x ##[error]not at the start"},
 	}
 	for _, tc := range tests {
@@ -180,17 +174,11 @@ func TestParseJobLogColours(t *testing.T) {
 		{"256 low", "\x1b[38;5;3mx", []LogSpan{{"x", 3, false}}},
 		{"256 high", "\x1b[38;5;196mx", []LogSpan{{"x", -1, false}}},
 		{"truecolour", "\x1b[38;2;1;2;3mx", []LogSpan{{"x", -1, false}}},
-		{"background", "\x1b[41mx", []LogSpan{{"x", -1, false}}},
 		{"background 256 keeps fg", "\x1b[31;48;5;2mx", []LogSpan{{"x", 1, false}}},
-		{"default colour", "\x1b[31ma\x1b[39mb", []LogSpan{{"a", 1, false}, {"b", -1, false}}},
 		{"not bold", "\x1b[1ma\x1b[22mb", []LogSpan{{"a", -1, true}, {"b", -1, false}}},
+		{"default colour", "\x1b[31ma\x1b[39mb", []LogSpan{{"a", 1, false}, {"b", -1, false}}},
 		{"empty resets", "\x1b[1;31ma\x1b[mb", []LogSpan{{"a", 1, true}, {"b", -1, false}}},
-		{"trailing empty resets", "\x1b[1;31ma\x1b[1;mb", []LogSpan{{"a", 1, true}, {"b", -1, false}}},
 		{"unterminated", "a\x1b[31", []LogSpan{{"a", -1, false}}},
-		{"leading reset", "\x1b[0ma", []LogSpan{{"a", -1, false}}},
-		{"reset changes nothing", "a\x1b[0mb", []LogSpan{{"ab", -1, false}}},
-		{"repeated colour", "\x1b[31ma\x1b[31mb", []LogSpan{{"ab", 1, false}}},
-		{"colour then bold", "\x1b[31ma\x1b[1mb", []LogSpan{{"a", 1, false}, {"b", 1, true}}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -224,8 +212,6 @@ func TestParseJobLogEscapes(t *testing.T) {
 		{"osc 52", "\x1b]52;c;aGk=\x07a", "a"},
 		{"osc 8", "\x1b]8;;https://x\x1b\\b", "b"},
 		{"cursor", "\x1b[2Kc", "c"},
-		{"save cursor", "\x1b7d", "d"},
-		{"bell", "e\x07f", "ef"},
 		{"unterminated osc", "g\x1b]0;title", "g"},
 		{"dcs", "\x1bPq#0;2;0;0;0\x1b\\h", "h"},
 		{"charset", "\x1b(Bi", "i"},

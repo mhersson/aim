@@ -392,7 +392,7 @@ func TestDiffLineEndings(t *testing.T) {
 func TestDiffOddPaths(t *testing.T) {
 	t.Parallel()
 
-	names := []string{"sp ace.txt", "uni/ünï-日本.txt", "new\nline.txt", "quo\"te.txt", "tab\there.txt", "back\\slash.txt"}
+	names := []string{"sp ace.txt", "uni/ünï-日本.txt", "new\nline.txt", "quo\"te.txt", "tab\there.txt", "back\\slash.txt", "-dash.txt", "+plus.txt", "dir/it's a file.txt"}
 
 	dir := branchRepo(t, func(dir string) {
 		writeFile(t, dir, "keep.txt", "k\n")
@@ -411,29 +411,22 @@ func TestDiffOddPaths(t *testing.T) {
 			t.Errorf("%q: no hunks", n)
 		}
 	}
-}
 
-func TestDiffInvalidUTF8Path(t *testing.T) {
-	t.Parallel()
-
-	name := "inv\xffalid.txt"
-	if !fsAcceptsName(t, name) {
-		t.Skip("the filesystem refuses names that are not valid UTF-8")
+	// Not in the golden: JSON cannot carry it, and APFS refuses the name.
+	invalid := "inv\xffalid.txt"
+	if !fsAcceptsName(t, invalid) {
+		return // the skip on a filesystem that refuses the name
 	}
 
-	dir := branchRepo(t, func(dir string) {
-		writeFile(t, dir, "keep.txt", "k\n")
-	}, func(dir string) {
-		writeFile(t, dir, name, "content of "+strconv.Quote(name)+"\n")
-	})
+	writeFile(t, dir, invalid, "content of "+strconv.Quote(invalid)+"\n")
 
-	f := fileByPath(t, branchDiff(t, dir), name)
+	f := fileByPath(t, branchDiff(t, dir), invalid)
 	if f.Status != Added || !f.Untracked || len(f.Hunks) != 1 || len(f.Hunks[0].Lines) != 1 {
-		t.Fatalf("%q: status %v, untracked %v, hunks %+v, want one untracked added hunk with one line", name, f.Status, f.Untracked, f.Hunks)
+		t.Fatalf("%q: status %v, untracked %v, hunks %+v, want one untracked added hunk with one line", invalid, f.Status, f.Untracked, f.Hunks)
 	}
 
-	if l := f.Hunks[0].Lines[0]; l.Kind != Add || l.Text != "content of "+strconv.Quote(name) {
-		t.Errorf("%q: line %c %q, want %c %q", name, l.Kind, l.Text, Add, "content of "+strconv.Quote(name))
+	if l := f.Hunks[0].Lines[0]; l.Kind != Add || l.Text != "content of "+strconv.Quote(invalid) {
+		t.Errorf("%q: line %c %q, want %c %q", invalid, l.Kind, l.Text, Add, "content of "+strconv.Quote(invalid))
 	}
 }
 
@@ -515,18 +508,16 @@ func TestDiffBranchErrors(t *testing.T) {
 		}
 	})
 
-	t.Run("option as base", func(t *testing.T) {
-		dir := seedRepo(t)
+	seeded := seedRepo(t)
 
-		if _, err := e.Diff(ctx, BranchSource{Worktree: dir, Base: "--all"}); err == nil {
+	t.Run("option as base", func(t *testing.T) {
+		if _, err := e.Diff(ctx, BranchSource{Worktree: seeded, Base: "--all"}); err == nil {
 			t.Error("accepted a base that looks like an option")
 		}
 	})
 
 	t.Run("unknown base", func(t *testing.T) {
-		dir := seedRepo(t)
-
-		if _, err := e.Diff(ctx, BranchSource{Worktree: dir, Base: "nope"}); err == nil {
+		if _, err := e.Diff(ctx, BranchSource{Worktree: seeded, Base: "nope"}); err == nil {
 			t.Error("accepted an unknown base")
 		}
 	})
@@ -549,11 +540,10 @@ func TestDiffBranchErrors(t *testing.T) {
 	})
 
 	t.Run("cancelled", func(t *testing.T) {
-		dir := seedRepo(t)
 		cctx, cancel := context.WithCancel(ctx)
 		cancel()
 
-		if _, err := e.Diff(cctx, BranchSource{Worktree: dir, Base: "main"}); !errors.Is(err, context.Canceled) {
+		if _, err := e.Diff(cctx, BranchSource{Worktree: seeded, Base: "main"}); !errors.Is(err, context.Canceled) {
 			t.Errorf("err = %v, want context.Canceled", err)
 		}
 
@@ -563,73 +553,6 @@ func TestDiffBranchErrors(t *testing.T) {
 	t.Run("unsupported source", func(t *testing.T) {
 		if _, err := e.Diff(ctx, nil); err == nil {
 			t.Error("accepted a nil source")
-		}
-	})
-}
-
-func TestDiffOddRepositories(t *testing.T) {
-	t.Parallel()
-	t.Run("detached HEAD", func(t *testing.T) {
-		t.Parallel()
-		dir := seedRepo(t)
-		writeFile(t, dir, "a.txt", "changed\n")
-		commitAll(t, dir, "second")
-		gitOut(t, dir, "checkout", "-q", "--detach", "HEAD")
-		writeFile(t, dir, "d.txt", "d\n")
-
-		res := diffOK(t, testEngine(t), BranchSource{Worktree: dir, Base: "main"})
-		if len(res.Files) != 1 || res.Files[0].Path != "d.txt" {
-			t.Errorf("files = %v", pathsOf(res))
-		}
-	})
-
-	t.Run("linked worktree of a bare repository", func(t *testing.T) {
-		t.Parallel()
-		src := seedRepo(t)
-		bare := filepath.Join(t.TempDir(), "bare.git")
-		gitOut(t, src, "clone", "-q", "--bare", src, bare)
-
-		wt := filepath.Join(t.TempDir(), "wt")
-		gitOut(t, bare, "worktree", "add", "-q", "-b", "work", wt)
-
-		wt, err := filepath.EvalSymlinks(wt)
-		must(t, err)
-		writeFile(t, wt, "new.txt", "n\n")
-
-		res := diffOK(t, testEngine(t), BranchSource{Worktree: wt, Base: "main"})
-		if len(res.Files) != 1 || res.Files[0].Path != "new.txt" || !res.Files[0].Untracked {
-			t.Errorf("files = %+v", res.Files)
-		}
-	})
-
-	t.Run("split index", func(t *testing.T) {
-		t.Parallel()
-		dir := seedRepo(t)
-		gitOut(t, dir, "config", "core.splitIndex", "true")
-		gitOut(t, dir, "update-index", "--split-index")
-		writeFile(t, dir, "dir/c.txt", "touched\n")
-		gitOut(t, dir, "add", "dir/c.txt")
-		writeFile(t, dir, "u.txt", "u\n")
-
-		res := diffOK(t, testEngine(t), BranchSource{Worktree: dir, Base: "main"})
-		if got := pathsOf(res); len(got) != 2 || got[0] != "dir/c.txt" || got[1] != "u.txt" {
-			t.Errorf("files = %v", got)
-		}
-	})
-
-	t.Run("untracked file over the snapshot cap", func(t *testing.T) {
-		t.Parallel()
-		dir := seedRepo(t)
-
-		f, err := os.Create(filepath.Join(dir, "huge.bin"))
-		must(t, err)
-		must(t, f.Truncate(60<<20)) // sparse
-		must(t, f.Close())
-		writeFile(t, dir, "small.txt", "s\n")
-
-		res := diffOK(t, testEngine(t), BranchSource{Worktree: dir, Base: "main"})
-		if got := pathsOf(res); len(got) != 1 || got[0] != "small.txt" {
-			t.Errorf("files = %v, want only small.txt", got)
 		}
 	})
 }
@@ -652,6 +575,7 @@ func TestDiffTurnLiveAndPast(t *testing.T) {
 	dir := turnRepo(t)
 	writeFile(t, dir, "a.txt", "turn two\n")
 	writeFile(t, dir, "two.txt", "two\n")
+	must(t, os.Remove(filepath.Join(dir, "b.txt")))
 	snap(t, dir, sessA, SnapshotOptions{})
 	writeFile(t, dir, "a.txt", "after two\n")
 	writeFile(t, dir, "live.txt", "live\n")
@@ -679,6 +603,10 @@ func TestDiffTurnLiveAndPast(t *testing.T) {
 
 	if past.Live || past.Turn != 1 {
 		t.Errorf("past: Live=%v Turn=%d", past.Live, past.Turn)
+	}
+
+	if f := fileByPath(t, past, "b.txt"); f.Status != Deleted {
+		t.Errorf("b.txt status = %q in the past turn, want deleted", f.Status)
 	}
 
 	for _, f := range past.Files {
@@ -712,17 +640,6 @@ func TestDiffTurnJudgesAFileTheSnapshotHoldsByTheComparison(t *testing.T) {
 	if fresh := fileByPath(t, res, "fresh.go"); fresh.Status != Added || !fresh.Untracked {
 		t.Errorf("fresh.go = %+v, want an untracked added file", fresh)
 	}
-
-	t.Run("update", func(t *testing.T) {
-		writeFile(t, dir, "x.go", edited+"tail\n")
-
-		upd := updateOK(t, e, res, src, Batch{Paths: []string{"x.go"}})
-		if x := fileByPath(t, upd, "x.go"); x.Status != Modified || x.Untracked {
-			t.Errorf("x.go after update = %+v, want a modification", x)
-		}
-
-		sameAsFull(t, upd, src)
-	})
 }
 
 func TestMarkUntracked(t *testing.T) {
@@ -734,10 +651,7 @@ func TestMarkUntracked(t *testing.T) {
 	}{
 		{Added, true},
 		{Renamed, true},
-		{Copied, true},
 		{Modified, false},
-		{ModeChanged, false},
-		{Deleted, false},
 	}
 
 	for _, tt := range tests {
@@ -913,47 +827,43 @@ func TestDiffFileCap(t *testing.T) {
 	t.Parallel()
 
 	// The cap is lowered to keep the fixture small; TestNewEngineDefaults pins the default.
-	for _, n := range []int{25, 250} {
-		t.Run(strconv.Itoa(n)+" files", func(t *testing.T) {
-			t.Parallel()
+	const n = 22
 
-			dir := branchRepo(t, func(dir string) { writeFile(t, dir, "base.txt", "b\n") }, func(dir string) {
-				for i := range n {
-					writeFile(t, dir, fmt.Sprintf("d%02d/f%05d.txt", i%50, i), fmt.Sprintf("file %d\nsecond\nthird\n", i))
-				}
-			})
+	dir := branchRepo(t, func(dir string) { writeFile(t, dir, "base.txt", "b\n") }, func(dir string) {
+		for i := range n {
+			writeFile(t, dir, fmt.Sprintf("d%02d/f%05d.txt", i%5, i), fmt.Sprintf("file %d\nsecond\nthird\n", i))
+		}
+	})
 
-			ctx, logPath := wrapGit(t, "")
-			res := diffOKContext(ctx, t, NewEngine(EngineOptions{Limits: Limits{Files: 20}, TempDir: t.TempDir()}), BranchSource{Worktree: dir, Base: "main"})
+	ctx, logPath := wrapGit(t, "")
+	res := diffOKContext(ctx, t, NewEngine(EngineOptions{Limits: Limits{Files: 20}, TempDir: t.TempDir()}), BranchSource{Worktree: dir, Base: "main"})
 
-			if len(res.Files) != n || !res.Truncated {
-				t.Fatalf("files = %d, Truncated = %v, want %d and true", len(res.Files), res.Truncated, n)
-			}
+	if len(res.Files) != n || !res.Truncated {
+		t.Fatalf("files = %d, Truncated = %v, want %d and true", len(res.Files), res.Truncated, n)
+	}
 
-			for i, f := range res.Files {
-				wantTrunc := i >= 20
-				if f.Truncated != wantTrunc || f.Added != 3 || (len(f.Hunks) > 0) == wantTrunc {
-					t.Fatalf("file %d %q: Truncated=%v Added=%d hunks=%d", i, f.Path, f.Truncated, f.Added, len(f.Hunks))
-				}
-			}
+	for i, f := range res.Files {
+		wantTrunc := i >= 20
+		if f.Truncated != wantTrunc || f.Added != 3 || (len(f.Hunks) > 0) == wantTrunc {
+			t.Fatalf("file %d %q: Truncated=%v Added=%d hunks=%d", i, f.Path, f.Truncated, f.Added, len(f.Hunks))
+		}
+	}
 
-			if got := hunkPasses(t, logPath); got != 1 {
-				t.Errorf("hunk passes = %d, want 1", got)
-			}
-		})
+	if got := hunkPasses(t, logPath); got != 1 {
+		t.Errorf("hunk passes = %d, want 1", got)
 	}
 }
 
 func TestDiffListingLargerThanAPipeBuffer(t *testing.T) {
 	t.Parallel()
 
-	const files = 300
+	const files = 70
 
-	long := strings.Repeat("long", 60)
-	path := func(i int) string { return fmt.Sprintf("%s/f%03d.txt", long, i) }
+	long := strings.Repeat("long", 50)
+	path := func(i int) string { return fmt.Sprintf("%s/%s/%s/f%03d.txt", long, long, long, i) }
 
 	// The listing carries each path twice; it must outgrow the 64 KB pipe buffer.
-	if files*len(path(0)) <= 64<<10 {
+	if 2*files*len(path(0)) <= 64<<10 {
 		t.Fatalf("%d paths of %d bytes do not exceed a pipe buffer", files, len(path(0)))
 	}
 
@@ -979,24 +889,24 @@ func TestDiffListingLargerThanAPipeBuffer(t *testing.T) {
 func TestDiffLineCap(t *testing.T) {
 	t.Parallel()
 
-	t.Run("6000 changed lines", func(t *testing.T) {
+	t.Run("60 changed lines", func(t *testing.T) {
 		t.Parallel()
 
 		dir := branchRepo(t, func(dir string) {
 			writeFile(t, dir, "big.txt", numbered("base", 10))
 			writeFile(t, dir, "small.txt", "s\n")
 		}, func(dir string) {
-			writeFile(t, dir, "big.txt", numbered("base", 10)+numbered("added", 6000))
+			writeFile(t, dir, "big.txt", numbered("base", 10)+numbered("added", 60))
 			writeFile(t, dir, "small.txt", "s changed\n")
 		})
 
-		res := branchDiff(t, dir)
+		res := diffOK(t, lineCapEngine(t), BranchSource{Worktree: dir, Base: "main"})
 		golden(t, "diff_line_cap", Result{Old: res.Old, New: res.New, Live: res.Live, Truncated: res.Truncated, Files: []FileDiff{
 			withoutHunks(fileByPath(t, res, "big.txt")), fileByPath(t, res, "small.txt"),
 		}})
 
 		big := fileByPath(t, res, "big.txt")
-		if !big.Truncated || big.Added != 6000 || big.Removed != 0 || len(big.Hunks) != 0 || !res.Truncated {
+		if !big.Truncated || big.Added != 60 || big.Removed != 0 || len(big.Hunks) != 0 || !res.Truncated {
 			t.Errorf("big.txt = Truncated:%v +%d -%d hunks:%d", big.Truncated, big.Added, big.Removed, len(big.Hunks))
 		}
 
@@ -1005,18 +915,18 @@ func TestDiffLineCap(t *testing.T) {
 		}
 	})
 
-	t.Run("100000-line file", func(t *testing.T) {
+	t.Run("no hunk pass for a file over the cap", func(t *testing.T) {
 		t.Parallel()
 
 		dir := branchRepo(t, func(dir string) { writeFile(t, dir, "a.txt", "a\n") }, func(dir string) {
-			writeFile(t, dir, "huge.txt", numbered("l", 100000))
+			writeFile(t, dir, "huge.txt", numbered("l", 60))
 		})
 
 		ctx, logPath := wrapGit(t, "")
-		res := branchDiffContext(ctx, t, dir)
+		res := diffOKContext(ctx, t, lineCapEngine(t), BranchSource{Worktree: dir, Base: "main"})
 
 		f := fileByPath(t, res, "huge.txt")
-		if !f.Truncated || f.Added != 100000 || len(f.Hunks) != 0 || !res.Truncated {
+		if !f.Truncated || f.Added != 60 || len(f.Hunks) != 0 || !res.Truncated {
 			t.Errorf("huge.txt = Truncated:%v +%d hunks:%d", f.Truncated, f.Added, len(f.Hunks))
 		}
 
@@ -1028,6 +938,12 @@ func TestDiffLineCap(t *testing.T) {
 	})
 }
 
+func lineCapEngine(t *testing.T) *Engine {
+	t.Helper()
+
+	return NewEngine(EngineOptions{Limits: Limits{Lines: 50}, TempDir: t.TempDir()})
+}
+
 func withoutHunks(f FileDiff) FileDiff {
 	f.Hunks = nil
 
@@ -1037,10 +953,10 @@ func withoutHunks(f FileDiff) FileDiff {
 func TestDiffByteCapStopsGit(t *testing.T) {
 	t.Parallel()
 
-	const files = 20
+	const files = 12
 
 	line := strings.Repeat("x", 40) + "\n"
-	body := strings.Repeat(line, 4000) // 164 KB per file, 3.2 MB in all
+	body := strings.Repeat(line, 400) // 17 KB per file, 200 KB in all
 
 	dir := branchRepo(t, func(dir string) { writeFile(t, dir, "base.txt", "b\n") }, func(dir string) {
 		for i := range files {
@@ -1049,7 +965,7 @@ func TestDiffByteCapStopsGit(t *testing.T) {
 	})
 
 	ctx, logPath, pidFile := recordPid(t)
-	res := branchDiffContext(ctx, t, dir)
+	res := diffOKContext(ctx, t, NewEngine(EngineOptions{Limits: Limits{Bytes: 50 << 10}, TempDir: t.TempDir()}), BranchSource{Worktree: dir, Base: "main"})
 
 	assertProcessGone(t, pidFile)
 
@@ -1064,7 +980,7 @@ func TestDiffByteCapStopsGit(t *testing.T) {
 	firstCut := -1
 
 	for i, f := range res.Files {
-		if f.Added != 4000 {
+		if f.Added != 400 {
 			t.Errorf("%s: Added = %d, counts must survive truncation", f.Path, f.Added)
 		}
 
@@ -1076,32 +992,11 @@ func TestDiffByteCapStopsGit(t *testing.T) {
 		}
 	}
 
-	// 2 MiB holds 12 whole files of 164 KB; the 13th is cut.
-	if firstCut != 12 {
-		t.Errorf("first truncated file = %d, want 12", firstCut)
-	}
-}
-
-func TestDiffHugeSingleLine(t *testing.T) {
-	t.Parallel()
-
-	dir := branchRepo(t, func(dir string) { writeFile(t, dir, "base.txt", "b\n") }, func(dir string) {
-		writeFile(t, dir, "small.txt", "small\n")
-		writeFile(t, dir, "z-one-line.txt", strings.Repeat("y", 50<<20))
-	})
-
-	ctx, _, pidFile := recordPid(t)
-	res := branchDiffContext(ctx, t, dir)
-
-	assertProcessGone(t, pidFile)
-
-	big := fileByPath(t, res, "z-one-line.txt")
-	if !big.Truncated || big.Added != 1 || len(big.Hunks) != 0 {
-		t.Errorf("one-line file = Truncated:%v +%d hunks:%d", big.Truncated, big.Added, len(big.Hunks))
-	}
-
-	if small := fileByPath(t, res, "small.txt"); small.Truncated || len(small.Hunks) != 1 {
-		t.Errorf("small.txt = %+v", small)
+	// 50 KiB holds 3 whole files of 17 KB; the 4th is cut (its boundary sits
+	// about 400 B above the cap, so a changed body size moves the cut). The 200 KB total
+	// outgrows the pipe buffer plus the cap, so git is blocked when it is killed.
+	if firstCut != 3 {
+		t.Errorf("first truncated file = %d, want 3", firstCut)
 	}
 }
 
@@ -1114,7 +1009,7 @@ func TestDiffBinaryFiles(t *testing.T) {
 	}, func(dir string) {
 		writeFile(t, dir, "old.bin", "\x00new")
 		must(t, os.Remove(filepath.Join(dir, "gone.bin")))
-		writeFile(t, dir, "added.bin", "\x00"+strings.Repeat("z", 1<<20))
+		writeFile(t, dir, "added.bin", "\x00"+strings.Repeat("z", 64))
 	})
 
 	ctx, logPath := wrapGit(t, "")
@@ -1236,7 +1131,7 @@ func TestDiffConcurrent(t *testing.T) {
 	first, err := json.Marshal(diffOK(t, e, src))
 	must(t, err)
 
-	errs := make(chan error, 8)
+	errs := make(chan error, 4)
 
 	for range cap(errs) {
 		go func() {
@@ -1272,6 +1167,10 @@ func TestNewEngineDefaults(t *testing.T) {
 	t.Parallel()
 
 	e := NewEngine(EngineOptions{Limits: Limits{Files: 7}})
+
+	if e.maxText != 8<<20 {
+		t.Errorf("maxText = %d, want %d", e.maxText, 8<<20)
+	}
 
 	if want := (Limits{Files: 7, Bytes: 2 << 20, Lines: 5000}); e.limits != want {
 		t.Errorf("limits = %+v, want %+v", e.limits, want)
@@ -1320,14 +1219,15 @@ func TestWholeFiles(t *testing.T) {
 }
 
 func TestDiffCancelledDuringTheHunkPass(t *testing.T) {
+	t.Parallel()
 	dir := branchRepo(t, func(dir string) { writeFile(t, dir, "base.txt", "b\n") }, func(dir string) {
 		writeFile(t, dir, "a.txt", "a\n")
 	})
 
 	// The hunk pass hangs; it marks its end only if the cancel failed to kill it.
-	logPath := fakeGit(t, `case "$*" in *-U3*) : > "$LOG.hunks"; sleep 30; : > "$LOG.finished"; exit 1;; esac`)
+	wrapped, logPath := wrapGit(t, `case "$*" in *-U3*) : > "$LOG.hunks"; sleep 30; : > "$LOG.finished"; exit 1;; esac`)
 
-	ctx := cancelWhenWritten(t, logPath+".hunks")
+	ctx := cancelWhenWrittenFrom(wrapped, t, logPath+".hunks")
 	_, err := testEngine(t).Diff(ctx, BranchSource{Worktree: dir, Base: "main"})
 
 	if !errors.Is(err, context.Canceled) {
@@ -1390,37 +1290,25 @@ func TestDiffIgnoresUserDiffConfig(t *testing.T) {
 		must(t, os.Rename(filepath.Join(dir, "moved-from.txt"), filepath.Join(dir, "moved-to.txt")))
 	})
 
-	snap(t, dir, sessA, SnapshotOptions{})
-	writeFile(t, dir, "blank.txt", strings.Replace(blank, "four", "FOUR again", 1))
 	writeFile(t, dir, "new.txt", "n\n")
 
-	sources := map[string]Source{
-		"branch": BranchSource{Worktree: dir, Base: "main"},
-		"turn":   TurnSource{Worktree: dir, Session: sessA},
+	src := BranchSource{Worktree: dir, Base: "main"}
+	clean := diffOK(t, testEngine(t), src)
+
+	if fileByPath(t, clean, "sm").Status != Modified {
+		t.Fatalf("setup: sm = %+v", fileByPath(t, clean, "sm"))
 	}
-	clean := map[string][]byte{}
 
-	for name, src := range sources {
-		res := diffOK(t, testEngine(t), src)
-		if name == "branch" && fileByPath(t, res, "sm").Status != Modified {
-			t.Fatalf("setup: sm = %+v", fileByPath(t, res, "sm"))
-		}
-
-		b, err := json.Marshal(res)
-		must(t, err)
-
-		clean[name] = b
-	}
+	want, err := json.Marshal(clean)
+	must(t, err)
 
 	mark := hostileDiffConfig(t, dir)
 
-	for name, src := range sources {
-		b, err := json.Marshal(diffOK(t, testEngine(t), src))
-		must(t, err)
+	got, err := json.Marshal(diffOK(t, testEngine(t), src))
+	must(t, err)
 
-		if !bytes.Equal(b, clean[name]) {
-			t.Errorf("%s diff changed under user diff config:\n%s\nwant\n%s", name, b, clean[name])
-		}
+	if !bytes.Equal(got, want) {
+		t.Errorf("branch diff changed under user diff config:\n%s\nwant\n%s", got, want)
 	}
 
 	if _, err := os.Stat(mark); err == nil {

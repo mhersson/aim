@@ -28,12 +28,10 @@ func TestImageHost(t *testing.T) {
 	}{
 		{"https://github.com/user-attachments/assets/x", "", true},
 		{"https://private-user-images.githubusercontent.com/1/a.png", "", true},
-		{"https://GitHub.com/a.png", "", true},
 		{"https://ghe.example.com/a.png", "ghe.example.com", true},
 		{"https://ghe.example.com/a.png", "GHE.example.com", true},
 		{"https://github.com:443/a.png", "", true},
 		{"http://github.com/a.png", "", false},
-		{"https://img.shields.io/b.png", "", false},
 		{"https://github.com/a.SVG", "", false},
 		{"https://u:p@github.com/a.png", "", false},
 		{"https://github.com:8443/a.png", "", false},
@@ -311,6 +309,8 @@ func TestFetchRedirect(t *testing.T) {
 func TestFetchLimits(t *testing.T) {
 	t.Parallel()
 
+	const limit = 4 << 10
+
 	sized := func(n int, chunked bool) http.HandlerFunc {
 		return func(w http.ResponseWriter, _ *http.Request) {
 			if !chunked {
@@ -341,9 +341,9 @@ func TestFetchLimits(t *testing.T) {
 		wantStr string
 		hits    int
 	}{
-		{"content length over", sized(imgLimit+1, false), "https://github.com/a.png", ErrImageTooLarge, "", 1},
-		{"chunked over", sized(imgLimit+1, true), "https://github.com/a.png", ErrImageTooLarge, "", 1},
-		{"exactly the limit", sized(imgLimit, false), "https://github.com/a.png", nil, "", 1},
+		{"content length over", sized(limit+1, false), "https://github.com/a.png", ErrImageTooLarge, "", 1},
+		{"chunked over", sized(limit+1, true), "https://github.com/a.png", ErrImageTooLarge, "", 1},
+		{"exactly the limit", sized(limit, false), "https://github.com/a.png", nil, "", 1},
 		{"not found", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(404) }, "https://github.com/a.png", nil, "404", 1},
 		{"other host", nil, "https://img.shields.io/a.png", ErrNotImageHost, "", 0},
 	}
@@ -354,7 +354,7 @@ func TestFetchLimits(t *testing.T) {
 			r := newImgRig(t, "github.com", "img.shields.io")
 			r.handler["github.com"] = tc.h
 
-			body, err := r.fetcher().Fetch(t.Context(), tc.url, "github.com", imgLimit)
+			body, err := r.fetcher().Fetch(t.Context(), tc.url, "github.com", limit)
 
 			switch {
 			case tc.wantErr != nil:
@@ -365,7 +365,7 @@ func TestFetchLimits(t *testing.T) {
 				if err == nil || !strings.Contains(err.Error(), tc.wantStr) {
 					t.Errorf("err = %v", err)
 				}
-			case err != nil || len(body) != imgLimit:
+			case err != nil || len(body) != limit:
 				t.Errorf("len %d, err %v", len(body), err)
 			}
 

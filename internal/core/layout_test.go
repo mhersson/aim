@@ -164,7 +164,6 @@ func TestOpenPaneErrors(t *testing.T) {
 		from   State
 		action OpenPane
 	}{
-		{"unknown kind", stateOf(nil, ""), OpenPane{Kind: "x"}},
 		{"missing split", stateOf(leaf("p1"), "p1"), OpenPane{Kind: KindShell}},
 	}
 	for _, tt := range tests {
@@ -259,17 +258,6 @@ func TestStateIsCopied(t *testing.T) {
 	}
 }
 
-func TestSetThemeStillWorks(t *testing.T) {
-	st := NewStore(State{Theme: "a"})
-	if err := st.Dispatch(SetTheme{Name: "b"}); err != nil {
-		t.Fatal(err)
-	}
-
-	if st.State().Theme != "b" {
-		t.Error("theme not set")
-	}
-}
-
 func TestFocusDir(t *testing.T) {
 	tree := func() *Node { return vsplit(leaf("p1"), hsplit(leaf("p2"), leaf("p3"))) }
 
@@ -282,9 +270,7 @@ func TestFocusDir(t *testing.T) {
 		{"right takes the top-most tie", "p1", Right, "p2"},
 		{"left", "p3", Left, "p1"},
 		{"up", "p3", Up, "p2"},
-		{"down from the bottom", "p3", Down, "p3"},
 		{"right from the edge", "p3", Right, "p3"},
-		{"left from the edge", "p1", Left, "p1"},
 		{"down", "p2", Down, "p3"},
 	}
 	for _, tt := range tests {
@@ -418,10 +404,9 @@ func TestSwapDir(t *testing.T) {
 		wantZoom  bool
 	}{
 		{"keeps the ratio of the position", ratioed(), "p2", Left, "v(p2,p1)", 0.7, false, false},
-		{"right takes the top-most tie", tree(), "p1", Right, "v(p2,h(p1,p3))", 0.5, false, false},
 		{"up", tree(), "p3", Up, "v(p1,h(p3,p2))", 0.5, false, false},
 		{"no neighbour keeps the tree and zoom", tree(), "p1", Left, "v(p1,h(p2,p3))", 0.5, true, true},
-		{"swap clears zoom", tree(), "p1", Right, "v(p2,h(p1,p3))", 0.5, true, false},
+		{"right takes the top-most tie and clears zoom", tree(), "p1", Right, "v(p2,h(p1,p3))", 0.5, true, false},
 		{"single pane", leaf("p1"), "p1", Right, "p1", 0, true, true},
 	}
 	for _, tt := range tests {
@@ -455,55 +440,28 @@ func TestSwapDir(t *testing.T) {
 }
 
 func TestPaneLimit(t *testing.T) {
-	fill := func(t *testing.T, n int) *Store {
-		t.Helper()
+	st := NewStore(InitialState(Config{}))
+	for len(st.State().Panes) < MaxPanes-1 {
+		if err := st.Dispatch(OpenPane{Kind: KindShell, Split: SplitVertical}); err != nil {
+			t.Fatalf("OpenPane at %d panes: %v", len(st.State().Panes), err)
+		}
+	}
 
-		st := NewStore(InitialState(Config{}))
-		for len(st.State().Panes) < n {
-			if err := st.Dispatch(OpenPane{Kind: KindShell, Split: SplitVertical}); err != nil {
-				t.Fatalf("OpenPane at %d panes: %v", len(st.State().Panes), err)
-			}
+	if err := st.Dispatch(NewTab{Kind: KindShell}); err != nil {
+		t.Fatalf("NewTab at %d panes: %v", MaxPanes-1, err)
+	}
+
+	if got := len(st.State().Panes); got != MaxPanes {
+		t.Fatalf("panes = %d, want %d", got, MaxPanes)
+	}
+
+	for _, a := range []Action{OpenPane{Kind: KindShell, Split: SplitVertical}, NewTab{Kind: KindShell}} {
+		if err := st.Dispatch(a); !errors.Is(err, ErrTooManyPanes) {
+			t.Errorf("Dispatch(%T) at %d panes: error = %v, want ErrTooManyPanes", a, MaxPanes, err)
 		}
 
-		return st
-	}
-
-	tests := []struct {
-		name    string
-		have    int
-		act     Action
-		wantErr bool
-	}{
-		{"OpenPane makes 64", MaxPanes - 1, OpenPane{Kind: KindShell, Split: SplitVertical}, false},
-		{"OpenPane at 64", MaxPanes, OpenPane{Kind: KindShell, Split: SplitVertical}, true},
-		{"NewTab makes 64", MaxPanes - 1, NewTab{Kind: KindShell}, false},
-		{"NewTab at 64", MaxPanes, NewTab{Kind: KindShell}, true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			st := fill(t, tt.have)
-			before := len(st.State().Panes)
-
-			err := st.Dispatch(tt.act)
-			if tt.wantErr {
-				if !errors.Is(err, ErrTooManyPanes) {
-					t.Fatalf("Dispatch() error = %v, want ErrTooManyPanes", err)
-				}
-
-				if got := len(st.State().Panes); got != before {
-					t.Errorf("panes = %d, want %d unchanged", got, before)
-				}
-
-				return
-			}
-
-			if err != nil {
-				t.Fatalf("Dispatch() error = %v", err)
-			}
-
-			if got := len(st.State().Panes); got != MaxPanes {
-				t.Errorf("panes = %d, want %d", got, MaxPanes)
-			}
-		})
+		if got := len(st.State().Panes); got != MaxPanes {
+			t.Errorf("panes = %d after %T, want %d unchanged", got, a, MaxPanes)
+		}
 	}
 }

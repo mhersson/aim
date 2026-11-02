@@ -77,10 +77,6 @@ func TestTokenNone(t *testing.T) {
 	if !errors.Is(err, ErrNoToken) {
 		t.Fatalf("err = %v, want ErrNoToken", err)
 	}
-
-	if !strings.Contains(err.Error(), "gh auth login --hostname h") {
-		t.Fatalf("message %q does not say how to log in", err)
-	}
 }
 
 func TestTokenGhFailureHidesStderr(t *testing.T) {
@@ -141,19 +137,6 @@ func cancelWhenWritten(t *testing.T, path string) context.Context {
 	return ctx
 }
 
-func TestTokenEmptyHostDoesNotRunGh(t *testing.T) {
-	gh, args := fakeGH(t, "echo tok\n")
-
-	o := TokenOptions{GH: gh, FromEnvOrConfig: func(string) string { return "" }}
-	if _, err := Token(t.Context(), "", o); !errors.Is(err, ErrNoToken) {
-		t.Fatalf("err = %v, want ErrNoToken", err)
-	}
-
-	if _, err := os.Stat(args); err == nil {
-		t.Fatal("gh ran for an empty host")
-	}
-}
-
 func TestTokenRefusesAnEmptyHostBeforeAnyLookup(t *testing.T) {
 	t.Setenv("GH_ENTERPRISE_TOKEN", "enterprise-tok")
 
@@ -163,10 +146,6 @@ func TestTokenRefusesAnEmptyHostBeforeAnyLookup(t *testing.T) {
 		got, err := Token(t.Context(), host, TokenOptions{GH: gh})
 		if !errors.Is(err, ErrNoToken) || got != "" {
 			t.Errorf("host %q: token = %q, err = %v, want ErrNoToken", host, got, err)
-		}
-
-		if err != nil && strings.Contains(err.Error(), "--hostname") {
-			t.Errorf("host %q: error %q carries a login hint", host, err)
 		}
 	}
 

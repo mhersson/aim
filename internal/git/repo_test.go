@@ -113,3 +113,26 @@ func TestMainRoot(t *testing.T) {
 		})
 	}
 }
+
+func TestOpenThroughSymlinkedDir(t *testing.T) {
+	t.Parallel()
+	root := newRepo(t)
+	writeFile(t, root, "sub/a.txt", "a\n")
+	commitAll(t, root, "init")
+
+	link := filepath.Join(resolvedTemp(t), "link")
+	if err := os.Symlink(root, link); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, dir := range []string{link, filepath.Join(link, "sub")} {
+		got, err := Open(t.Context(), dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if want := (Repo{Root: root, GitDir: filepath.Join(root, ".git"), CommonDir: filepath.Join(root, ".git")}); got != want {
+			t.Errorf("Open(%s) = %+v, want %+v", dir, got, want)
+		}
+	}
+}

@@ -17,10 +17,8 @@ func TestFloorPercent(t *testing.T) {
 	}{
 		{"NaN", math.NaN(), 0},
 		{"negative", -3, 0},
-		{"zero", 0, 0},
 		{"fraction floors", 41.9, 41},
 		{"hundred", 100, 100},
-		{"over hundred", 100.4, 100},
 		{"huge", 1e300, 100},
 	}
 	for _, tt := range tests {

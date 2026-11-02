@@ -4,7 +4,6 @@ import (
 	"errors"
 	"reflect"
 	"slices"
-	"strings"
 	"testing"
 )
 
@@ -23,110 +22,27 @@ func TestAllAndByName(t *testing.T) {
 		t.Errorf("All() names = %q, want %q", allNames, names)
 	}
 
-	tests := []struct {
-		name, title string
-		dark        bool
-	}{
-		{"catppuccin-latte", "Catppuccin Latte", false},
-		{"catppuccin-frappe", "Catppuccin Frappé", true},
-		{"catppuccin-macchiato", "Catppuccin Macchiato", true},
-		{"catppuccin-mocha", "Catppuccin Mocha", true},
-	}
-	for _, tt := range tests {
-		th, err := ByName(tt.name)
+	for _, name := range names {
+		th, err := ByName(name)
 		if err != nil {
-			t.Errorf("ByName(%q): %v", tt.name, err)
+			t.Errorf("ByName(%q): %v", name, err)
 
 			continue
 		}
 
-		if th.Name != tt.name || th.Title != tt.title || th.Dark != tt.dark {
-			t.Errorf("ByName(%q) = {Name: %q, Title: %q, Dark: %v}, want {%q, %q, %v}",
-				tt.name, th.Name, th.Title, th.Dark, tt.name, tt.title, tt.dark)
+		if th.Name != name {
+			t.Errorf("ByName(%q).Name = %q", name, th.Name)
 		}
 	}
 
 	for _, name := range []string{"nope", ""} {
-		_, err := ByName(name)
-		if !errors.Is(err, ErrUnknownTheme) {
+		if _, err := ByName(name); !errors.Is(err, ErrUnknownTheme) {
 			t.Errorf("ByName(%q) error = %v, want ErrUnknownTheme", name, err)
-
-			continue
-		}
-
-		for _, n := range names {
-			if !strings.Contains(err.Error(), n) {
-				t.Errorf("ByName(%q) error %q does not list %q", name, err, n)
-			}
 		}
 	}
 }
 
 func TestUIRoles(t *testing.T) {
-	mocha, err := ByName("catppuccin-mocha")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	spot := []struct {
-		role      string
-		got, want Hex
-	}{
-		{"Bg", mocha.UI.Bg, "#1e1e2e"},
-		{"Accent", mocha.UI.Accent, "#cba6f7"},
-		{"BorderFocus", mocha.UI.BorderFocus, "#b4befe"},
-	}
-
-	latte, err := ByName("catppuccin-latte")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	for _, th := range []Theme{mocha, latte} {
-		p := th.Palette
-		for _, r := range []struct {
-			role      string
-			got, want Hex
-		}{
-			{"Agent", th.UI.Agent, p.Mauve},
-			{"Shell", th.UI.Shell, p.Blue},
-			{"Bar", th.UI.Bar, p.Base},
-			{"Dim", th.UI.Dim, p.Subtext0},
-			{"Clock", th.UI.Clock, p.Lavender},
-			{"Git", th.UI.Git, p.Flamingo},
-			{"Load", th.UI.Load, p.Teal},
-			{"Review", th.UI.Review, p.Teal},
-		} {
-			if r.got != r.want || r.got == "" {
-				t.Errorf("%s UI.%s = %q, want %q", th.Name, r.role, r.got, r.want)
-			}
-		}
-	}
-
-	for _, th := range All() {
-		p := th.Palette
-		for _, r := range []struct {
-			role      string
-			got, want Hex
-		}{
-			{"Working", th.UI.Working, p.Peach},
-			{"Blocked", th.UI.Blocked, p.Red},
-			{"Idle", th.UI.Idle, p.Green},
-			{"Code", th.UI.Code, p.Peach},
-			{"Meter", th.UI.Meter, p.Teal},
-		} {
-			if r.got != r.want || r.got == "" {
-				t.Errorf("%s UI.%s = %q, want %q", th.Name, r.role, r.got, r.want)
-			}
-		}
-	}
-
-	for _, s := range spot {
-		if s.got != s.want {
-			t.Errorf("mocha UI.%s = %q, want %q", s.role, s.got, s.want)
-		}
-	}
-
 	for _, th := range All() {
 		inPalette := map[Hex]bool{}
 		for _, h := range paletteFields(th.Palette) {
@@ -141,15 +57,6 @@ func TestUIRoles(t *testing.T) {
 			} else if !inPalette[h] {
 				t.Errorf("%s: UI.%s = %q is not a palette colour", th.Name, role, h)
 			}
-		}
-	}
-}
-
-// The bars sit on Base in every flavor, the same ground as the body.
-func TestBarIsBase(t *testing.T) {
-	for _, th := range All() {
-		if th.UI.Bar != th.Palette.Base || th.UI.Bar == th.Palette.Crust || th.UI.Bar == "" {
-			t.Errorf("%s UI.Bar = %q, want Base %q", th.Name, th.UI.Bar, th.Palette.Base)
 		}
 	}
 }

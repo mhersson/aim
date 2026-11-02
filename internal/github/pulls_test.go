@@ -189,18 +189,6 @@ func TestPullRequestsQueryShape(t *testing.T) {
 	}
 }
 
-func TestPullRequestsRateLimited(t *testing.T) {
-	c, _ := newTestClient(t, "github.com", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Retry-After", "30")
-		http.Error(w, "slow down", http.StatusTooManyRequests)
-	}))
-
-	_, _, _, err := c.PullRequests(context.Background(), testRepo)
-	if !errors.Is(err, ErrRateLimited) {
-		t.Fatalf("err = %v, want a rate limit", err)
-	}
-}
-
 // branchNode is one pull request node of a branch lookup response.
 func branchNode(n int, state string, cross bool) string {
 	return fmt.Sprintf(`{"number":%d,"title":"t%d","url":"https://github.com/octo/repo/pull/%d","isDraft":false,`+

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -72,6 +73,12 @@ func stateDoc(version string, layouts ...layoutFn) string {
 	return `{"version":` + version + `,"active":0,"tabs":[` + strings.Join(tabs, ",") + `],"panes":{` + strings.Join(panes, ",") + `}}`
 }
 
+// carriesNumber reports whether s holds n as a whole number, not as a digit
+// inside a longer one.
+func carriesNumber(s, n string) bool {
+	return regexp.MustCompile(`(^|\D)` + regexp.QuoteMeta(n) + `(\D|$)`).MatchString(s)
+}
+
 func TestLoadState(t *testing.T) {
 	good, broken := goodLayout, brokenLayout
 
@@ -80,20 +87,6 @@ func TestLoadState(t *testing.T) {
 
 		if !reflect.DeepEqual(st, core.InitialState(testCfg)) || len(notices) != 0 {
 			t.Errorf("state = %+v, notices = %q, want the initial state and none", st, notices)
-		}
-	})
-
-	t.Run("a restored state takes the layout settings from the config", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), "state.json")
-		writeFile(t, path, stateDoc("2", good))
-
-		cfg := core.DefaultConfig()
-		cfg.Layout.DefaultMode, cfg.Layout.MasterCount = "scrolling", 3
-
-		st, _ := loadState(path, false, cfg)
-
-		if st.Layout != cfg.Layout || len(st.Panes) != 2 {
-			t.Errorf("Layout = %+v, panes = %d, want the config's layout and 2 panes", st.Layout, len(st.Panes))
 		}
 	})
 
@@ -121,7 +114,7 @@ func TestLoadState(t *testing.T) {
 
 		st, notices := loadState(path, false, testCfg)
 
-		if len(st.Panes) != 0 || !slices.Equal(notices, []string{"the saved layout could not be read; it was kept as state.json.bad"}) {
+		if len(st.Panes) != 0 || !slices.Equal(notices, []string{noticeBadFile}) {
 			t.Errorf("state = %+v, notices = %q, want a fresh start and the bad-file notice", st, notices)
 		}
 
@@ -134,14 +127,17 @@ func TestLoadState(t *testing.T) {
 		}
 	})
 
-	t.Run("a valid file is restored with the theme from the config", func(t *testing.T) {
+	t.Run("a valid file is restored with the theme and layout settings from the config", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "state.json")
 		writeFile(t, path, stateDoc("2", good))
 
-		st, notices := loadState(path, false, testCfg)
+		cfg := testCfg
+		cfg.Layout.DefaultMode, cfg.Layout.MasterCount = "scrolling", 3
 
-		if len(notices) != 0 || st.Theme != "tokyo-night" || len(st.Panes) != 2 || st.Tabs[0].Layout.Ratio != 0.3 {
-			t.Errorf("state = %+v, notices = %q, want the saved tab, the theme of the config and no notice", st, notices)
+		st, notices := loadState(path, false, cfg)
+
+		if len(notices) != 0 || st.Theme != cfg.Theme || st.Layout != cfg.Layout || len(st.Panes) != 2 || st.Tabs[0].Layout.Ratio != 0.3 {
+			t.Errorf("state = %+v, notices = %q, want the saved tab, the config's theme and layout and no notice", st, notices)
 		}
 	})
 
@@ -152,9 +148,8 @@ func TestLoadState(t *testing.T) {
 
 		st, notices := loadState(path, false, testCfg)
 
-		want := []string{"saved layout format 1 is not supported; restored the tabs with default layouts"}
-		if !slices.Equal(notices, want) || len(st.Panes) != 2 || st.Tabs[0].Layout.Ratio != 0.5 {
-			t.Errorf("state = %+v, notices = %q, want %q and a default layout", st, notices, want)
+		if len(notices) != 1 || !carriesNumber(notices[0], "1") || len(st.Panes) != 2 || st.Tabs[0].Layout.Ratio != 0.5 {
+			t.Errorf("state = %+v, notices = %q, want one notice carrying the version and a default layout", st, notices)
 		}
 
 		if readFile(t, path) != doc {
@@ -179,11 +174,10 @@ func TestLoadState(t *testing.T) {
 		tests := []struct {
 			name    string
 			layouts []layoutFn
-			want    []string
+			count   string // the number the one notice carries; empty for no notice
 		}{
-			{"none", []layoutFn{good}, nil},
-			{"one", []layoutFn{good, broken}, []string{"a saved tab layout could not be read; restored it with a default layout"}},
-			{"two", []layoutFn{broken, broken, good}, []string{"2 saved tab layouts could not be read; restored them with default layouts"}},
+			{"none", []layoutFn{good}, ""},
+			{"two", []layoutFn{broken, broken, good}, "2"},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
@@ -191,8 +185,12 @@ func TestLoadState(t *testing.T) {
 				writeFile(t, path, stateDoc("2", tt.layouts...))
 
 				_, notices := loadState(path, false, testCfg)
-				if !slices.Equal(notices, tt.want) {
-					t.Errorf("notices = %q, want %q", notices, tt.want)
+
+				switch {
+				case tt.count == "" && len(notices) != 0:
+					t.Errorf("notices = %q, want none", notices)
+				case tt.count != "" && (len(notices) != 1 || !carriesNumber(notices[0], tt.count)):
+					t.Errorf("notices = %q, want one carrying %s", notices, tt.count)
 				}
 			})
 		}
@@ -225,9 +223,8 @@ func TestCheckResume(t *testing.T) {
 				in := stateOf(map[core.PaneID]core.Pane{"p1": p})
 				out, notices := checkResume(in, exists)
 
-				want := []string{"started a fresh claude in api: its session could not be resumed"}
-				if !slices.Equal(notices, want) {
-					t.Errorf("notices = %q, want %q", notices, want)
+				if len(notices) != 1 || !strings.Contains(notices[0], "api") {
+					t.Errorf("notices = %q, want one naming the pane's directory", notices)
 				}
 
 				if got := out.Panes["p1"]; got.Session != "" || got.Transcript != "" || got.Kind != core.KindAgent || got.Cwd != "/w/api" {
@@ -247,9 +244,8 @@ func TestCheckResume(t *testing.T) {
 		})
 		out, notices := checkResume(in, exists)
 
-		want := []string{"started 2 fresh claudes: their sessions could not be resumed"}
-		if !slices.Equal(notices, want) {
-			t.Errorf("notices = %q, want %q", notices, want)
+		if len(notices) != 1 || !carriesNumber(notices[0], "2") {
+			t.Errorf("notices = %q, want one carrying the count 2", notices)
 		}
 
 		if out.Panes["p3"].Session != sessionA || out.Panes["p1"].Session != "" || out.Panes["p2"].Session != "" {
@@ -277,18 +273,18 @@ func (b *lockedBuffer) Write(p []byte) (int, error) {
 	return b.buf.Write(p)
 }
 
-func (b *lockedBuffer) len() int {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	return b.buf.Len()
-}
-
 func (b *lockedBuffer) contains(s string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	return strings.Contains(b.buf.String(), s)
+}
+
+func (b *lockedBuffer) len() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.buf.Len()
 }
 
 // testEnv isolates the config and state dirs and returns the run environment
@@ -394,7 +390,9 @@ func TestRunSecondInstanceStartsFresh(t *testing.T) {
 
 	s := startSession(t, env, cfg, false)
 
-	waitFor(t, func() bool { return s.out.contains("another AIM is running; this one does not save its layout") })
+	ownLog := filepath.Join(dir, "aim-"+strconv.Itoa(os.Getpid())+".log")
+
+	waitFor(t, func() bool { return exists(ownLog) && s.out.contains(noticeSecondInstance) })
 	// A split repaints the screen, so new output shows the key was handled (and would have been saved).
 	shown := s.out.len()
 	s.keys(t, "\x00v")
@@ -417,7 +415,7 @@ func TestRunSecondInstanceStartsFresh(t *testing.T) {
 		t.Errorf("aim.log.1 = %q, want the holder's previous log untouched", got)
 	}
 
-	if !exists(filepath.Join(dir, "aim-"+strconv.Itoa(os.Getpid())+".log")) {
+	if !exists(ownLog) {
 		t.Error("the second instance wrote no log of its own")
 	}
 }

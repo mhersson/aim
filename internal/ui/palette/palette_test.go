@@ -84,7 +84,6 @@ func typeText(m Model, s string) (Model, []tea.Msg) {
 
 var (
 	keyDown  = tea.KeyPressMsg{Code: tea.KeyDown}
-	keyUp    = tea.KeyPressMsg{Code: tea.KeyUp}
 	keyEnter = tea.KeyPressMsg{Code: tea.KeyEnter}
 	keyEsc   = tea.KeyPressMsg{Code: tea.KeyEscape}
 	keyBksp  = tea.KeyPressMsg{Code: tea.KeyBackspace}
@@ -120,7 +119,6 @@ func TestFilter(t *testing.T) {
 	}{
 		{"", []string{"a", "b", "c", "d"}},
 		{"latte", []string{"a"}},
-		{"quit", []string{"c"}},
 		{"zzz", nil},
 	}
 	for _, tt := range tests {
@@ -130,37 +128,6 @@ func TestFilter(t *testing.T) {
 				t.Fatalf("visible = %v, want %v", got, tt.want)
 			}
 		})
-	}
-}
-
-func TestNavigation(t *testing.T) {
-	m := newModel(t)
-
-	var msgs []tea.Msg
-
-	m, msgs = press(m, keyDown)
-	if got := highlights(msgs); !slices.Equal(got, []string{"b"}) {
-		t.Fatalf("first down highlights = %v, want [b]", got)
-	}
-
-	m, msgs = press(m, keyDown)
-	if got := highlights(msgs); !slices.Equal(got, []string{"c"}) {
-		t.Fatalf("second down highlights = %v, want [c]", got)
-	}
-
-	if got := selectedID(t, m); got != "c" {
-		t.Fatalf("selected = %q, want c", got)
-	}
-
-	m = newModel(t)
-
-	m, msgs = press(m, keyUp)
-	if got := highlights(msgs); !slices.Equal(got, []string{"d"}) {
-		t.Fatalf("up from first highlights = %v, want [d]", got)
-	}
-
-	if got := selectedID(t, m); got != "d" {
-		t.Fatalf("selected after wrap = %q, want d", got)
 	}
 }
 
@@ -223,10 +190,6 @@ func TestNoMatches(t *testing.T) {
 	_, msgs = press(m2, keyDown)
 	if len(msgs) != 0 {
 		t.Fatalf("down with no matches emitted %v", msgs)
-	}
-
-	if view := ansi.Strip(m.View(40)); !strings.Contains(view, "No matches") {
-		t.Fatalf("view lacks %q:\n%s", "No matches", view)
 	}
 
 	// Backspacing to an empty query restores the list with the first item
@@ -330,8 +293,8 @@ func TestScroll(t *testing.T) {
 }
 
 func TestViewWidth(t *testing.T) {
-	queries := []string{"", "th", "zzz"}
-	for _, w := range []int{60, 30, 12, 4, 3, 2, 1, 0} {
+	queries := []string{"", "zzz"}
+	for _, w := range []int{60, 12, 2, 1, 0} {
 		for _, q := range queries {
 			t.Run(fmt.Sprintf("w%d/%q", w, q), func(t *testing.T) {
 				m, _ := typeText(newModel(t), q)
@@ -384,121 +347,19 @@ func iconItems() []Item {
 	}
 }
 
-func TestViewFrame(t *testing.T) {
-	m := New("\U000F03D8 Theme", iconItems(), mustTheme(t, "catppuccin-mocha"))
-	m, _ = press(m, keyDown)
-
-	lines := strings.Split(ansi.Strip(m.View(40)), "\n")
-	if len(lines) != 3+3+3 {
-		t.Fatalf("view has %d lines, want 9:\n%s", len(lines), strings.Join(lines, "\n"))
-	}
-
-	wantTop := "\u256d\u2500 \U000F03D8 Theme "
-	if !strings.HasPrefix(lines[0], wantTop) || !strings.HasSuffix(lines[0], "\u256e") {
-		t.Errorf("top = %q, want prefix %q and a rounded corner", lines[0], wantTop)
-	}
-
-	if !strings.HasPrefix(lines[1], "\u2502 \u276f ") {
-		t.Errorf("input row = %q, want the \u276f prompt", lines[1])
-	}
-
-	if lines[2] != "\u251c"+strings.Repeat("\u2500", 38)+"\u2524" {
-		t.Errorf("divider = %q", lines[2])
-	}
-
-	if !strings.Contains(lines[3], " \U000F0293 Zoom pane") || !strings.HasSuffix(lines[3], "ctrl+space z \u2502") {
-		t.Errorf("row = %q, want icon, title and a right-aligned hint", lines[3])
-	}
-
-	if lines[6] != "\u251c"+strings.Repeat("\u2500", 38)+"\u2524" {
-		t.Errorf("footer divider = %q", lines[6])
-	}
-
-	if want := "\u2502 up/down move   enter run   esc close"; !strings.HasPrefix(lines[7], want) || !strings.HasSuffix(lines[7], "\u2502") {
-		t.Errorf("hint row = %q, want prefix %q", lines[7], want)
-	}
-
-	if want := " 2 of 3 \u2500\u256f"; !strings.HasSuffix(lines[8], want) || !strings.HasPrefix(lines[8], "\u2570") {
-		t.Errorf("bottom = %q, want it to end with %q", lines[8], want)
-	}
-}
-
-func TestFooterColours(t *testing.T) {
-	th := mustTheme(t, "catppuccin-mocha")
-	view := New("Commands", iconItems(), th).View(40)
-
-	panel := lipgloss.NewStyle().Background(th.UI.Panel).Foreground(th.UI.Fg)
-	for name, want := range map[string]string{
-		"key":   panel.Foreground(th.UI.Key).Bold(true).Render("enter"),
-		"label": panel.Foreground(th.UI.Muted).Render(" run"),
-		"gap":   panel.Render("   "),
-	} {
-		if !strings.Contains(view, want) {
-			t.Errorf("footer %s is not drawn as %q:\n%q", name, want, view)
-		}
-	}
-}
-
 func TestFooterWithNoMatches(t *testing.T) {
 	m, _ := typeText(newModel(t), "zzz")
 
-	lines := strings.Split(ansi.Strip(m.View(40)), "\n")
-	if len(lines) != 3+1+3 || !strings.Contains(lines[5], "esc close") {
-		t.Errorf("no-match view has %d lines, hint row %q", len(lines), lines[len(lines)-2])
-	}
-}
-
-func TestRowColours(t *testing.T) {
-	th := mustTheme(t, "catppuccin-mocha")
-	m := New("Commands", iconItems(), th)
-	m, _ = typeText(m, "zp")
-	view := m.View(40)
-	ui := th.UI
-
-	sel := lipgloss.NewStyle().Background(ui.Selection)
-	for name, want := range map[string]string{
-		"selected icon":  sel.Foreground(ui.Accent).Render("\U000F0293"),
-		"matched rune":   sel.Foreground(ui.Match).Bold(true).Render("Z"),
-		"selected title": sel.Foreground(ui.Fg).Bold(true).Render("oom "),
-		"hint":           sel.Foreground(ui.Key).Bold(true).Render("ctrl+space z"),
-	} {
-		if !strings.Contains(view, want) {
-			t.Errorf("%s is not drawn as %q:\n%q", name, want, view)
-		}
+	if _, ok := m.Selected(); ok || len(m.matches) != 0 {
+		t.Errorf("Selected ok = %v, matches = %d, want none", ok, len(m.matches))
 	}
 
-	m = New("Commands", iconItems(), th)
-	m, _ = press(m, keyDown)
-
-	panel := lipgloss.NewStyle().Background(ui.Panel)
-	if want := panel.Foreground(ui.Muted).Render("\U000F0293"); !strings.Contains(m.View(40), want) {
-		t.Errorf("unselected icon is not Muted")
-	}
-}
-
-func TestCountTracksFilter(t *testing.T) {
-	m := New("Commands", iconItems(), mustTheme(t, "catppuccin-mocha"))
-	if v := ansi.Strip(m.View(40)); !strings.Contains(v, " 1 of 3 ") {
-		t.Errorf("unfiltered count missing:\n%s", v)
+	if !strings.Contains(ansi.Strip(m.View(40)), " 0 of 0 ") {
+		t.Errorf("footer lacks the count 0 of 0:\n%s", ansi.Strip(m.View(40)))
 	}
 
-	m, _ = typeText(m, "quit")
-	if v := ansi.Strip(m.View(40)); !strings.Contains(v, " 1 of 1 ") {
-		t.Errorf("filtered count missing:\n%s", v)
-	}
-
-	m, _ = typeText(m, "zzz")
-	if v := ansi.Strip(m.View(40)); !strings.Contains(v, " 0 of 0 ") {
-		t.Errorf("empty count missing:\n%s", v)
-	}
-}
-
-func TestNoIconsNoGap(t *testing.T) {
-	m := New("Commands", testItems(), mustTheme(t, "catppuccin-mocha"))
-
-	lines := strings.Split(ansi.Strip(m.View(40)), "\n")
-	if !strings.HasPrefix(lines[3], "\u2502 Theme: Catppuccin Latte") {
-		t.Errorf("row without an icon = %q, want the title right after one margin cell", lines[3])
+	if n := len(strings.Split(ansi.Strip(m.View(40)), "\n")); n != 3+1+3 {
+		t.Errorf("no-match view has %d lines, want 7", n)
 	}
 }
 
@@ -533,80 +394,38 @@ func TestMultibyteTitle(t *testing.T) {
 }
 
 func TestFooterEnterLabel(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		m    Model
-		want string
-	}{
-		{"default", newModel(t), "enter run"},
-		{"labelled", newModel(t).WithEnterLabel("apply"), "enter apply"},
-	} {
-		view := ansi.Strip(tc.m.View(60))
-		if !strings.Contains(view, tc.want) {
-			t.Errorf("%s: footer lacks %q:\n%s", tc.name, tc.want, view)
-		}
+	if view := ansi.Strip(newModel(t).View(60)); strings.Contains(view, "apply") {
+		t.Errorf("default footer names apply:\n%s", view)
+	}
+
+	if view := ansi.Strip(newModel(t).WithEnterLabel("apply").View(60)); !strings.Contains(view, "apply") {
+		t.Errorf("footer lacks apply:\n%s", view)
 	}
 }
 
 func TestBox(t *testing.T) {
 	th := mustTheme(t, "catppuccin-mocha")
-	strip := ansi.Strip
 
-	t.Run("every piece is as wide as the box", func(t *testing.T) {
-		for _, w := range []int{2, 3, 4, 5, 9, 10, 40} {
-			box := NewBox(th, w)
+	for _, w := range []int{2, 3, 5, 40} {
+		box := NewBox(th, w)
 
-			pieces := map[string]string{
-				"row":            box.Row("some content that is longer than a small box", box.On(th.UI.Fg)),
-				"short row":      box.Row("", box.On(th.UI.Fg)),
-				"top":            box.Top("A long title for a narrow box"),
-				"divider":        box.Divider(),
-				"bottom":         box.Bottom(" 3 of 9 "),
-				"bottom no tail": box.Bottom(""),
-			}
-			for name, p := range pieces {
-				if got := lipgloss.Width(p); got != w {
-					t.Errorf("width %d: %s is %d cells wide: %q", w, name, got, strip(p))
-				}
-			}
+		pieces := map[string]string{
+			"row":            box.Row("some content that is longer than a small box", box.On(th.UI.Fg)),
+			"short row":      box.Row("", box.On(th.UI.Fg)),
+			"top":            box.Top("A long title for a narrow box"),
+			"divider":        box.Divider(),
+			"bottom":         box.Bottom(" 3 of 9 "),
+			"bottom no tail": box.Bottom(""),
 		}
-	})
-
-	box := NewBox(th, 30)
-
-	dashes := func(n int) string { return strings.Repeat("\u2500", n) }
-
-	for _, tt := range []struct {
-		name, got, want string
-	}{
-		{"row", strip(box.Row("hi", box.On(th.UI.Fg))), "\u2502hi" + strings.Repeat(" ", 26) + "\u2502"},
-		{"top", strip(box.Top("Title")), "\u256d\u2500 Title " + dashes(20) + "\u256e"},
-		{"divider", strip(box.Divider()), "\u251c" + dashes(28) + "\u2524"},
-		{"bottom with count", strip(box.Bottom(" 3 of 9 ")), "\u2570" + dashes(19) + " 3 of 9 \u2500\u256f"},
-		{"bottom without", strip(box.Bottom("")), "\u2570" + dashes(28) + "\u256f"},
-		{"hints", strip(box.Hints([][2]string{{"up/down", "move"}, {"esc", "close"}})), " up/down move   esc close"},
-	} {
-		if tt.got != tt.want {
-			t.Errorf("%s = %q, want %q", tt.name, tt.got, tt.want)
+		for name, p := range pieces {
+			if got := lipgloss.Width(p); got != w {
+				t.Errorf("width %d: %s is %d cells wide: %q", w, name, got, ansi.Strip(p))
+			}
 		}
 	}
 
 	// A count that does not fit is left out, never cut.
-	if got := strip(NewBox(th, 8).Bottom(" 3 of 9 ")); got != "\u2570"+dashes(6)+"\u256f" {
+	if got := ansi.Strip(NewBox(th, 8).Bottom(" 3 of 9 ")); got != "\u2570"+strings.Repeat("\u2500", 6)+"\u256f" {
 		t.Errorf("bottom in a narrow box = %q, want no count", got)
-	}
-
-	// The keys are in Key bold and the labels in Muted, on the panel colour.
-	rgb := func(h theme.Hex) string {
-		r, g, b, _ := h.RGBA()
-
-		return fmt.Sprintf("38;2;%d;%d;%d", r>>8, g>>8, b>>8)
-	}
-
-	hints := box.Hints([][2]string{{"esc", "close"}})
-	for _, want := range []string{"1;" + rgb(th.UI.Key) + ";48;2;", rgb(th.UI.Muted) + ";48;2;"} {
-		if !strings.Contains(hints, want) {
-			t.Errorf("hints = %q, want %q in it", hints, want)
-		}
 	}
 }

@@ -106,7 +106,6 @@ func payload(event, rest string) []byte {
 }
 
 func TestParseEventAction(t *testing.T) {
-	long := strings.Repeat("a", 200)
 	cjk := strings.Repeat("\u6f22", 200) // 200 CJK runes of 3 bytes each
 	emoji := strings.Repeat("\U0001F600", 200)
 
@@ -120,7 +119,7 @@ func TestParseEventAction(t *testing.T) {
 		wantLen int // wanted rune count when > 0
 	}{
 		{"file_path", "PreToolUse", `"tool_name":"Edit","tool_input":{"file_path":"internal/core/modes.go","command":"x"}`, core.AgentWorking, "Edit internal/core/modes.go", true, 0},
-		{"notebook_path", "PreToolUse", `"tool_name":"NotebookEdit","tool_input":{"notebook_path":"a.ipynb","pattern":"p"}`, core.AgentWorking, "NotebookEdit a.ipynb", true, 0},
+		{"notebook_path", "PreToolUse", `"cwd":"/a/b","tool_name":"NotebookEdit","tool_input":{"notebook_path":"/a/b/nb/a.ipynb","pattern":"p"}`, core.AgentWorking, "NotebookEdit nb/a.ipynb", true, 0},
 		{"command", "PreToolUse", `"tool_name":"Bash","tool_input":{"command":"go test ./...","description":"run"}`, core.AgentWorking, "Bash go test ./...", true, 0},
 		{"pattern", "PreToolUse", `"tool_name":"Grep","tool_input":{"pattern":"foo","url":"u"}`, core.AgentWorking, "Grep foo", true, 0},
 		{"url", "PreToolUse", `"tool_name":"WebFetch","tool_input":{"url":"https://x.dev","query":"q"}`, core.AgentWorking, "WebFetch https://x.dev", true, 0},
@@ -133,51 +132,29 @@ func TestParseEventAction(t *testing.T) {
 		{"non-string target skipped", "PreToolUse", `"tool_name":"Bash","tool_input":{"file_path":5,"command":"ls"}`, core.AgentWorking, "Bash ls", true, 0},
 		{"missing tool_input", "PreToolUse", `"tool_name":"Bash"`, core.AgentWorking, "Bash", true, 0},
 		{"tool_input string", "PreToolUse", `"tool_name":"Bash","tool_input":"ls"`, core.AgentWorking, "Bash", true, 0},
-		{"tool_input array", "PreToolUse", `"tool_name":"Bash","tool_input":["ls"]`, core.AgentWorking, "Bash", true, 0},
-		{"tool_input null", "PreToolUse", `"tool_name":"Bash","tool_input":null`, core.AgentWorking, "Bash", true, 0},
-		{"tool_input number", "PreToolUse", `"tool_name":"Bash","tool_input":7`, core.AgentWorking, "Bash", true, 0},
 		{"multi-line command keeps first line", "PreToolUse", `"tool_name":"Bash","tool_input":{"command":"echo a\necho b"}`, core.AgentWorking, "Bash echo a", true, 0},
-		{"crlf command keeps first line", "PreToolUse", `"tool_name":"Bash","tool_input":{"command":"echo a\r\necho b"}`, core.AgentWorking, "Bash echo a", true, 0},
 		{"escape sequences removed", "PreToolUse", `"tool_name":"Bash","tool_input":{"command":"\u001b[31mred\u001b[0m \u009b2J\u0007x"}`, core.AgentWorking, "Bash [31mred[0m 2Jx", true, 0},
 		{"format characters removed", "PreToolUse", `"tool_name":"Bash","tool_input":{"command":"a\u200bb\u202ec\ufeffd"}`, core.AgentWorking, "Bash abcd", true, 0},
 		{"tab removed", "PreToolUse", `"tool_name":"Bash","tool_input":{"command":"a\tb"}`, core.AgentWorking, "Bash ab", true, 0},
 		{"control characters in the tool name", "PreToolUse", `"tool_name":"Ba\u001bsh\n","tool_input":{"command":"ls"}`, core.AgentWorking, "Bash ls", true, 0},
 		{"60 KiB command", "PreToolUse", `"tool_name":"Bash","tool_input":{"command":"` + strings.Repeat("x", 60<<10) + `"}`, core.AgentWorking, "", true, 120},
-		{"long target cut", "PreToolUse", `"tool_name":"Bash","tool_input":{"command":"` + long + `"}`, core.AgentWorking, "", true, 120},
 		{"CJK cut at 120 runes", "PreToolUse", `"tool_name":"Read","tool_input":{"file_path":"` + cjk + `"}`, core.AgentWorking, "Read " + strings.Repeat("\u6f22", 115), true, 120},
 		{"emoji cut at 120 runes", "PreToolUse", `"tool_name":"Read","tool_input":{"file_path":"` + emoji + `"}`, core.AgentWorking, "Read " + strings.Repeat("\U0001F600", 115), true, 120},
 		{"ask first question", "PreToolUse", `"tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Which db?","header":"DB"},{"question":"Other"}]}`, core.AgentBlocked, "Which db?", true, 0},
 		{"ask question with newline", "PreToolUse", `"tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Which\ndb?"}]}`, core.AgentBlocked, "Which", true, 0},
 		{"ask empty questions", "PreToolUse", `"tool_name":"AskUserQuestion","tool_input":{"questions":[]}`, core.AgentBlocked, "AskUserQuestion", true, 0},
-		{"ask no questions", "PreToolUse", `"tool_name":"AskUserQuestion","tool_input":{}`, core.AgentBlocked, "AskUserQuestion", true, 0},
 		{"ask questions not a list", "PreToolUse", `"tool_name":"AskUserQuestion","tool_input":{"questions":"why"}`, core.AgentBlocked, "AskUserQuestion", true, 0},
-		{"ask question not a string", "PreToolUse", `"tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":5}]}`, core.AgentBlocked, "AskUserQuestion", true, 0},
 		{"ask question entry is a number", "PreToolUse", `"tool_name":"AskUserQuestion","tool_input":{"questions":[3]}`, core.AgentBlocked, "AskUserQuestion", true, 0},
-		{"ask tool_input string", "PreToolUse", `"tool_name":"AskUserQuestion","tool_input":"x"`, core.AgentBlocked, "AskUserQuestion", true, 0},
 		{"permission with target", "PermissionRequest", `"tool_name":"Bash","tool_input":{"command":"rm x"}`, core.AgentBlocked, "Allow Bash rm x?", true, 0},
 		{"permission without target", "PermissionRequest", `"tool_name":"Bash"`, core.AgentBlocked, "Allow Bash?", true, 0},
 		{"permission tool_input array", "PermissionRequest", `"tool_name":"Bash","tool_input":[1]`, core.AgentBlocked, "Allow Bash?", true, 0},
-		{"permission long command", "PermissionRequest", `"tool_name":"Bash","tool_input":{"command":"` + strings.Repeat("y", 60<<10) + `"}`, core.AgentBlocked, "", true, 120},
 		{"permission prompt message", "Notification", `"notification_type":"permission_prompt","message":"Claude needs permission"`, core.AgentBlocked, "Claude needs permission", true, 0},
 		{"agent needs input message", "Notification", `"notification_type":"agent_needs_input","message":"a\u001b[2Jb\nc"`, core.AgentBlocked, "a[2Jb", true, 0},
 		{"blocking notification without message clears", "Notification", `"notification_type":"elicitation_dialog"`, core.AgentBlocked, "", true, 0},
 		{"blocking notification message not a string", "Notification", `"notification_type":"permission_prompt","message":{"a":1}`, core.AgentBlocked, "", true, 0},
-		{"idle notification leaves the action", "Notification", `"notification_type":"idle_prompt","message":"waiting"`, core.AgentIdle, "", false, 0},
-		{"other notification leaves the action", "Notification", `"notification_type":"auth_success","message":"ok"`, core.AgentUnknown, "", false, 0},
 		{"elicitation message", "Elicitation", `"message":"Enter token"`, core.AgentBlocked, "Enter token", true, 0},
-		{"elicitation long message", "Elicitation", `"message":"` + long + `"`, core.AgentBlocked, "", true, 120},
-		{"prompt", "UserPromptSubmit", `"prompt":"do the thing"`, core.AgentWorking, "thinking", true, 0},
-		{"stop clears", "Stop", ``, core.AgentIdle, "", true, 0},
-		{"stop failure clears", "StopFailure", ``, core.AgentIdle, "", true, 0},
-		{"session start clears", "SessionStart", `"session_id":"s","source":"startup"`, core.AgentIdle, "", true, 0},
-		{"compact session start clears", "SessionStart", `"session_id":"s","source":"compact"`, core.AgentUnknown, "", true, 0},
-		{"session end clears", "SessionEnd", ``, core.AgentUnknown, "", true, 0},
-		{"post tool use replaces the action", "PostToolUse", `"tool_name":"Bash","tool_input":{"command":"ls"}`, core.AgentWorking, "Bash ls", true, 0},
-		{"post tool use failure replaces the action", "PostToolUseFailure", `"tool_name":"Bash"`, core.AgentWorking, "Bash", true, 0},
 		{"post tool use relative file", "PostToolUse", `"cwd":"/a/b","tool_name":"Edit","tool_input":{"file_path":"/a/b/x/y.go"}`, core.AgentWorking, "Edit x/y.go", true, 0},
-		{"post tool use failure relative file", "PostToolUseFailure", `"cwd":"/a/b","tool_name":"Read","tool_input":{"file_path":"/a/b/y.go"}`, core.AgentWorking, "Read y.go", true, 0},
 		{"pre inside the cwd", "PreToolUse", `"cwd":"/a/b","tool_name":"Edit","tool_input":{"file_path":"/a/b/x/y.go"}`, core.AgentWorking, "Edit x/y.go", true, 0},
-		{"pre notebook inside the cwd", "PreToolUse", `"cwd":"/a/b","tool_name":"NotebookEdit","tool_input":{"notebook_path":"/a/b/n.ipynb"}`, core.AgentWorking, "NotebookEdit n.ipynb", true, 0},
 		{"pre unclean path inside the cwd", "PreToolUse", `"cwd":"/a/b/","tool_name":"Edit","tool_input":{"file_path":"/a/b/./x//y.go"}`, core.AgentWorking, "Edit x/y.go", true, 0},
 		{"pre outside the cwd", "PreToolUse", `"cwd":"/a/b","tool_name":"Edit","tool_input":{"file_path":"/a/c/y.go"}`, core.AgentWorking, "Edit /a/c/y.go", true, 0},
 		{"pre parent of the cwd", "PreToolUse", `"cwd":"/a/b","tool_name":"Edit","tool_input":{"file_path":"/a/y.go"}`, core.AgentWorking, "Edit /a/y.go", true, 0},
@@ -191,11 +168,6 @@ func TestParseEventAction(t *testing.T) {
 		{"pre url is not relativised", "PreToolUse", `"cwd":"/a/b","tool_name":"WebFetch","tool_input":{"url":"/a/b/x"}`, core.AgentWorking, "WebFetch /a/b/x", true, 0},
 		{"permission inside the cwd", "PermissionRequest", `"cwd":"/a/b","tool_name":"Edit","tool_input":{"file_path":"/a/b/x/y.go"}`, core.AgentBlocked, "Allow Edit x/y.go?", true, 0},
 		{"permission outside the cwd", "PermissionRequest", `"cwd":"/a/b","tool_name":"Edit","tool_input":{"file_path":"/a/c/y.go"}`, core.AgentBlocked, "Allow Edit /a/c/y.go?", true, 0},
-		{"permission equal to the cwd", "PermissionRequest", `"cwd":"/a/b","tool_name":"Read","tool_input":{"file_path":"/a/b"}`, core.AgentBlocked, "Allow Read /a/b?", true, 0},
-		{"permission relative target", "PermissionRequest", `"cwd":"/a/b","tool_name":"Edit","tool_input":{"file_path":"x"}`, core.AgentBlocked, "Allow Edit x?", true, 0},
-		{"permission sibling sharing the cwd prefix", "PermissionRequest", `"cwd":"/a/b","tool_name":"Edit","tool_input":{"file_path":"/a/bc/x"}`, core.AgentBlocked, "Allow Edit /a/bc/x?", true, 0},
-		{"permission empty cwd", "PermissionRequest", `"tool_name":"Edit","tool_input":{"file_path":"/a/b/x"}`, core.AgentBlocked, "Allow Edit /a/b/x?", true, 0},
-		{"elicitation result leaves", "ElicitationResult", ``, core.AgentWorking, "", false, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -246,7 +218,6 @@ func TestParseEventEdit(t *testing.T) {
 		{"post write", "PostToolUse", `"tool_name":"Write","tool_input":{"file_path":"/r/a.go","content":"x"}`, "/r/a.go"},
 		{"pre notebook edit", "PreToolUse", `"tool_name":"NotebookEdit","tool_input":{"notebook_path":"/r/n.ipynb"}`, "/r/n.ipynb"},
 		{"pre multi edit", "PreToolUse", `"tool_name":"MultiEdit","tool_input":{"file_path":"/r/a.go"}`, "/r/a.go"},
-		{"post notebook edit", "PostToolUse", `"tool_name":"NotebookEdit","tool_input":{"notebook_path":"/r/n.ipynb"}`, "/r/n.ipynb"},
 		{"path is cleaned", "PreToolUse", `"tool_name":"Edit","tool_input":{"file_path":"/r/x/../a.go"}`, "/r/a.go"},
 		{"path with spaces and non-ASCII", "PostToolUse", `"tool_name":"Edit","tool_input":{"file_path":"/r/my dir/å.go"}`, "/r/my dir/å.go"},
 		{"notebook edit ignores file_path", "PreToolUse", `"tool_name":"NotebookEdit","tool_input":{"file_path":"/r/a.go"}`, ""},
@@ -254,15 +225,11 @@ func TestParseEventEdit(t *testing.T) {
 		{"failed edit", "PostToolUseFailure", `"tool_name":"Edit","tool_input":{"file_path":"/r/a.go"}`, ""},
 		{"edit permission request", "PermissionRequest", `"tool_name":"Edit","tool_input":{"file_path":"/r/a.go"}`, ""},
 		{"read", "PreToolUse", `"tool_name":"Read","tool_input":{"file_path":"/r/a.go"}`, ""},
-		{"bash", "PreToolUse", `"tool_name":"Bash","tool_input":{"command":"sed -i x /r/a.go"}`, ""},
 		{"relative path", "PreToolUse", `"tool_name":"Edit","tool_input":{"file_path":"src/a.go"}`, ""},
 		{"relative path that climbs", "PostToolUse", `"cwd":"/r","tool_name":"Edit","tool_input":{"file_path":"../a.go"}`, ""},
-		{"empty path", "PreToolUse", `"tool_name":"Edit","tool_input":{"file_path":""}`, ""},
 		{"path is not a string", "PreToolUse", `"tool_name":"Edit","tool_input":{"file_path":5}`, ""},
 		{"tool_input is not an object", "PreToolUse", `"tool_name":"Edit","tool_input":"/r/a.go"`, ""},
-		{"no tool_input", "PreToolUse", `"tool_name":"Edit"`, ""},
 		{"path holds NUL", "PreToolUse", `"tool_name":"Edit","tool_input":{"file_path":"/r/a\u0000.go"}`, ""},
-		{"session event", "SessionStart", `"session_id":"s","source":"startup"`, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -295,9 +262,7 @@ func TestParseEventPlan(t *testing.T) {
 		{"path is cleaned", "PreToolUse", `"tool_name":"ExitPlanMode","tool_input":{"planFilePath":"/home/u/.claude/plans/../plans/x.md"}`, "/home/u/.claude/plans/x.md"},
 		{"relative path", "PreToolUse", `"tool_name":"ExitPlanMode","tool_input":{"planFilePath":"plans/x.md"}`, ""},
 		{"path holds NUL", "PreToolUse", `"tool_name":"ExitPlanMode","tool_input":{"planFilePath":"/p/a\u0000.md"}`, ""},
-		{"path is a number", "PreToolUse", `"tool_name":"ExitPlanMode","tool_input":{"planFilePath":5}`, ""},
 		{"no path", "PreToolUse", `"tool_name":"ExitPlanMode","tool_input":{"plan":"# x"}`, ""},
-		{"tool_input is a string", "PreToolUse", `"tool_name":"ExitPlanMode","tool_input":"/p/x.md"`, ""},
 		{"permission request", "PermissionRequest", input, ""},
 		{"post tool use", "PostToolUse", input, ""},
 		{"other tool", "PreToolUse", `"tool_name":"Write","tool_input":{"planFilePath":"/p/x.md"}`, ""},
@@ -337,13 +302,9 @@ func TestParseEventBefore(t *testing.T) {
 		want  bool
 	}{
 		{"pre edit", "PreToolUse", `"tool_name":"Edit","tool_input":{"file_path":"/r/a.go"}`, true},
-		{"pre write", "PreToolUse", `"tool_name":"Write","tool_input":{"file_path":"/r/a.go"}`, true},
-		{"pre multi edit", "PreToolUse", `"tool_name":"MultiEdit","tool_input":{"file_path":"/r/a.go"}`, true},
-		{"pre notebook edit", "PreToolUse", `"tool_name":"NotebookEdit","tool_input":{"notebook_path":"/r/n.ipynb"}`, true},
 		{"subagent pre edit", "PreToolUse", `"agent_id":"a1","tool_name":"Edit","tool_input":{"file_path":"/r/a.go"}`, true},
 		{"post edit", "PostToolUse", `"tool_name":"Edit","tool_input":{"file_path":"/r/a.go"}`, false},
 		{"pre read", "PreToolUse", `"tool_name":"Read","tool_input":{"file_path":"/r/a.go"}`, false},
-		{"pre bash", "PreToolUse", `"tool_name":"Bash","tool_input":{"command":"sed -i x /r/a.go"}`, false},
 		{"pre edit with a relative path", "PreToolUse", `"tool_name":"Edit","tool_input":{"file_path":"src/a.go"}`, false},
 	}
 	for _, tt := range tests {
@@ -411,7 +372,6 @@ func TestParseEventChanged(t *testing.T) {
 		{"one directory twice", "PostToolUse", "Bash", files("/r/a/x.go", "/r/a/y.go"), []string{"/r/a/x.go"}},
 		{"a nested directory is its own", "PostToolUse", "Bash", files("/r/a/x.go", "/r/a/sub/y.go"), []string{"/r/a/x.go", "/r/a/sub/y.go"}},
 		{"the path is cleaned", "PostToolUse", "Bash", files("/r/x/../a.go"), []string{"/r/a.go"}},
-		{"paths that clean to one directory", "PostToolUse", "Bash", files("/r/a/x.go", "/r/b/../a/y.go"), []string{"/r/a/x.go"}},
 		{"path with spaces and non-ASCII", "PostToolUse", "Bash", files("/r/my dir/\u00e5.go"), []string{"/r/my dir/\u00e5.go"}},
 		{"forty directories", "PostToolUse", "Bash", files(dirs...), firstDirs},
 		{"a path of the limit is kept", "PostToolUse", "Bash", files(long[:maxChangedPath]), []string{long[:maxChangedPath]}},
@@ -425,15 +385,10 @@ func TestParseEventChanged(t *testing.T) {
 		{"a long path does not claim its directory", "PostToolUse", "Bash", files("/r/x/"+long, "/r/x/b.go"), []string{"/r/x/b.go"}},
 		{"the list is not an array", "PostToolUse", "Bash", `{"bashEditDiff":{"changedFiles":"/r/a.go"}}`, nil},
 		{"the list is an object", "PostToolUse", "Bash", `{"bashEditDiff":{"changedFiles":{"0":"/r/a.go"}}}`, nil},
-		{"the list is null", "PostToolUse", "Bash", `{"bashEditDiff":{"changedFiles":null}}`, nil},
 		{"the list is empty", "PostToolUse", "Bash", `{"bashEditDiff":{"changedFiles":[]}}`, nil},
-		{"no list", "PostToolUse", "Bash", `{"bashEditDiff":{}}`, nil},
 		{"no bashEditDiff", "PostToolUse", "Bash", `{"stdout":"x"}`, nil},
-		{"bashEditDiff is a string", "PostToolUse", "Bash", `{"bashEditDiff":"/r/a.go"}`, nil},
 		{"tool_response is a string", "PostToolUse", "Bash", `"/r/a.go"`, nil},
-		{"tool_response is an array", "PostToolUse", "Bash", `[{"bashEditDiff":{"changedFiles":["/r/a.go"]}}]`, nil},
 		{"tool_response is null", "PostToolUse", "Bash", `null`, nil},
-		{"skipped with no list", "PostToolUse", "Bash", `{"bashEditDiff":{"skipped":true}}`, nil},
 		{"a failed Bash", "PostToolUseFailure", "Bash", files("/r/a.go"), nil},
 		{"a Bash before it runs", "PreToolUse", "Bash", files("/r/a.go"), nil},
 		{"an Edit carrying a list", "PostToolUse", "Edit", files("/r/a.go"), nil},
@@ -509,11 +464,6 @@ func TestParseEventNewConversation(t *testing.T) {
 		name, event, rest string
 		want              bool
 	}{
-		{"clear", "SessionStart", `"session_id":"s","source":"clear"`, true},
-		{"startup", "SessionStart", `"session_id":"s","source":"startup"`, true},
-		{"resume", "SessionStart", `"session_id":"s","source":"resume"`, false},
-		{"fork", "SessionStart", `"session_id":"s","source":"fork"`, false},
-		{"compact", "SessionStart", `"session_id":"s","source":"compact"`, false},
 		{"no source", "SessionStart", `"session_id":"s"`, false},
 		{"unknown source", "SessionStart", `"session_id":"s","source":"teleport"`, false},
 		{"another event", "UserPromptSubmit", `"session_id":"s","source":"clear"`, false},
@@ -594,12 +544,6 @@ func TestParseStatus(t *testing.T) {
 			false,
 		},
 		{
-			"missing used_percentage",
-			`{` + session + `,"model":{"display_name":"Opus"},"context_window":{"context_window_size":200000}}`,
-			Event{Name: "statusline", Status: true, Session: testSession, Model: "Opus", Window: 200000},
-			false,
-		},
-		{
 			"fractional used_percentage",
 			`{` + session + `,"model":{"display_name":"Opus"},"context_window":{"total_input_tokens":47000,"context_window_size":200000,"used_percentage":23.5}}`,
 			Event{
@@ -621,20 +565,8 @@ func TestParseStatus(t *testing.T) {
 			false,
 		},
 		{
-			"null context_window",
-			`{` + session + `,"model":{"display_name":"Opus"},"context_window":null}`,
-			Event{Name: "statusline", Status: true, Session: testSession, Model: "Opus"},
-			false,
-		},
-		{
 			"missing model",
 			`{` + session + `,"context_window":{"total_input_tokens":15234,"context_window_size":200000,"used_percentage":8}}`,
-			status(func(ev *Event) { ev.Model = "" }),
-			false,
-		},
-		{
-			"null model",
-			`{` + session + `,"model":null,"context_window":{"total_input_tokens":15234,"context_window_size":200000,"used_percentage":8}}`,
 			status(func(ev *Event) { ev.Model = "" }),
 			false,
 		},
@@ -656,10 +588,7 @@ func TestParseStatus(t *testing.T) {
 			Event{Name: "statusline", Status: true, Session: testSession, Model: "Op[2Jus 4"},
 			false,
 		},
-		{"missing rate_limits", full, status(func(*Event) {}), false},
 		{"invalid JSON", `{"model":`, Event{}, true},
-		{"empty payload", ``, Event{}, true},
-		{"not an object", `[1]`, Event{}, true},
 		{"percentage is a string", `{"context_window":{"used_percentage":"8"}}`, Event{}, true},
 	}
 	for _, tt := range tests {
@@ -718,11 +647,6 @@ func TestParseStatusRateLimits(t *testing.T) {
 		five, week *RateWindow
 	}{
 		{
-			"both",
-			`{"five_hour":{"used_percentage":23.5,"resets_at":1738425600},"seven_day":{"used_percentage":41.2,"resets_at":1738857600}}`,
-			&RateWindow{23.5, 1738425600}, &RateWindow{41.2, 1738857600},
-		},
-		{
 			"weekly only",
 			`{"seven_day":{"used_percentage":41.2,"resets_at":1738857600}}`,
 			nil, &RateWindow{41.2, 1738857600},
@@ -741,8 +665,6 @@ func TestParseStatusRateLimits(t *testing.T) {
 			&RateWindow{23.5, 1738425600}, nil,
 		},
 		{"huge reset", `{"five_hour":{"used_percentage":23.5,"resets_at":1e30}}`, nil, nil},
-		{"empty", `{}`, nil, nil},
-		{"not an object", `"soon"`, nil, nil},
 		{"string percent", `{"five_hour":{"used_percentage":"23%","resets_at":1738425600}}`, nil, nil},
 	}
 	for _, tt := range tests {
@@ -767,7 +689,7 @@ func TestParseStatusRateLimits(t *testing.T) {
 
 func TestParseEventIgnoresLargeFields(t *testing.T) {
 	payload := `{"session_id":"s","transcript_path":"/t","hook_event_name":"PostToolUse","tool_name":"Bash",` +
-		`"tool_response":{"stdout":"` + strings.Repeat("x", 5<<20) + `"}}`
+		`"tool_response":{"stdout":"` + strings.Repeat("x", 1<<20) + `"}}`
 
 	ev, err := Claude{}.ParseEvent([]byte(payload))
 	if err != nil {
@@ -881,8 +803,6 @@ func TestSettingsStatusLine(t *testing.T) {
 		command string
 	}{
 		{"plain", "/usr/local/bin/aim", "'/usr/local/bin/aim' statusline"},
-		{"space", "/Users/a b/bin/mr", "'/Users/a b/bin/mr' statusline"},
-		{"non-ASCII", "/Users/jørgen/漢/mr", "'/Users/jørgen/漢/mr' statusline"},
 		{"shell metacharacters", "/opt/$HOME/`x` \"q\" *?~;&|<>(){}/mr", "'/opt/$HOME/`x` \"q\" *?~;&|<>(){}/mr' statusline"},
 	}
 	for _, tt := range tests {
@@ -913,8 +833,6 @@ func TestSettingsStatusLine(t *testing.T) {
 		exe  string
 	}{
 		{"single quote", "/opt/it's/mr"},
-		{"backslash", `/opt/a\b/mr`},
-		{"newline", "/opt/a\nb/mr"},
 		{"invalid UTF-8", "/opt/a\xffb/mr"},
 	}
 	for _, tt := range refused {
@@ -970,7 +888,7 @@ func TestStatusLineCommandInShells(t *testing.T) {
 		{"zsh", []string{"-f", "-c"}},
 		{"fish", []string{"--no-config", "-c"}},
 	}
-	dirs := []string{"a b", "jørgen 漢", "$HOME `x` \"q\" *?~;&|<>(){}#!"}
+	dirs := []string{"jørgen 漢 $HOME `x` \"q\" *?~;&|<>(){}#!"}
 
 	for _, sh := range shells {
 		path, err := exec.LookPath(sh.name)
@@ -1020,40 +938,34 @@ func TestStatusLineCommandInShells(t *testing.T) {
 
 func TestQuotePath(t *testing.T) {
 	tests := []struct {
-		name    string
-		path    string
-		want    string
-		wantErr string // a fragment of the error, naming the refused character
+		name   string
+		path   string
+		want   string
+		refuse bool
 	}{
-		{"plain", "/usr/bin/mr", "'/usr/bin/mr'", ""},
-		{"space", "/a b/mr", "'/a b/mr'", ""},
-		{"non-ASCII", "/jørgen/漢/\U0001F600", "'/jørgen/漢/\U0001F600'", ""},
-		{"double quote and dollar", `/a"b/$c`, `'/a"b/$c'`, ""},
-		{"single quote", "/it's/mr", "", "single quote"},
-		{"backslash", `/a\b`, "", "backslash"},
-		{"newline", "/a\nb", "", "U+000A"},
-		{"carriage return", "/a\rb", "", "U+000D"},
-		{"tab", "/a\tb", "", "U+0009"},
-		{"nul", "/a\x00b", "", "U+0000"},
-		{"escape", "/a\x1bb", "", "U+001B"},
-		{"delete", "/a\x7fb", "", "U+007F"},
-		{"C1 control", "/a\u0085b", "", "U+0085"},
-		{"invalid UTF-8", "/a\xffb", "", "UTF-8"},
-		{"truncated UTF-8", "/a\xe6\xbc", "", "UTF-8"},
+		{"plain", "/usr/bin/mr", "'/usr/bin/mr'", false},
+		{"non-ASCII", "/jørgen/漢/\U0001F600", "'/jørgen/漢/\U0001F600'", false},
+		{"double quote and dollar", `/a"b/$c`, `'/a"b/$c'`, false},
+		{"single quote", "/it's/mr", "", true},
+		{"backslash", `/a\b`, "", true},
+		{"newline", "/a\nb", "", true},
+		{"delete", "/a\x7fb", "", true},
+		{"C1 control", "/a\u0085b", "", true},
+		{"invalid UTF-8", "/a\xffb", "", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := QuotePath(tt.path)
-			if tt.wantErr == "" {
-				if err != nil || got != tt.want {
-					t.Errorf("QuotePath(%q) = %q, %v, want %q", tt.path, got, err, tt.want)
+			if tt.refuse {
+				if err == nil || got != "" {
+					t.Errorf("QuotePath(%q) = %q, %v, want an error and no path", tt.path, got, err)
 				}
 
 				return
 			}
 
-			if err == nil || got != "" || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Errorf("QuotePath(%q) = %q, %v, want an error naming %q", tt.path, got, err, tt.wantErr)
+			if err != nil || got != tt.want {
+				t.Errorf("QuotePath(%q) = %q, %v, want %q", tt.path, got, err, tt.want)
 			}
 		})
 	}

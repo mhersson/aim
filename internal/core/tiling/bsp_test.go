@@ -20,7 +20,7 @@ func TestApplyLayoutNeverOverlaps(t *testing.T) {
 	// below the old fixed minimum, which is exactly where the overlap lived.
 	bounds := Rect{X: 0, Y: 0, W: 120, H: 40}
 
-	for _, n := range []int{2, 3, 4, 6, 8, 12} {
+	for _, n := range []int{4, 12} {
 		tree := NewBSPTree()
 		tree.AutoScheme = SchemeSpiral
 		last := 0

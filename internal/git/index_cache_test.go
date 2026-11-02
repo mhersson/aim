@@ -68,21 +68,6 @@ func wantCacheName(t *testing.T, r Repo) string {
 		info.Size(), info.ModTime().UnixNano(), info.Sys().(*syscall.Stat_t).Ino)
 }
 
-func TestWorkingTreeWritesTheIndexCache(t *testing.T) {
-	t.Parallel()
-	dir, cache, tmp, r := cacheRepo(t)
-	writeFile(t, dir, "a.txt", "changed\n")
-
-	treeOf(t, r, cache, tmp)
-
-	files := cacheFiles(t, cache)
-	if len(files) != 1 || filepath.Base(files[0]) != wantCacheName(t, r) {
-		t.Fatalf("cache files = %v, want one named %s", files, wantCacheName(t, r))
-	}
-
-	assertEmptyDir(t, tmp)
-}
-
 // A hit with nothing left to stage leaves the cache file untouched: same inode
 // and mtime, where a miss would have written a new one.
 func TestWorkingTreeReusesTheCache(t *testing.T) {
@@ -91,7 +76,14 @@ func TestWorkingTreeReusesTheCache(t *testing.T) {
 	writeFile(t, dir, "a.txt", "changed\n")
 	treeOf(t, r, cache, tmp)
 
-	file := cacheFiles(t, cache)[0]
+	files := cacheFiles(t, cache)
+	if len(files) != 1 || filepath.Base(files[0]) != wantCacheName(t, r) {
+		t.Fatalf("cache files = %v, want one named %s", files, wantCacheName(t, r))
+	}
+
+	assertEmptyDir(t, tmp)
+
+	file := files[0]
 
 	before, err := os.Stat(file)
 	if err != nil {
@@ -145,7 +137,7 @@ func TestWorkingTreeNeverWritesTheUserIndex(t *testing.T) {
 	data, _ := os.ReadFile(path)
 	before, _ := os.Stat(path)
 
-	for range 5 {
+	for range 2 {
 		treeOf(t, r, cache, tmp)
 	}
 
@@ -184,9 +176,7 @@ func TestCacheWriteIsAtomic(t *testing.T) {
 	t.Parallel()
 
 	dir, cache, tmp, r := cacheRepo(t)
-	for i := range 40 {
-		writeFile(t, dir, fmt.Sprintf("f%02d.txt", i), "x\n")
-	}
+	writeFile(t, dir, "f.txt", "x\n")
 
 	treeOf(t, r, cache, tmp)
 
@@ -212,7 +202,7 @@ func TestCacheWriteIsAtomic(t *testing.T) {
 	done := make(chan struct{})
 
 	wg.Go(func() {
-		for range 50 {
+		for range 20 {
 			c.store(next)
 		}
 

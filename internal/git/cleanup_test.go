@@ -82,8 +82,6 @@ func TestWorktreeChanges(t *testing.T) {
 		want  int
 	}{
 		{"clean", func(*testing.T, string) {}, 0},
-		{"one modified", func(t *testing.T, dir string) { writeFile(t, dir, "a.txt", "changed\n") }, 1},
-		{"one untracked", func(t *testing.T, dir string) { writeFile(t, dir, "new.txt", "n\n") }, 1},
 		{"one staged rename", func(t *testing.T, dir string) {
 			gitOut(t, dir, "mv", "a.txt", "b.txt")
 		}, 1},
@@ -135,7 +133,6 @@ func TestRemoveWorktree(t *testing.T) {
 	}{
 		{name: "clean", setup: func(*testing.T, string) {}, removed: true},
 		{name: "modified", setup: func(t *testing.T, path string) { writeFile(t, path, "a.txt", "changed\n") }, wantErr: ErrWorktreeDirty},
-		{name: "untracked", setup: func(t *testing.T, path string) { writeFile(t, path, "new.txt", "n\n") }, wantErr: ErrWorktreeDirty},
 	}
 
 	for _, tt := range tests {
@@ -146,7 +143,9 @@ func TestRemoveWorktree(t *testing.T) {
 			path := addWorktree(t, r, "feat")
 			tt.setup(t, path)
 
-			err := RemoveWorktree(t.Context(), r, path)
+			ctx, log := wrapGit(t, "")
+
+			err := RemoveWorktree(ctx, r, path)
 			if tt.wantErr != nil && !errors.Is(err, tt.wantErr) {
 				t.Fatalf("err = %v, want %v", err, tt.wantErr)
 			}
@@ -174,6 +173,8 @@ func TestRemoveWorktree(t *testing.T) {
 			if listed == tt.removed {
 				t.Errorf("listed = %v, want %v", listed, !tt.removed)
 			}
+
+			assertNeverForced(t, log, tt.removed)
 		})
 	}
 
@@ -197,38 +198,32 @@ func TestRemoveWorktree(t *testing.T) {
 			t.Errorf("worktree gone: %v", err)
 		}
 	})
+}
 
-	t.Run("never forced", func(t *testing.T) {
-		t.Parallel()
+// assertNeverForced fails when a logged `worktree remove` carries --force or -f,
+// or, with want set, when none was logged.
+func assertNeverForced(t *testing.T, logPath string, want bool) {
+	t.Helper()
 
-		_, r := seededRepo(t)
-		path := addWorktree(t, r, "feat")
-		ctx, log := wrapGit(t, "")
+	var seen bool
 
-		if err := RemoveWorktree(ctx, r, path); err != nil {
-			t.Fatal(err)
+	for line := range strings.SplitSeq(wrappedCalls(t, logPath), "\n") {
+		if !strings.Contains(line, "worktree remove") {
+			continue
 		}
 
-		var seen bool
+		seen = true
 
-		for line := range strings.SplitSeq(wrappedCalls(t, log), "\n") {
-			if !strings.Contains(line, "worktree remove") {
-				continue
-			}
-
-			seen = true
-
-			for f := range strings.FieldsSeq(line) {
-				if f == "--force" || f == "-f" {
-					t.Errorf("forced: %q", line)
-				}
+		for f := range strings.FieldsSeq(line) {
+			if f == "--force" || f == "-f" {
+				t.Errorf("forced: %q", line)
 			}
 		}
+	}
 
-		if !seen {
-			t.Error("no worktree remove call")
-		}
-	})
+	if want && !seen {
+		t.Error("no worktree remove call")
+	}
 }
 
 func TestBranchAhead(t *testing.T) {

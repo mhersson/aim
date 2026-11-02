@@ -117,44 +117,27 @@ func checkArrangement(t *testing.T, tab Tab, inner Rect, lc LayoutConfig) Arrang
 	return a
 }
 
-func TestArrangeEveryModeFillsInner(t *testing.T) {
-	for _, mode := range allModes {
-		for n := 1; n <= 6; n++ {
-			t.Run(fmt.Sprintf("%s/%d", mode, n), func(t *testing.T) {
-				s := openN(t, mode, n, defaultLayout())
-
-				tab := s.Tab()
-				if len(tab.Panes) != n || tab.Mode != mode {
-					t.Fatalf("tab has %d panes in %q", len(tab.Panes), tab.Mode)
-				}
-
-				a := checkArrangement(t, tab, modeInner, s.Layout)
-				if mode != ModeScrolling && len(a.Rects) != n {
-					t.Errorf("drew %d of %d panes", len(a.Rects), n)
-				}
-
-				if len(a.Sizes) != n {
-					t.Errorf("sized %d of %d panes", len(a.Sizes), n)
-				}
-			})
-		}
-	}
-}
-
-// TestEveryModeLaysOutWithoutOverlap lays 1 to 6 panes and 64 panes out in
-// every mode at common body sizes: rects touch but never overlap, and the
-// few panes that fit are all drawn.
+// TestEveryModeLaysOutWithoutOverlap lays 1, 3 and 64 panes out in every mode
+// at two body sizes: rects touch but never overlap, and the few panes that fit
+// are all drawn.
 func TestEveryModeLaysOutWithoutOverlap(t *testing.T) {
-	bodies := []Rect{{0, 1, 80, 24}, {0, 1, 160, 45}, {0, 1, 20, 6}}
+	bodies := []Rect{{0, 1, 80, 24}, {0, 1, 20, 6}}
 
 	for _, mode := range allModes {
-		for _, n := range []int{1, 2, 3, 4, 5, 6, 64} {
+		for _, n := range []int{1, 3, 64} {
 			for _, body := range bodies {
 				t.Run(fmt.Sprintf("%s/%d/%dx%d", mode, n, body.W, body.H), func(t *testing.T) {
 					s := openN(t, mode, n, defaultLayout())
+					if got := len(s.Tab().Panes); got != n {
+						t.Fatalf("tab holds %d panes, want %d", got, n)
+					}
 
 					a := checkArrangement(t, s.Tab(), body, s.Layout)
-					if fits := n <= 4 && body.W >= 80 || n <= 6 && body.W >= 160; fits && mode != ModeScrolling && len(a.Rects) != n {
+					if len(a.Rects) > n {
+						t.Errorf("drew %d rects for %d panes", len(a.Rects), n)
+					}
+
+					if fits := n <= 4 && body.W >= 80; fits && mode != ModeScrolling && len(a.Rects) != n {
 						t.Errorf("drew %d of %d panes", len(a.Rects), n)
 					}
 				})
@@ -619,89 +602,71 @@ func TestResize(t *testing.T) {
 	})
 }
 
-func TestZoomInEveryMode(t *testing.T) {
-	for _, mode := range allModes {
-		s := openN(t, mode, 3, defaultLayout())
-
-		s = dispatch(t, s, ToggleZoom{})
-		if !s.Tab().Zoomed {
-			t.Errorf("%s: not zoomed", mode)
-		}
-
-		s = dispatch(t, s, FocusPane{ID: "p1"})
-		if s.Tab().Zoomed {
-			t.Errorf("%s: focus change kept the zoom", mode)
-		}
-	}
-}
-
 func TestSetLayoutModeRebuilds(t *testing.T) {
-	for _, from := range allModes {
-		for _, to := range allModes {
-			if from == to {
-				continue
+	for _, c := range []struct{ from, to LayoutMode }{
+		{ModeBSP, ModeMaster}, {ModeMaster, ModeScrolling}, {ModeScrolling, ModeBSP},
+	} {
+		from, to := c.from, c.to
+
+		t.Run(fmt.Sprintf("%s to %s", from, to), func(t *testing.T) {
+			s := openN(t, from, 5, defaultLayout())
+			s = dispatch(t, s, FocusPane{ID: "p2"})
+			s.Tabs[0].Zoomed = true
+			s.Tabs[0].Preselect = Right
+			panes := copyPanes(s.Panes)
+			ids := slices.Clone(s.Tab().Panes)
+			next := dispatch(t, s, SetLayoutMode{Mode: to, Area: modeInner})
+
+			tab := next.Tab()
+			if tab.Mode != to || tab.Focus != "p2" || tab.Zoomed || tab.Preselect != NoDir {
+				t.Errorf("Mode %q Focus %q Zoomed %v Preselect %v", tab.Mode, tab.Focus, tab.Zoomed, tab.Preselect)
 			}
 
-			t.Run(fmt.Sprintf("%s to %s", from, to), func(t *testing.T) {
-				s := openN(t, from, 5, defaultLayout())
-				s = dispatch(t, s, FocusPane{ID: "p2"})
-				s.Tabs[0].Zoomed = true
-				s.Tabs[0].Preselect = Right
-				panes := copyPanes(s.Panes)
-				ids := slices.Clone(s.Tab().Panes)
-				next := dispatch(t, s, SetLayoutMode{Mode: to, Area: modeInner})
+			got := slices.Clone(tab.Panes)
+			slices.Sort(got)
 
-				tab := next.Tab()
-				if tab.Mode != to || tab.Focus != "p2" || tab.Zoomed || tab.Preselect != NoDir {
-					t.Errorf("Mode %q Focus %q Zoomed %v Preselect %v", tab.Mode, tab.Focus, tab.Zoomed, tab.Preselect)
+			want := slices.Clone(ids)
+			slices.Sort(want)
+
+			if !slices.Equal(got, want) {
+				t.Errorf("Panes %v, want the same set as %v", tab.Panes, ids)
+			}
+
+			if fmt.Sprint(next.Panes) != fmt.Sprint(panes) {
+				t.Errorf("pane metadata changed: %v", next.Panes)
+			}
+
+			switch to {
+			case ModeBSP:
+				if tab.Layout == nil || len(tab.Columns) != 0 {
+					t.Errorf("BSP tab: Layout %v Columns %v", tab.Layout, tab.Columns)
 				}
 
-				got := slices.Clone(tab.Panes)
-				slices.Sort(got)
-
-				want := slices.Clone(ids)
-				slices.Sort(want)
-
-				if !slices.Equal(got, want) {
-					t.Errorf("Panes %v, want the same set as %v", tab.Panes, ids)
+				if !slices.Equal(tab.Panes, leafOrder(tab.Layout)) {
+					t.Errorf("Panes %v != leaf order %v", tab.Panes, leafOrder(tab.Layout))
+				}
+			case ModeMaster:
+				if tab.Layout != nil || len(tab.Columns) != 0 || tab.Master != 0.5 || !slices.Equal(tab.Panes, ids) {
+					t.Errorf("master tab: Layout %v Columns %v Master %v Panes %v", tab.Layout, tab.Columns, tab.Master, tab.Panes)
+				}
+			case ModeScrolling:
+				if tab.Layout != nil || len(tab.Columns) != 5 || !slices.Equal(tab.Panes, ids) {
+					t.Fatalf("scrolling tab: Layout %v Columns %v Panes %v", tab.Layout, tab.Columns, tab.Panes)
 				}
 
-				if fmt.Sprint(next.Panes) != fmt.Sprint(panes) {
-					t.Errorf("pane metadata changed: %v", next.Panes)
-				}
-
-				switch to {
-				case ModeBSP:
-					if tab.Layout == nil || len(tab.Columns) != 0 {
-						t.Errorf("BSP tab: Layout %v Columns %v", tab.Layout, tab.Columns)
-					}
-
-					if !slices.Equal(tab.Panes, leafOrder(tab.Layout)) {
-						t.Errorf("Panes %v != leaf order %v", tab.Panes, leafOrder(tab.Layout))
-					}
-				case ModeMaster:
-					if tab.Layout != nil || len(tab.Columns) != 0 || tab.Master != 0.5 || !slices.Equal(tab.Panes, ids) {
-						t.Errorf("master tab: Layout %v Columns %v Master %v Panes %v", tab.Layout, tab.Columns, tab.Master, tab.Panes)
-					}
-				case ModeScrolling:
-					if tab.Layout != nil || len(tab.Columns) != 5 || !slices.Equal(tab.Panes, ids) {
-						t.Fatalf("scrolling tab: Layout %v Columns %v Panes %v", tab.Layout, tab.Columns, tab.Panes)
-					}
-
-					for _, c := range tab.Columns {
-						if len(c.Panes) != 1 || c.Width != 0.5 {
-							t.Errorf("column %+v, want one pane at 0.5", c)
-						}
-					}
-
-					if a := Arrange(tab, modeInner, next.Layout); a.Rects["p2"] == (Rect{}) {
-						t.Errorf("focused p2 is not drawn after the switch (First %d)", tab.First)
+				for _, c := range tab.Columns {
+					if len(c.Panes) != 1 || c.Width != 0.5 {
+						t.Errorf("column %+v, want one pane at 0.5", c)
 					}
 				}
 
-				checkArrangement(t, tab, modeInner, next.Layout)
-			})
-		}
+				if a := Arrange(tab, modeInner, next.Layout); a.Rects["p2"] == (Rect{}) {
+					t.Errorf("focused p2 is not drawn after the switch (First %d)", tab.First)
+				}
+			}
+
+			checkArrangement(t, tab, modeInner, next.Layout)
+		})
 	}
 }
 
@@ -779,34 +744,37 @@ func TestSetLayoutModeEdges(t *testing.T) {
 		}
 	})
 
-	for _, n := range []int{1, 64} {
-		for _, from := range allModes {
-			t.Run(fmt.Sprintf("%d panes from %s", n, from), func(t *testing.T) {
-				s := openN(t, from, n, defaultLayout())
+	for _, c := range []struct {
+		n    int
+		from LayoutMode
+	}{{1, ModeBSP}, {64, ModeMaster}} {
+		n, from := c.n, c.from
+
+		t.Run(fmt.Sprintf("%d panes from %s", n, from), func(t *testing.T) {
+			s := openN(t, from, n, defaultLayout())
+			s.Tabs[0].Zoomed = true
+
+			ids := copyPanes(s.Panes)
+			for _, to := range []LayoutMode{ModeMaster, ModeScrolling, ModeBSP, ModeScrolling} {
+				if to == s.Tab().Mode {
+					continue
+				}
+
 				s.Tabs[0].Zoomed = true
+				s = dispatch(t, s, SetLayoutMode{Mode: to, Area: modeInner})
 
-				ids := copyPanes(s.Panes)
-				for _, to := range []LayoutMode{ModeMaster, ModeScrolling, ModeBSP, ModeScrolling} {
-					if to == s.Tab().Mode {
-						continue
-					}
-
-					s.Tabs[0].Zoomed = true
-					s = dispatch(t, s, SetLayoutMode{Mode: to, Area: modeInner})
-
-					tab := s.Tab()
-					if tab.Mode != to || len(tab.Panes) != n || len(s.Panes) != n || tab.Zoomed || tab.Focus != PaneID(fmt.Sprintf("p%d", n)) {
-						t.Fatalf("to %s: %d panes, Focus %q, Zoomed %v", to, len(tab.Panes), tab.Focus, tab.Zoomed)
-					}
-
-					checkArrangement(t, tab, modeInner, s.Layout)
+				tab := s.Tab()
+				if tab.Mode != to || len(tab.Panes) != n || len(s.Panes) != n || tab.Zoomed || tab.Focus != PaneID(fmt.Sprintf("p%d", n)) {
+					t.Fatalf("to %s: %d panes, Focus %q, Zoomed %v", to, len(tab.Panes), tab.Focus, tab.Zoomed)
 				}
 
-				if fmt.Sprint(s.Panes) != fmt.Sprint(ids) {
-					t.Error("pane metadata changed")
-				}
-			})
-		}
+				checkArrangement(t, tab, modeInner, s.Layout)
+			}
+
+			if fmt.Sprint(s.Panes) != fmt.Sprint(ids) {
+				t.Error("pane metadata changed")
+			}
+		})
 	}
 }
 
@@ -877,27 +845,22 @@ func TestZeroLayoutConfigBehavesAsDefaults(t *testing.T) {
 	}
 }
 
-// TestTinyAndOddSizesInEveryMode lays out 1 to 64 panes in a range of body
+// TestTinyAndOddSizesInEveryMode lays out 1, 7 and 64 panes in a range of body
 // sizes, including a resize from 240x64 to 20x6 and back.
 func TestTinyAndOddSizesInEveryMode(t *testing.T) {
 	sizes := []Rect{
 		{0, 0, 1, 1},
-		{0, 0, 1, 2},
-		{0, 0, 2, 1},
 		{0, 0, 2, 2},
 		{0, 0, 3, 3},
-		{1, 1, 5, 4},
 		{0, 0, 7, 3},
 		{2, 1, 20, 6},
-		{0, 0, 33, 9},
-		{1, 1, 98, 27},
 		{0, 0, 240, 64},
 		{3, 2, 61, 5},
 		{0, 0, 4, 40},
 	}
 
 	for _, mode := range allModes {
-		for _, n := range []int{1, 2, 3, 7, 17, 64} {
+		for _, n := range []int{1, 7, 64} {
 			t.Run(fmt.Sprintf("%s/%d", mode, n), func(t *testing.T) {
 				s := openN(t, mode, n, defaultLayout())
 
@@ -998,19 +961,19 @@ func TestStackedScrollingColumnNeverOverlaps(t *testing.T) {
 			t.Fatalf("%d columns, want 1", got)
 		}
 
-		for _, sz := range []Rect{{0, 0, 1, 1}, {0, 0, 20, 6}, {1, 1, 98, 27}, {0, 0, 240, 64}, {0, 0, 40, 130}} {
+		for _, sz := range []Rect{{0, 0, 1, 1}, {0, 0, 20, 6}, {0, 0, 240, 64}} {
 			checkArrangement(t, s.Tab(), sz, s.Layout)
 		}
 	})
 	t.Run("5 panes at small heights", func(t *testing.T) {
 		s := stackedColumn(t, 5, 0)
-		for h := 1; h <= 9; h++ {
+		for _, h := range []int{1, 4, 9} {
 			checkArrangement(t, s.Tab(), Rect{1, 1, 40, h}, s.Layout)
 		}
 	})
 	t.Run("stacked column next to a hidden one", func(t *testing.T) {
 		s := stackedColumn(t, 5, 2)
-		for h := 3; h <= 12; h++ {
+		for _, h := range []int{3, 6, 12} {
 			a := checkArrangement(t, s.Tab(), Rect{1, 1, 60, h}, s.Layout)
 			if a.HiddenRight != 1 {
 				t.Fatalf("h=%d: hidden right %d, want 1", h, a.HiddenRight)

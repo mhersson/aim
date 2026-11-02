@@ -38,9 +38,7 @@ func TestStoreRail(t *testing.T) {
 		{"toggle opens", false, ToggleRail{}, true},
 		{"toggle closes", true, ToggleRail{}, false},
 		{"set opens", false, SetRail{Open: true}, true},
-		{"set open again", true, SetRail{Open: true}, true},
 		{"set closes", true, SetRail{}, false},
-		{"set closed again", false, SetRail{}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

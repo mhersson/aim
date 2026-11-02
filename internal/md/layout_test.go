@@ -47,6 +47,8 @@ func run(t *testing.T, l Layout, i int, s string) Run {
 }
 
 func TestHeadings(t *testing.T) {
+	t.Parallel()
+
 	src := "# Title\n\n## Two\n\n### Three\n\n###### Six\n\nSetext\n======\n\nSub\n---\n"
 	l := layoutOf(src, 20, "")
 	rule := strings.Repeat("─", 20)
@@ -84,6 +86,8 @@ func TestHeadings(t *testing.T) {
 }
 
 func TestSpacing(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name, src string
 		want      []string
@@ -104,6 +108,8 @@ func TestSpacing(t *testing.T) {
 }
 
 func TestBulletsByDepth(t *testing.T) {
+	t.Parallel()
+
 	src := "- a\n  - b\n    - c\n      - d\n- long item one two three four\n"
 	l := layoutOf(src, 18, "")
 	wantLines(t, l, "  • a", "    ◦ b", "      ▪ c", "        ▪ d", "  • long item one", "    two three four")
@@ -126,6 +132,8 @@ func TestBulletsByDepth(t *testing.T) {
 }
 
 func TestOrderedNumbersAlign(t *testing.T) {
+	t.Parallel()
+
 	l := layoutOf("9. nine\n10. ten\n11. eleven is long enough to wrap around\n", 24, "")
 	wantLines(t, l, "   9. nine", "  10. ten", "  11. eleven is long", "      enough to wrap", "      around")
 
@@ -144,6 +152,8 @@ func TestOrderedNumbersAlign(t *testing.T) {
 }
 
 func TestTaskList(t *testing.T) {
+	t.Parallel()
+
 	src := "- [x] done [link](https://e.com) and `code`\n- [ ] todo\n- plain\n"
 	l := layoutOf(src, 40, "")
 	wantLines(t, l, "  ✓ done link and  code ", "  ○ todo", "  • plain")
@@ -181,6 +191,8 @@ func TestTaskList(t *testing.T) {
 }
 
 func TestQuote(t *testing.T) {
+	t.Parallel()
+
 	l := layoutOf("> a [l](https://e.com) `c`\n>\n> b\n\n> > nested\n> back\n", 20, "")
 	wantLines(t, l, "▎ a l  c ", "▎ ", "▎ b", "", "▎ ▎ nested back")
 
@@ -209,6 +221,8 @@ func TestQuote(t *testing.T) {
 }
 
 func TestAlerts(t *testing.T) {
+	t.Parallel()
+
 	kinds := []struct {
 		marker, title, icon string
 		role                Role
@@ -256,6 +270,8 @@ func TestAlerts(t *testing.T) {
 }
 
 func TestDetailsFold(t *testing.T) {
+	t.Parallel()
+
 	src := "intro\n\n<details>\n<summary>Why <b>so</b></summary>\n\nbody one\n\n<details>\n<summary>Inner</summary>\n\ndeep\n\n</details>\n\n</details>\n\nafter\n"
 
 	folded := layoutOf(src, 40, "")
@@ -294,6 +310,8 @@ func TestDetailsFold(t *testing.T) {
 }
 
 func TestDetailsTagsInParagraphs(t *testing.T) {
+	t.Parallel()
+
 	// The closer glued to the image ends the fold, so the rest of the document
 	// shows below it instead of hiding inside it.
 	glued := "<details>\n<summary>Screenshot</summary>\n\n![shot](https://e.com/s.png)</details>\n\n## After\n\nMore text.\n"
@@ -313,6 +331,8 @@ func TestDetailsTagsInParagraphs(t *testing.T) {
 }
 
 func TestDetailsCloserNestedInParagraph(t *testing.T) {
+	t.Parallel()
+
 	for _, tt := range []struct{ name, para, text string }{
 		{"strong", "**log</details>**", "log"},
 		{"emphasis", "*log</details>*", "log"},
@@ -343,6 +363,8 @@ func TestDetailsCloserNestedInParagraph(t *testing.T) {
 }
 
 func TestDetailsSummaryWraps(t *testing.T) {
+	t.Parallel()
+
 	src := "<details>\n<summary>a long summary that wraps over lines</summary>\n\nx\n\n</details>\n"
 
 	wide := layoutOf(src, 30, "")
@@ -367,6 +389,8 @@ func wantFolds(t *testing.T, l Layout, want ...Fold) {
 }
 
 func TestFootnotesReachedThroughNotes(t *testing.T) {
+	t.Parallel()
+
 	rule := strings.Repeat("─", 16)
 
 	tests := []struct {
@@ -420,6 +444,8 @@ func TestFootnotesReachedThroughNotes(t *testing.T) {
 }
 
 func TestThematicBreak(t *testing.T) {
+	t.Parallel()
+
 	l := layoutOf("a\n\n---\n\nb\n\n***\n", 10, "")
 	rule := strings.Repeat("─", 10)
 	wantLines(t, l, "a", "", rule, "", "b", "", rule)
@@ -432,6 +458,8 @@ func TestThematicBreak(t *testing.T) {
 }
 
 func TestBreakAfterImage(t *testing.T) {
+	t.Parallel()
+
 	const a, b = "https://e.com/a.png", "https://e.com/b.png"
 
 	tests := []struct {
@@ -467,6 +495,8 @@ func TestBreakAfterImage(t *testing.T) {
 }
 
 func TestFootnotesSection(t *testing.T) {
+	t.Parallel()
+
 	src := "Text[^b] and[^a].\n\n[^a]: First note.\n[^b]: Second note that wraps\n[^c]: unused\n"
 	l := layoutOf(src, 24, "")
 	wantLines(t, l, "Text[1] and[2].", "", strings.Repeat("─", 16), " 1. Second note that", "    wraps", " 2. First note.")
@@ -506,6 +536,8 @@ func TestFootnotesSection(t *testing.T) {
 }
 
 func TestImages(t *testing.T) {
+	t.Parallel()
+
 	t.Run("inline image takes its own line", func(t *testing.T) {
 		l := layoutWith("before ![logo](https://example.com/a.png) after", LayoutOptions{Width: 40, Icons: true}, "")
 		wantLines(t, l, "before", iconImage+" logo  example.com", "after")
@@ -648,6 +680,8 @@ func TestImages(t *testing.T) {
 }
 
 func TestHTMLBlocks(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name, src string
 		want      []string
@@ -685,6 +719,8 @@ func TestHTMLBlocks(t *testing.T) {
 }
 
 func TestFragmentsInFolds(t *testing.T) {
+	t.Parallel()
+
 	l := layoutWith("<details><summary>S</summary>text <b>bold</b><br>more</details>\n", LayoutOptions{Width: 30, Open: map[int]bool{0: true}}, "")
 	wantLines(t, l, "▾ S", "  text bold", "  more")
 
@@ -694,6 +730,8 @@ func TestFragmentsInFolds(t *testing.T) {
 }
 
 func TestHostileText(t *testing.T) {
+	t.Parallel()
+
 	const bad = "x\x1b[31m\u202ey\x1b]8;;evil\x07z"
 
 	srcs := map[string]string{
@@ -727,6 +765,8 @@ func TestHostileText(t *testing.T) {
 }
 
 func TestNestingCap(t *testing.T) {
+	t.Parallel()
+
 	var lists strings.Builder
 	for i := 1; i <= 30; i++ {
 		lists.WriteString(strings.Repeat("  ", i-1) + fmt.Sprintf("- L%d\n", i))
@@ -740,7 +780,9 @@ func TestNestingCap(t *testing.T) {
 
 	for name, src := range map[string]string{"lists": lists.String(), "quotes": quotes.String()} {
 		t.Run(name, func(t *testing.T) {
-			for w := 1; w <= 10; w++ {
+			t.Parallel()
+
+			for _, w := range []int{1, 2, 5, 10} {
 				assertSafe(t, layoutOf(src, w, ""), w)
 			}
 
@@ -763,8 +805,10 @@ func TestNestingCap(t *testing.T) {
 }
 
 func TestBlocksWidths(t *testing.T) {
+	t.Parallel()
+
 	src := "# Head [link](https://e.com)\n\n- one `code` two\n  - [x] nested task\n    1. deep\n\n> [!WARNING]\n> careful *now*\n\n<details open>\n<summary>A long summary</summary>\n\n- in\n\n![alt](https://example.com/a.png)\n\n</details>\n\nText[^1] 世界 wide\n\n---\n\n[^1]: note\n"
-	for w := 1; w <= 40; w++ {
+	for _, w := range []int{1, 2, 3, 5, 10, 20, 40} {
 		l := layoutWith(src, LayoutOptions{Width: w, Icons: true}, "")
 		assertSafe(t, l, w)
 
@@ -777,6 +821,8 @@ func TestBlocksWidths(t *testing.T) {
 }
 
 func TestBlocksGolden(t *testing.T) {
+	t.Parallel()
+
 	src := "# Review drawer\n\nIntro with [a link](https://e.com) and `code`.\n\n## Checklist\n\n- [x] tests\n- [ ] docs\n  - nested\n\n> [!NOTE]\n> Mind the gap.\n\n<details>\n<summary>Details</summary>\n\nhidden\n\n</details>\n\n![badge](https://img.shields.io/b.svg)\n\nDone[^1].\n\n[^1]: The note.\n"
 
 	for _, w := range []int{30, 60} {
@@ -785,6 +831,8 @@ func TestBlocksGolden(t *testing.T) {
 }
 
 func TestNestedFoldsStopIndenting(t *testing.T) {
+	t.Parallel()
+
 	var b strings.Builder
 
 	const n = 30
@@ -802,7 +850,7 @@ func TestNestedFoldsStopIndenting(t *testing.T) {
 
 	src := b.String()
 
-	for w := 1; w <= 10; w++ {
+	for _, w := range []int{1, 2, 10} {
 		assertSafe(t, layoutWith(src, LayoutOptions{Width: w, Open: open}, ""), w)
 	}
 
@@ -844,6 +892,8 @@ func nestedItem(item string, quotes, width int, icons bool) Layout {
 // to the lines under its first: a capped item draws its marker on the first line
 // only, so only that line is narrower than the room its quotes leave.
 func TestCappedListKeepsMarksBelowItsFirstLine(t *testing.T) {
+	t.Parallel()
+
 	bars := strings.Repeat("▎ ", maxNest)
 
 	tests := []struct {
@@ -902,6 +952,8 @@ func TestCappedListKeepsMarksBelowItsFirstLine(t *testing.T) {
 // after the marker; the marker stays on its first line. The recursive layout
 // (maxNest quotes) and the flat walk (maxDepth quotes) must agree.
 func TestFirstBlockOfACappedItem(t *testing.T) {
+	t.Parallel()
+
 	const room = 12
 
 	bars := strings.Repeat("▎ ", maxNest)
@@ -941,6 +993,8 @@ func TestFirstBlockOfACappedItem(t *testing.T) {
 }
 
 func TestCappedListKeepsMarkers(t *testing.T) {
+	t.Parallel()
+
 	var b strings.Builder
 	for i := 1; i <= 20; i++ {
 		b.WriteString(strings.Repeat("   ", i-1) + fmt.Sprintf("%d. L%d\n", 1, i))

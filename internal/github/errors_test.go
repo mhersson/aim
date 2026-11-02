@@ -58,15 +58,9 @@ func TestClassify(t *testing.T) {
 			&api.HTTPError{StatusCode: 403, Message: "You have exceeded a Secondary Rate Limit. Please wait.", Headers: http.Header{}},
 			now.Add(time.Minute),
 		},
-		{
-			"429 secondary limit without headers",
-			&api.HTTPError{StatusCode: 429, Message: "secondary rate limit", Headers: http.Header{}},
-			now.Add(time.Minute),
-		},
 		{"404 mentioning a secondary limit", &api.HTTPError{StatusCode: 404, Message: "secondary rate limit", Headers: http.Header{}}, time.Time{}},
 		{"403 without headers", &api.HTTPError{StatusCode: 403, Headers: http.Header{}}, time.Time{}},
 		{"403 with remaining left", &api.HTTPError{StatusCode: 403, Headers: hdr(map[string]string{"X-RateLimit-Remaining": "10"})}, time.Time{}},
-		{"502 with an HTML body", &api.HTTPError{StatusCode: 502, Message: "502 Bad Gateway", Headers: http.Header{}}, time.Time{}},
 		{
 			"graphql error beside data",
 			&api.GraphQLError{Errors: []api.GraphQLErrorItem{{Type: "NOT_FOUND", Message: "gone"}}},

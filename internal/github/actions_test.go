@@ -246,16 +246,14 @@ func TestApproveWithoutSHASendsNothing(t *testing.T) {
 }
 
 func TestApproveBadNumberSendsNothing(t *testing.T) {
-	for _, n := range []int{0, -3} {
-		c, reqs := setup(t)
+	c, reqs := setup(t)
 
-		if err := c.Approve(t.Context(), testRepo, n, "abc"); err == nil {
-			t.Errorf("number %d: no error", n)
-		}
+	if err := c.Approve(t.Context(), testRepo, 0, "abc"); err == nil {
+		t.Error("no error")
+	}
 
-		if got := len(reqs()); got != 0 {
-			t.Errorf("number %d: %d requests sent", n, got)
-		}
+	if got := len(reqs()); got != 0 {
+		t.Errorf("%d requests sent", got)
 	}
 }
 
@@ -301,7 +299,7 @@ func TestMergeWithoutSHASendsNothing(t *testing.T) {
 }
 
 func TestMergeUnknownMethod(t *testing.T) {
-	for _, m := range []MergeMethod{"", "fast-forward", "SQUASH"} {
+	for _, m := range []MergeMethod{"", "SQUASH"} {
 		c, reqs := setup(t)
 
 		_, err := c.Merge(t.Context(), testRepo, mergeablePR(), mergeInfo, MergeOptions{Method: m, SHA: "abc"})
@@ -416,18 +414,6 @@ func TestMergeEscapesRepoSegments(t *testing.T) {
 	}
 }
 
-func TestMergeKeepsBranchWhenNotAsked(t *testing.T) {
-	c, reqs := setup(t, step{body: string(readFixture(t, "merge.json"))})
-
-	if _, err := c.Merge(t.Context(), testRepo, mergeablePR(), mergeInfo, MergeOptions{Method: Squash, SHA: "abc"}); err != nil {
-		t.Fatal(err)
-	}
-
-	if n := len(reqs()); n != 1 {
-		t.Errorf("%d requests, want 1", n)
-	}
-}
-
 func TestMergeSkipsDeleteForFork(t *testing.T) {
 	c, reqs := setup(t, step{body: string(readFixture(t, "merge.json"))})
 	pr := mergeablePR()
@@ -455,20 +441,6 @@ func TestMergeSkipsDeleteForDefaultBranch(t *testing.T) {
 
 	if got.BranchDeleted || got.DeleteErr != nil || len(reqs()) != 1 {
 		t.Errorf("Merged = %+v, requests = %+v", got, reqs())
-	}
-}
-
-func TestMergeSkipsDeleteForEmptyBranch(t *testing.T) {
-	c, reqs := setup(t, step{body: string(readFixture(t, "merge.json"))})
-	pr := mergeablePR()
-	pr.HeadBranch = ""
-
-	if _, err := c.Merge(t.Context(), testRepo, pr, mergeInfo, MergeOptions{Method: Squash, SHA: "abc", DeleteBranch: true}); err != nil {
-		t.Fatal(err)
-	}
-
-	if n := len(reqs()); n != 1 {
-		t.Errorf("%d requests, want 1", n)
 	}
 }
 

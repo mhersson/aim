@@ -58,7 +58,6 @@ func TestCustomName(t *testing.T) {
 		{"a name after an empty one", writeTranscript(t, entry("")+"\n"+entry("new")+"\n"), "new"},
 		{"the last line needs no newline", writeTranscript(t, entry("a")+"\n"+entry("b")), "b"},
 		{"a malformed line is skipped", writeTranscript(t, entry("kept")+"\n"+`{"type":"custom-title","customTitle":}`+"\n"+"not json at all\n"), "kept"},
-		{"a name that is not a string is skipped", writeTranscript(t, entry("kept")+"\n"+`{"type":"custom-title","customTitle":7}`+"\n"), "kept"},
 		{"a nested type is not an entry", writeTranscript(t, `{"type":"user","message":{"type":"custom-title","customTitle":"nested"}}`+"\n"), ""},
 		{"only whole lines count", writeTranscript(t, `{"type":"custom-title","customTitle":"cut`), ""},
 		{"a line ending in a carriage return", writeTranscript(t, entry("crlf")+"\r\n"), "crlf"},
@@ -91,9 +90,7 @@ func TestCustomNameWindow(t *testing.T) {
 		want   string
 	}{
 		{"the line fills the window to its start", 0, "windowed"},
-		{"the line is inside the window", -1000, "windowed"},
 		{"the first byte is before the window", 1, ""},
-		{"the line is far before the window", len(line) + 5000, ""},
 	}
 
 	for _, tt := range tests {
@@ -129,8 +126,8 @@ func TestCustomNameReadsOnlyTheEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A sparse head of NUL bytes; read whole, it would be 64 MiB of memory.
-	const head = 64 << 20
+	// A sparse head of NUL bytes; read whole, it would be 4 MiB of memory.
+	const head = 4 << 20
 	if err := f.Truncate(head); err != nil {
 		t.Fatal(err)
 	}

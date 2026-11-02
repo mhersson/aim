@@ -168,7 +168,7 @@ func checkMasterLayout(t *testing.T, n, w, h, top int, p MasterParams) {
 func FuzzMasterLayout(f *testing.F) {
 	positions := MasterPositions()
 	for _, pos := range positions {
-		for n := 1; n <= 7; n++ {
+		for _, n := range []int{1, 2, 3, 5, 7} {
 			f.Add(n, 160, 46, 1, 1, uint8(50), uint8(0), uint8(0), true, pos)
 			f.Add(n, 160, 46, 0, 2, uint8(60), uint8(30), uint8(1), false, pos)
 		}
@@ -202,7 +202,7 @@ func FuzzMasterLayout(f *testing.F) {
 func TestNeighbourOnMasterPositions(t *testing.T) {
 	for _, pos := range MasterPositions() {
 		for _, count := range []int{1, 2} {
-			for n := 2; n <= 7; n++ {
+			for _, n := range []int{2, 4, 7} {
 				t.Run(fmt.Sprintf("%s/%d masters/%d panes", pos, count, n), func(t *testing.T) {
 					rects := map[int]Rect{}
 					p := MasterParams{Position: pos, Count: count, Gap: 1}

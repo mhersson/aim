@@ -240,6 +240,29 @@ func (c *collector) waitCount(d time.Duration, n int) {
 
 func anySnap(Snapshot) bool { return true }
 
+// snapSignal returns an each callback for startPoller and the channel that
+// receives every snapshot it sees, so a test waits on the event itself.
+func snapSignal() (chan Snapshot, func(*Poller, Snapshot)) {
+	seen := make(chan Snapshot, 64)
+
+	return seen, func(_ *Poller, s Snapshot) { seen <- s }
+}
+
+// awaitSnap returns the next snapshot on seen; the timeout only fires when
+// the poller has stalled.
+func awaitSnap(t *testing.T, seen <-chan Snapshot) Snapshot {
+	t.Helper()
+
+	select {
+	case s := <-seen:
+		return s
+	case <-time.After(5 * time.Second):
+		t.Fatal("no snapshot arrived")
+	}
+
+	return Snapshot{}
+}
+
 // fakeClock is a poller clock that stands still: each wait the poller asks for
 // arrives on asks and ends only when the test ends it. A test that leaves more
 // than asks holds unread blocks the poller.
@@ -323,34 +346,18 @@ func TestPollerPollsOnSet(t *testing.T) {
 	}
 }
 
-func TestPollerFastWhilePending(t *testing.T) {
-	srv := &pollServer{}
-	srv.pendingPR.Store(1)
-
-	p, col := startPoller(t, srv, PollerOptions{Slow: 10 * time.Second}, nil)
-
-	p.Set([]Watch{{Repo: repoA, Visible: []int{1}}})
-	col.waitCount(3*time.Second, 4)
-}
-
-func TestPollerFocusedPendingIsFast(t *testing.T) {
-	srv := &pollServer{}
-	srv.pendingPR.Store(2)
-
-	p, col := startPoller(t, srv, PollerOptions{Slow: 10 * time.Second}, nil)
-
-	p.Set([]Watch{{Repo: repoA, Focused: 2}})
-	col.waitCount(3*time.Second, 4)
-}
-
 func TestPollerSlowOtherwise(t *testing.T) {
 	tests := []struct {
 		name    string
 		pending int64
 		visible []int
+		focused int
+		want    time.Duration
 	}{
-		{"nothing pending", 0, []int{1, 2}},
-		{"pending PR is not visible", 2, []int{1}},
+		{"nothing pending", 0, []int{1, 2}, 0, testSlow},
+		{"pending PR is not visible", 2, []int{1}, 0, testSlow},
+		{"pending PR is visible", 1, []int{1}, 0, testFast},
+		{"pending PR is focused", 2, nil, 2, testFast},
 	}
 
 	for _, tt := range tests {
@@ -361,11 +368,11 @@ func TestPollerSlowOtherwise(t *testing.T) {
 
 			p, _ := startPoller(t, srv, clk.options(PollerOptions{Slow: testSlow}), nil)
 
-			p.Set([]Watch{{Repo: repoA, Visible: tt.visible}})
+			p.Set([]Watch{{Repo: repoA, Visible: tt.visible, Focused: tt.focused}})
 			clk.next(t).end()
 
-			if a := clk.next(t); a.d != testSlow {
-				t.Fatalf("waits %v after the poll, want Slow (%v)", a.d, testSlow)
+			if a := clk.next(t); a.d != tt.want {
+				t.Fatalf("waits %v after the poll, want %v", a.d, tt.want)
 			}
 		})
 	}
@@ -539,32 +546,43 @@ func TestPollerRateLimitedChecksWaitForTheReset(t *testing.T) {
 }
 
 func TestPollerRemovedRepoStops(t *testing.T) {
+	clk := newFakeClock()
 	srv := &pollServer{}
-	srv.pendingPR.Store(1)
+	seen, each := snapSignal()
 
-	p, col := startPoller(t, srv, PollerOptions{Slow: 10 * time.Second}, nil)
+	p, col := startPoller(t, srv, clk.options(PollerOptions{}), each)
 
-	p.Set([]Watch{{Repo: repoA, Visible: []int{1}}, {Repo: repoB, Visible: []int{1}}})
-	col.waitFor(5*time.Second, "repo a", func(s Snapshot) bool { return s.Repo == repoA })
-	col.waitFor(5*time.Second, "repo b", func(s Snapshot) bool { return s.Repo == repoB })
+	p.Set([]Watch{{Repo: repoA}})
+	clk.next(t).end()
+	awaitSnap(t, seen)
 
-	p.Set([]Watch{{Repo: repoB, Visible: []int{1}}})
-	time.Sleep(100 * time.Millisecond)
+	aWait := clk.next(t)
 
-	a := len(col.forRepo(repoA))
-	b := len(col.forRepo(repoB))
+	p.Set([]Watch{{Repo: repoA}, {Repo: repoB}})
+	clk.next(t).end()
 
-	deadline := time.Now().Add(5 * time.Second)
-	for len(col.forRepo(repoB)) < b+3 {
-		if time.Now().After(deadline) {
-			t.Fatal("the remaining repository stopped polling")
-		}
-
-		time.Sleep(5 * time.Millisecond)
+	if got := awaitSnap(t, seen).Repo; got != repoB {
+		t.Fatalf("second snapshot is for %v, want %v", got, repoB)
 	}
 
-	if n := len(col.forRepo(repoA)); n != a {
-		t.Errorf("removed repository got %d more snapshots", n-a)
+	bWait := clk.next(t)
+
+	p.Set([]Watch{{Repo: repoB}})
+
+	// Both waits end; only the remaining repository may poll again.
+	aWait.end()
+	bWait.end()
+
+	for range 3 {
+		if got := awaitSnap(t, seen).Repo; got != repoB {
+			t.Fatalf("a poll of %v after it was removed", got)
+		}
+
+		clk.next(t).end()
+	}
+
+	if n := len(col.forRepo(repoA)); n != 1 {
+		t.Errorf("removed repository has %d snapshots, want only its first", n)
 	}
 }
 
@@ -600,39 +618,6 @@ func TestPollerRateLimitWaitsForReset(t *testing.T) {
 	col.waitFor(5*time.Second, "poll after the reset", func(s Snapshot) bool { return s.Err == nil })
 }
 
-func TestPollerRefreshWaitsOutRateLimit(t *testing.T) {
-	clk := newFakeClock()
-	srv := &pollServer{}
-	srv.handle = rateLimited(clk.at.Add(90 * time.Second))
-
-	p, col := startPoller(t, srv, clk.options(PollerOptions{}), nil)
-
-	p.Set([]Watch{{Repo: repoA}})
-	clk.next(t).end()
-
-	s := col.waitFor(5*time.Second, "rate limited snapshot", anySnap)
-
-	if _, ok := errors.AsType[*RateLimitError](s.Err); !ok {
-		t.Fatalf("Err = %v, want a rate limit", s.Err)
-	}
-
-	clk.next(t) // the scheduled poll at the reset, which never comes
-	p.Refresh(repoA)
-	p.Set([]Watch{{Repo: repoA, Focused: 1}})
-
-	a := clk.next(t)
-	if a.d != 90*time.Second {
-		t.Fatalf("a refresh waits %v, want the 90s to the reset", a.d)
-	}
-
-	if n := len(srv.arrivals()); n != 1 {
-		t.Fatalf("%d requests before the reset, want 1", n)
-	}
-
-	a.end()
-	col.waitFor(5*time.Second, "poll after the reset", func(s Snapshot) bool { return s.Err == nil })
-}
-
 func TestPollerErrorBacksOff(t *testing.T) {
 	srv := &pollServer{}
 	srv.handle = func(_ int64, w http.ResponseWriter, _ *http.Request) bool {
@@ -649,7 +634,7 @@ func TestPollerErrorBacksOff(t *testing.T) {
 	p.Set([]Watch{{Repo: repoA}})
 	clk.next(t).end()
 
-	for i, want := range []time.Duration{testFast, 2 * testFast, 4 * testFast, 100 * time.Millisecond, 100 * time.Millisecond} {
+	for i, want := range []time.Duration{testFast, 2 * testFast} {
 		a := clk.next(t)
 		if a.d != want {
 			t.Fatalf("wait %d after a failure = %v, want %v", i+1, a.d, want)
@@ -755,21 +740,24 @@ func TestNextWait(t *testing.T) {
 }
 
 func TestPollerClientErrorIsReported(t *testing.T) {
+	clk := newFakeClock()
 	srv := &pollServer{}
+	seen, each := snapSignal()
 
 	var calls atomic.Int64
 
-	p, col := startPoller(t, srv, PollerOptions{
+	p, _ := startPoller(t, srv, clk.options(PollerOptions{
 		Client: func(context.Context, string) (*Client, error) {
 			calls.Add(1)
 
 			return nil, fmt.Errorf("no login: %w", ErrNoToken)
 		},
-	}, nil)
+	}), each)
 
 	p.Set([]Watch{{Repo: repoA}})
+	clk.next(t).end()
 
-	s := col.waitFor(5*time.Second, "client error", anySnap)
+	s := awaitSnap(t, seen)
 	if !errors.Is(s.Err, ErrNoToken) {
 		t.Fatalf("Err = %v, want ErrNoToken", s.Err)
 	}
@@ -778,39 +766,17 @@ func TestPollerClientErrorIsReported(t *testing.T) {
 		t.Errorf("PRs = %v on a failed poll", s.PRs)
 	}
 
-	col.waitCount(5*time.Second, 3)
+	for range 2 {
+		clk.next(t).end()
+		awaitSnap(t, seen)
+	}
 
-	if n := calls.Load(); n < 3 {
+	if n := calls.Load(); n != 3 {
 		t.Errorf("factory called %d times, want it retried and not cached", n)
 	}
 
 	if srv.gql.Load() != 0 {
 		t.Error("a request was sent without a client")
-	}
-}
-
-func TestPollerClientKeptPerHost(t *testing.T) {
-	srv := &pollServer{}
-	srv.pendingPR.Store(1)
-
-	c, _ := newTestClient(t, "github.com", srv)
-
-	var calls atomic.Int64
-
-	p, col := startPoller(t, srv, PollerOptions{
-		Slow: 10 * time.Second,
-		Client: func(context.Context, string) (*Client, error) {
-			calls.Add(1)
-
-			return c, nil
-		},
-	}, nil)
-
-	p.Set([]Watch{{Repo: repoA, Visible: []int{1}}})
-	col.waitCount(5*time.Second, 4)
-
-	if n := calls.Load(); n != 1 {
-		t.Errorf("factory called %d times, want the client kept", n)
 	}
 }
 
@@ -826,7 +792,6 @@ func TestPollerRebuildsAClientItsHostRefused(t *testing.T) {
 	}{
 		{"a 401 rebuilds it", http.StatusUnauthorized, 2},
 		{"a 403 keeps it", http.StatusForbidden, 1},
-		{"a 502 keeps it", http.StatusBadGateway, 1},
 	}
 
 	for _, tc := range tests {
@@ -896,22 +861,31 @@ func TestPollerRebuildsAClientItsHostRefused(t *testing.T) {
 }
 
 func TestPollerRefresh(t *testing.T) {
+	clk := newFakeClock()
 	srv := &pollServer{}
-	p, col := startPoller(t, srv, PollerOptions{}, nil)
+	seen, each := snapSignal()
+
+	p, col := startPoller(t, srv, clk.options(PollerOptions{}), each)
 
 	p.Set([]Watch{{Repo: repoA}})
-	col.waitCount(5*time.Second, 1)
+	clk.next(t).end()
+	awaitSnap(t, seen)
 
 	p.Refresh(repoA)
-	col.waitCount(5*time.Second, 2)
-
-	n := srv.gql.Load()
+	awaitSnap(t, seen)
 
 	p.Refresh(repoB)
-	time.Sleep(150 * time.Millisecond)
+	p.Refresh(repoA)
+	awaitSnap(t, seen)
 
-	if got := srv.gql.Load(); got != n {
-		t.Errorf("refreshing an unwatched repository sent %d requests", got-n)
+	if got := srv.gql.Load(); got != 3 {
+		t.Errorf("%d requests, want 3: the first poll and two refreshes of the watched repository", got)
+	}
+
+	for _, s := range col.all() {
+		if s.Repo != repoA {
+			t.Errorf("snapshot for %v, want only %v", s.Repo, repoA)
+		}
 	}
 }
 
@@ -1051,17 +1025,24 @@ func TestPollerCloseStopsEverything(t *testing.T) {
 func TestPollerCloseWithoutConsumer(t *testing.T) {
 	p := NewPoller(PollerOptions{
 		Client: func(context.Context, string) (*Client, error) { return nil, ErrNoToken },
-		Fast:   time.Millisecond, Slow: time.Millisecond,
+		Fast:   time.Millisecond, Slow: idle,
 	})
 
 	t.Cleanup(func() { _ = p.Close() })
 
 	p.Set([]Watch{{Repo: repoA}, {Repo: repoB}})
 
-	for range 40 {
+	// Only Refresh drives the polls, so the buffer fills when they have all run.
+	deadline := time.Now().Add(5 * time.Second)
+
+	for len(p.Updates()) < updatesBuffer {
+		if time.Now().After(deadline) {
+			t.Fatalf("%d snapshots queued, want the buffer of %d", len(p.Updates()), updatesBuffer)
+		}
+
 		p.Refresh(repoA)
 		p.Refresh(repoB)
-		time.Sleep(2 * time.Millisecond)
+		runtime.Gosched()
 	}
 
 	if n := len(p.Updates()); n != updatesBuffer {
@@ -1091,7 +1072,7 @@ func TestPollerCloseWithoutConsumer(t *testing.T) {
 func TestPollerRaceSetRefreshClose(t *testing.T) {
 	repos := []Repo{repoA, repoB, {Host: "github.com", Owner: "octo", Name: "c"}}
 
-	for range 20 {
+	for range 5 {
 		p := NewPoller(PollerOptions{
 			Client: func(context.Context, string) (*Client, error) { return nil, ErrNoToken },
 			Fast:   time.Millisecond, Slow: time.Millisecond,

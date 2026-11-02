@@ -71,21 +71,21 @@ func TestNeighbourSkippingMatchesFocusDir(t *testing.T) {
 	for _, mode := range []LayoutMode{ModeBSP, ModeMaster, ModeScrolling} {
 		s := buildTabs(t, []LayoutMode{mode}, []int{4})
 
-		for _, id := range s.Tab().Panes {
-			for _, d := range []Dir{Left, Down, Up, Right} {
-				s.Tabs[0].Focus = id
+		id := PaneID("p2")
 
-				after := dispatch(t, s, FocusDir{Dir: d, Area: neighbourArea})
-				want := after.Tab().Focus
+		for _, d := range []Dir{Left, Down, Up, Right} {
+			s.Tabs[0].Focus = id
 
-				if want == id {
-					want = ""
-				}
+			after := dispatch(t, s, FocusDir{Dir: d, Area: neighbourArea})
+			want := after.Tab().Focus
 
-				got, ok := NeighbourSkipping(s.Tab(), d, neighbourArea, s.Layout, skipping())
-				if got != want || ok != (want != "") {
-					t.Errorf("%s from %s going %v: NeighbourSkipping() = %q, %v, want %q", mode, id, d, got, ok, want)
-				}
+			if want == id {
+				want = ""
+			}
+
+			got, ok := NeighbourSkipping(s.Tab(), d, neighbourArea, s.Layout, skipping())
+			if got != want || ok != (want != "") {
+				t.Errorf("%s from %s going %v: NeighbourSkipping() = %q, %v, want %q", mode, id, d, got, ok, want)
 			}
 		}
 	}
@@ -122,20 +122,18 @@ func TestNeighbourSkippingScrolling(t *testing.T) {
 	}
 }
 
-// The search reads the tab; nothing of it changes, in any layout.
+// The search reads the tab; nothing of it changes.
 func TestNeighbourSkippingChangesNothing(t *testing.T) {
-	for _, mode := range []LayoutMode{ModeBSP, ModeMaster, ModeScrolling} {
-		s := buildTabs(t, []LayoutMode{mode}, []int{4})
-		s.Tabs[0].Focus = "p1"
-		before := s.clone()
+	s := buildTabs(t, []LayoutMode{ModeScrolling}, []int{4})
+	s.Tabs[0].Focus = "p1"
+	before := s.clone()
 
-		for _, d := range []Dir{Left, Down, Up, Right} {
-			NeighbourSkipping(s.Tab(), d, neighbourArea, s.Layout, skipping("p2", "p3"))
-		}
+	for _, d := range []Dir{Left, Down, Up, Right} {
+		NeighbourSkipping(s.Tab(), d, neighbourArea, s.Layout, skipping("p2", "p3"))
+	}
 
-		if !reflect.DeepEqual(before, s) {
-			t.Errorf("%s: the search changed the state", mode)
-		}
+	if !reflect.DeepEqual(before, s) {
+		t.Error("the search changed the state")
 	}
 }
 
@@ -143,27 +141,25 @@ func TestNeighbourSkippingChangesNothing(t *testing.T) {
 // pane takes the focus either way.
 func TestOpenPaneBeside(t *testing.T) {
 	for _, mode := range []LayoutMode{ModeBSP, ModeMaster, ModeScrolling} {
-		for _, split := range []Split{SplitVertical, SplitHorizontal} {
-			t.Run(string(mode)+"/"+string(split), func(t *testing.T) {
-				s := buildTabs(t, []LayoutMode{mode}, []int{3})
-				s.Tabs[0].Focus = "p3"
-				open := OpenPane{Kind: KindShell, Split: split, Area: modeInner}
+		t.Run(string(mode), func(t *testing.T) {
+			s := buildTabs(t, []LayoutMode{mode}, []int{3})
+			s.Tabs[0].Focus = "p3"
+			open := OpenPane{Kind: KindShell, Split: SplitVertical, Area: modeInner}
 
-				open.Beside = "p1"
-				got := dispatch(t, s, open)
+			open.Beside = "p1"
+			got := dispatch(t, s, open)
 
-				open.Beside = ""
-				want := dispatch(t, dispatch(t, s, FocusPane{ID: "p1"}), open)
+			open.Beside = ""
+			want := dispatch(t, dispatch(t, s, FocusPane{ID: "p1"}), open)
 
-				if !reflect.DeepEqual(got.Tab(), want.Tab()) {
-					t.Errorf("tab = %+v, want %+v", got.Tab(), want.Tab())
-				}
+			if !reflect.DeepEqual(got.Tab(), want.Tab()) {
+				t.Errorf("tab = %+v, want %+v", got.Tab(), want.Tab())
+			}
 
-				if got.Tab().Focus != "p4" {
-					t.Errorf("Focus = %q, want the new pane p4", got.Tab().Focus)
-				}
-			})
-		}
+			if got.Tab().Focus != "p4" {
+				t.Errorf("Focus = %q, want the new pane p4", got.Tab().Focus)
+			}
+		})
 	}
 
 	t.Run("an anchor outside the tab is ignored", func(t *testing.T) {

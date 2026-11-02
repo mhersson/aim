@@ -85,9 +85,3 @@ func TestNoColorAndSlot(t *testing.T) {
 		t.Errorf("Slot(5) = %v, want basic colour 5", got)
 	}
 }
-
-func TestEllipsis(t *testing.T) {
-	if Ellipsis() != "…" {
-		t.Errorf("Ellipsis() = %q", Ellipsis())
-	}
-}

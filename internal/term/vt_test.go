@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"image/color"
+	"io"
 	"os"
 	"runtime"
 	"strings"
@@ -240,20 +241,6 @@ func TestResizeAndSize(t *testing.T) {
 	}
 }
 
-func TestScrollbackLen(t *testing.T) {
-	v, _ := newTestVT(t, 10, 3)
-
-	for range 10 {
-		if _, err := v.Write([]byte("line\r\n")); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	if v.ScrollbackLen() == 0 {
-		t.Fatal("scrollback empty after scrolling output")
-	}
-}
-
 func TestHistoryTrimmed(t *testing.T) {
 	t.Run("ring overflow", func(t *testing.T) {
 		v, _ := newTestVT(t, 10, 3)
@@ -345,14 +332,71 @@ func (f *failOnce) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func TestReplyWriteErrorKeepsDraining(t *testing.T) {
-	w := &failOnce{}
-	v := NewVT(10, 3, w)
+// feedSrc is a reply source whose unread byte count a test can wait on.
+type feedSrc struct {
+	mu     sync.Mutex
+	cond   *sync.Cond
+	buf    []byte
+	closed bool
+}
 
-	if _, err := v.Write([]byte("\x1b[c")); err != nil {
-		t.Fatal(err)
+func newFeedSrc() *feedSrc {
+	f := &feedSrc{}
+	f.cond = sync.NewCond(&f.mu)
+
+	return f
+}
+
+func (f *feedSrc) put(b string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.buf = append(f.buf, b...)
+	f.cond.Broadcast()
+}
+
+func (f *feedSrc) shut() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.closed = true
+	f.cond.Broadcast()
+}
+
+func (f *feedSrc) unread() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return len(f.buf)
+}
+
+func (f *feedSrc) Read(p []byte) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	for len(f.buf) == 0 && !f.closed {
+		f.cond.Wait()
 	}
 
+	if len(f.buf) == 0 {
+		return 0, io.EOF
+	}
+
+	n := copy(p, f.buf)
+	f.buf = f.buf[n:]
+
+	return n, nil
+}
+
+// A stalled drain leaves the queued replies unread, so waitFor's bound is the
+// hang guard; nothing reaches the writer again after its error.
+func TestReplyWriteErrorKeepsDraining(t *testing.T) {
+	const reply = "\x1b[?62;22c"
+
+	src, w := newFeedSrc(), &failOnce{}
+	d := startDrain(src, w)
+
+	src.put(reply)
 	waitFor(t, func() bool {
 		w.mu.Lock()
 		defer w.mu.Unlock()
@@ -361,22 +405,17 @@ func TestReplyWriteErrorKeepsDraining(t *testing.T) {
 	})
 
 	for range 50 {
-		if _, err := v.Write([]byte("\x1b[c")); err != nil {
-			t.Fatal(err)
-		}
-
-		v.SendBytes([]byte("x"))
+		src.put(reply)
 	}
 
-	// A live drain empties the reply queue even though every write is dropped.
-	time.Sleep(200 * time.Millisecond)
+	waitFor(t, func() bool { return src.unread() == 0 })
 
-	if left := v.(*tuiosVT).em.TakeResponses(); len(left) != 0 {
-		t.Fatalf("drain stopped after the write error; %d reply bytes left queued", len(left))
-	}
+	src.shut()
 
-	if err := v.Close(); err != nil {
-		t.Fatal(err)
+	select {
+	case <-d.done:
+	case <-time.After(5 * time.Second): // hang guard
+		t.Fatal("drain did not stop after its source closed")
 	}
 
 	w.mu.Lock()

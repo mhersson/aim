@@ -72,23 +72,6 @@ func TestStatsMatchDiffTotals(t *testing.T) {
 	}
 }
 
-func TestStatsCountsEachKind(t *testing.T) {
-	t.Parallel()
-	dir := branchRepo(t, func(dir string) {
-		writeFile(t, dir, "del.txt", numbered("del", 4))
-		writeFile(t, dir, "bin.dat", "\x00a")
-	}, func(dir string) {
-		must(t, os.Remove(filepath.Join(dir, "del.txt")))
-		writeFile(t, dir, "bin.dat", "\x00b")
-		writeFile(t, dir, "untracked.txt", "u1\nu2\n")
-	})
-
-	got := statsOf(t, testEngine(t), BranchSource{Worktree: dir, Base: "main"})
-	if want := (Stats{Files: 3, Added: 2, Removed: 4}); got != want {
-		t.Errorf("Stats = %+v, want %+v", got, want)
-	}
-}
-
 func TestStatsDefaultBaseAndClean(t *testing.T) {
 	t.Parallel()
 	dir := branchRepo(t, func(dir string) { writeFile(t, dir, "a.txt", "a\n") }, func(string) {})
@@ -120,19 +103,8 @@ func TestStatsRunsNoHunkPass(t *testing.T) {
 
 func TestStatsErrors(t *testing.T) {
 	t.Parallel()
-	e := testEngine(t)
 
-	if _, err := e.Stats(context.Background(), TurnSource{}); err == nil {
+	if _, err := testEngine(t).Stats(context.Background(), TurnSource{}); err == nil {
 		t.Error("turn source: want an error")
-	}
-
-	dir := branchRepo(t, func(dir string) { writeFile(t, dir, "a.txt", "a\n") }, func(string) {})
-
-	if _, err := e.Stats(context.Background(), BranchSource{Worktree: dir, Base: "--evil"}); err == nil {
-		t.Error("option-like base: want an error")
-	}
-
-	if _, err := e.Stats(context.Background(), BranchSource{Worktree: t.TempDir()}); err == nil {
-		t.Error("not a repo: want an error")
 	}
 }

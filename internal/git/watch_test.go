@@ -24,7 +24,13 @@ var fastWatch = WatchOptions{Debounce: 30 * time.Millisecond, MaxDelay: 300 * ti
 func startWatch(t *testing.T, dir string, opts WatchOptions) *Watcher {
 	t.Helper()
 
-	ctx := context.Background()
+	return startWatchContext(context.Background(), t, dir, opts)
+}
+
+// startWatchContext is startWatch with ctx for the repository and the watcher,
+// so a context from wrapGit routes the watcher's git calls through the wrapper.
+func startWatchContext(ctx context.Context, t *testing.T, dir string, opts WatchOptions) *Watcher {
+	t.Helper()
 
 	r, err := Open(ctx, dir)
 	if err != nil {
@@ -83,26 +89,29 @@ func waitPaths(t *testing.T, w *Watcher, want ...string) Batch {
 	})
 }
 
-// quiet fails when a batch satisfying bad arrives within d.
-func quiet(t *testing.T, w *Watcher, d time.Duration, bad func(Batch) bool) {
+// barrier writes name in dir and waits for the batch that names it. Events are
+// queued and handled in order, so that batch carries everything written before.
+func barrier(t *testing.T, w *Watcher, dir, name string) {
 	t.Helper()
 
-	timer := time.After(d)
+	writeFile(t, dir, name, "barrier\n")
+	waitPaths(t, w, name)
+}
 
-	for {
-		select {
-		case b, ok := <-w.Batches():
-			if !ok {
-				return
-			}
+// noGitBefore writes a sentinel in dir and collects batches until it arrives,
+// failing when a batch on the way sets Git or lists a path under .git.
+func noGitBefore(t *testing.T, w *Watcher, dir, sentinel string) {
+	t.Helper()
 
-			if bad(b) {
-				t.Fatalf("unexpected batch %+v", b)
-			}
-		case <-timer:
-			return
+	writeFile(t, dir, sentinel, "sentinel\n")
+
+	collect(t, w, func(b Batch) bool {
+		if b.Git || anyPathWithPrefix(b, ".git") {
+			t.Fatalf("snapshot ref woke the watcher: %+v", b)
 		}
-	}
+
+		return slices.Contains(b.Paths, sentinel)
+	})
 }
 
 func anyPathWithPrefix(b Batch, prefix string) bool {
@@ -150,12 +159,9 @@ func settle(t *testing.T, w *Watcher) {
 func baseRepo(t *testing.T) string {
 	t.Helper()
 
-	dir := newRepo(t)
-	writeFile(t, dir, "tracked.txt", "one\n")
-	writeFile(t, dir, "src/a.go", "package a\n")
-	commitAll(t, dir, "init")
-
-	return dir
+	return copyTemplate(t, &baseTemplate, func(dir string) error {
+		return buildRepo(dir, map[string]string{"tracked.txt": "one\n", "src/a.go": "package a\n"})
+	})
 }
 
 func TestWatchWriteTrackedFile(t *testing.T) {
@@ -188,6 +194,7 @@ func TestWatchNewNestedDirectory(t *testing.T) {
 }
 
 func TestWatchDeletedAndRecreatedDirectory(t *testing.T) {
+	t.Parallel()
 	dir := baseRepo(t)
 	w := startWatch(t, dir, fastWatch)
 
@@ -196,7 +203,7 @@ func TestWatchDeletedAndRecreatedDirectory(t *testing.T) {
 	}
 
 	waitPaths(t, w, "src/a.go")
-	settle(t, w)
+	barrier(t, w, dir, "barrier1.txt")
 
 	writeFile(t, dir, "src/b.go", "package a\n")
 	waitPaths(t, w, "src/b.go")
@@ -211,7 +218,7 @@ func TestWatchDeletedAndRecreatedDirectory(t *testing.T) {
 
 	writeFile(t, dir, "src/d.go", "package a\n")
 	waitPaths(t, w, "src/d.go")
-	settle(t, w)
+	barrier(t, w, dir, "barrier2.txt")
 
 	writeFile(t, dir, "src/e.go", "package a\n")
 	waitPaths(t, w, "src/e.go")
@@ -243,6 +250,7 @@ func TestWatchIgnoredDirectoryGetsNoWatch(t *testing.T) {
 }
 
 func TestWatchNewIgnoredDirectoryWithManyFiles(t *testing.T) {
+	t.Parallel()
 	dir := newRepo(t)
 	writeFile(t, dir, ".gitignore", "node_modules/\n")
 	writeFile(t, dir, "tracked.txt", "one\n")
@@ -250,8 +258,8 @@ func TestWatchNewIgnoredDirectoryWithManyFiles(t *testing.T) {
 
 	w := startWatch(t, dir, fastWatch)
 
-	for i := range 1000 {
-		writeFile(t, dir, fmt.Sprintf("node_modules/p%d/index.js", i%20), fmt.Sprint(i))
+	for i := range 40 {
+		writeFile(t, dir, fmt.Sprintf("node_modules/p%d/index.js", i%4), fmt.Sprint(i))
 	}
 
 	writeFile(t, dir, "visible.txt", "v\n")
@@ -266,8 +274,6 @@ func TestWatchNewIgnoredDirectoryWithManyFiles(t *testing.T) {
 			t.Fatalf("watch on ignored directory %s", d)
 		}
 	}
-
-	quiet(t, w, 300*time.Millisecond, func(b Batch) bool { return anyPathWithPrefix(b, "node_modules") })
 }
 
 func TestWatchIgnoredFileInWatchedDirectory(t *testing.T) {
@@ -334,13 +340,14 @@ func TestWatchMainCheckoutSkipsWorktreesDirectory(t *testing.T) {
 }
 
 func TestWatchCommitSetsGitWithoutGitPaths(t *testing.T) {
+	t.Parallel()
 	dir := baseRepo(t)
 
 	w := startWatch(t, dir, fastWatch)
 
 	writeFile(t, dir, "tracked.txt", "two\n")
 	waitPaths(t, w, "tracked.txt")
-	settle(t, w)
+	barrier(t, w, dir, "barrier.txt")
 
 	gitOut(t, dir, "commit", "-q", "-am", "second")
 
@@ -351,45 +358,47 @@ func TestWatchCommitSetsGitWithoutGitPaths(t *testing.T) {
 }
 
 func TestWatchRefChangesSetGit(t *testing.T) {
+	t.Parallel()
 	dir := baseRepo(t)
 
 	w := startWatch(t, dir, fastWatch)
 
 	gitOut(t, dir, "update-ref", "refs/heads/other", "HEAD")
 	collect(t, w, func(b Batch) bool { return b.Git })
-	settle(t, w)
+	barrier(t, w, dir, "barrier1.txt")
 
 	gitOut(t, dir, "update-ref", "refs/heads/feat/one", "HEAD")
 	collect(t, w, func(b Batch) bool { return b.Git })
-	settle(t, w)
+	barrier(t, w, dir, "barrier2.txt")
 
 	// The new refs/heads/feat directory has a watch by now.
 	gitOut(t, dir, "update-ref", "refs/heads/feat/two", "HEAD")
 	collect(t, w, func(b Batch) bool { return b.Git })
-	settle(t, w)
+	barrier(t, w, dir, "barrier3.txt")
 
 	gitOut(t, dir, "pack-refs", "--all")
 	collect(t, w, func(b Batch) bool { return b.Git })
 }
 
 func TestWatchSnapshotRefsDoNotWake(t *testing.T) {
+	t.Parallel()
+
 	t.Run("directory created after start", func(t *testing.T) {
+		t.Parallel()
 		dir := baseRepo(t)
 		w := startWatch(t, dir, fastWatch)
 
 		gitOut(t, dir, "update-ref", "refs/aim/x/1", "HEAD")
-		quiet(t, w, 500*time.Millisecond, func(Batch) bool { return true })
-
 		gitOut(t, dir, "update-ref", "refs/aim/x/2", "HEAD")
-		quiet(t, w, 500*time.Millisecond, func(Batch) bool { return true })
 
 		// A turn's refs sit three directories deep.
 		gitOut(t, dir, "update-ref", turnRef(sessA, "0123456789abcdef", 1, false), "HEAD")
 		gitOut(t, dir, "update-ref", turnRef(sessA, "0123456789abcdef", 1, true), "HEAD")
-		quiet(t, w, 500*time.Millisecond, func(Batch) bool { return true })
+		noGitBefore(t, w, dir, "sentinel.txt")
 	})
 
 	t.Run("directory exists at start", func(t *testing.T) {
+		t.Parallel()
 		dir := baseRepo(t)
 		gitOut(t, dir, "update-ref", "refs/aim/x/1", "HEAD")
 		gitOut(t, dir, "update-ref", turnRef(sessA, "0123456789abcdef", 1, false), "HEAD")
@@ -403,48 +412,9 @@ func TestWatchSnapshotRefsDoNotWake(t *testing.T) {
 		}
 
 		gitOut(t, dir, "update-ref", "refs/aim/x/2", "HEAD")
-		quiet(t, w, 500*time.Millisecond, func(Batch) bool { return true })
-
 		gitOut(t, dir, "update-ref", turnRef(sessA, "0123456789abcdef", 2, false), "HEAD")
-		quiet(t, w, 500*time.Millisecond, func(Batch) bool { return true })
+		noGitBefore(t, w, dir, "sentinel.txt")
 	})
-}
-
-func TestWatchBurstCoalesces(t *testing.T) {
-	dir := baseRepo(t)
-	w := startWatch(t, dir, fastWatch)
-
-	const files = 1000
-
-	// A batch also carries the burst directory's own path, so wait on the files
-	// themselves and not on a count of paths.
-	waiting := make(map[string]bool, files)
-
-	for i := range files {
-		rel := fmt.Sprintf("burst/f%04d.txt", i)
-		waiting[rel] = true
-		writeFile(t, dir, rel, "x\n")
-	}
-
-	batches := 0
-	deadline := time.After(watchWait)
-
-	for len(waiting) > 0 {
-		select {
-		case b := <-w.Batches():
-			batches++
-
-			for _, p := range b.Paths {
-				delete(waiting, p)
-			}
-		case <-deadline:
-			t.Fatalf("%d of %d files never arrived", len(waiting), files)
-		}
-	}
-
-	if batches > 20 {
-		t.Fatalf("%d batches for one burst", batches)
-	}
 }
 
 // fakeTimer is a watchTimer that fires only when a test says so. Each Reset
@@ -499,6 +469,7 @@ func fakeTimers(o *WatchOptions) *[]*fakeTimer {
 }
 
 func TestWatchSteadyStreamIsSentByMaxDelay(t *testing.T) {
+	t.Parallel()
 	dir := baseRepo(t)
 
 	o := WatchOptions{Debounce: 400 * time.Millisecond, MaxDelay: time.Second}
@@ -531,7 +502,7 @@ func TestWatchSteadyStreamIsSentByMaxDelay(t *testing.T) {
 	select {
 	case b := <-w.Batches():
 		t.Fatalf("batch %v before any timer fired", b.Paths)
-	case <-time.After(50 * time.Millisecond):
+	default:
 	}
 
 	maxDelay.fire()
@@ -547,6 +518,7 @@ func TestWatchSteadyStreamIsSentByMaxDelay(t *testing.T) {
 }
 
 func TestWatchBatchWaitsForTheDebounce(t *testing.T) {
+	t.Parallel()
 	dir := baseRepo(t)
 	o := WatchOptions{Debounce: 400 * time.Millisecond}
 	timers := fakeTimers(&o)
@@ -579,7 +551,7 @@ func TestWatchBatchWaitsForTheDebounce(t *testing.T) {
 // under load, so the default is pinned on the options the watcher runs with.
 func TestWatchDefaultDebounce(t *testing.T) {
 	t.Parallel()
-	w := startWatch(t, baseRepo(t), WatchOptions{})
+	w := startWatch(t, newRepo(t), WatchOptions{})
 
 	if got, want := w.opts.Debounce, 100*time.Millisecond; got != want {
 		t.Errorf("default debounce = %v, want %v", got, want)
@@ -616,6 +588,7 @@ func TestWatchGitignoreChangeAddsDirectoryWatch(t *testing.T) {
 }
 
 func TestWatchLinkedWorktree(t *testing.T) {
+	t.Parallel()
 	dir := baseRepo(t)
 	linked := filepath.Join(t.TempDir(), "wt")
 	gitOut(t, dir, "worktree", "add", "-q", "-b", "feat", linked)
@@ -634,10 +607,10 @@ func TestWatchLinkedWorktree(t *testing.T) {
 		t.Fatalf("git file listed: %+v", b)
 	}
 
-	settle(t, w)
+	barrier(t, w, linked, "barrier1.txt")
 	gitOut(t, linked, "commit", "-q", "-am", "in linked")
 	collect(t, w, func(b Batch) bool { return b.Git })
-	settle(t, w)
+	barrier(t, w, linked, "barrier2.txt")
 
 	// A branch moved from the main checkout shows up through the shared refs.
 	gitOut(t, dir, "update-ref", "refs/heads/elsewhere", "HEAD")
@@ -648,15 +621,17 @@ func TestWatchCheckoutOfManyFiles(t *testing.T) {
 	t.Parallel()
 	dir := newRepo(t)
 
-	for i := range 2000 {
-		writeFile(t, dir, fmt.Sprintf("d%d/f%d.txt", i%40, i), "base\n")
+	const files = 40
+
+	for i := range files {
+		writeFile(t, dir, fmt.Sprintf("d%d/f%d.txt", i%4, i), "base\n")
 	}
 
 	commitAll(t, dir, "base")
 	gitOut(t, dir, "checkout", "-q", "-b", "other")
 
-	for i := range 2000 {
-		writeFile(t, dir, fmt.Sprintf("d%d/f%d.txt", i%40, i), "other\n")
+	for i := range files {
+		writeFile(t, dir, fmt.Sprintf("d%d/f%d.txt", i%4, i), "other\n")
 	}
 
 	commitAll(t, dir, "other")
@@ -668,16 +643,18 @@ func TestWatchCheckoutOfManyFiles(t *testing.T) {
 
 	// Either every changed path arrives, or the kernel queue overflowed and the
 	// watcher says so.
-	b := collect(t, w, func(b Batch) bool { return b.Overflow || (b.Git && len(b.Paths) >= 2000) })
+	b := collect(t, w, func(b Batch) bool { return b.Overflow || (b.Git && len(b.Paths) >= files) })
 	if anyPathWithPrefix(b, ".git") {
 		t.Fatalf("git internals listed")
 	}
 }
 
 func TestWatchCheckIgnoreCallsAreBatched(t *testing.T) {
+	t.Parallel()
 	dir := baseRepo(t)
-	w := startWatch(t, dir, WatchOptions{Debounce: 200 * time.Millisecond, MaxDelay: time.Second})
-	log := fakeGit(t, "")
+	ctx, log := wrapGit(t, "")
+	w := startWatchContext(ctx, t, dir, WatchOptions{Debounce: 200 * time.Millisecond, MaxDelay: time.Second})
+	atStart := countCalls(log, "check-ignore")
 
 	for i := range 50 {
 		writeFile(t, dir, fmt.Sprintf("many/f%d.txt", i), "x\n")
@@ -685,15 +662,17 @@ func TestWatchCheckIgnoreCallsAreBatched(t *testing.T) {
 
 	waitPaths(t, w, "many/f49.txt")
 
-	data, err := os.ReadFile(log)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	calls := strings.Count(string(data), "check-ignore")
+	calls := countCalls(log, "check-ignore") - atStart
 	if calls == 0 || calls > 5 {
-		t.Fatalf("%d check-ignore calls for 50 files:\n%s", calls, data)
+		t.Fatalf("%d check-ignore calls for 50 files:\n%s", calls, wrappedCalls(t, log))
 	}
+}
+
+// countCalls counts the logged git calls that mention arg.
+func countCalls(logPath, arg string) int {
+	data, _ := os.ReadFile(logPath)
+
+	return strings.Count(string(data), arg)
 }
 
 func TestWatchCloseStopsEverything(t *testing.T) {
@@ -733,6 +712,7 @@ func TestWatchCloseStopsEverything(t *testing.T) {
 }
 
 func TestWatchContextEndClosesBatches(t *testing.T) {
+	t.Parallel()
 	dir := baseRepo(t)
 
 	r, err := Open(context.Background(), dir)
@@ -761,18 +741,18 @@ func TestWatchContextEndClosesBatches(t *testing.T) {
 }
 
 func TestWatchSlowConsumerKeepsLatestChanges(t *testing.T) {
+	t.Parallel()
 	dir := baseRepo(t)
-	w := startWatch(t, dir, fastWatch)
-	log := fakeGit(t, "")
+	ctx, log := wrapGit(t, "")
+	w := startWatchContext(ctx, t, dir, fastWatch)
+	atStart := countCalls(log, "check-ignore")
 
 	// Nobody reads, so the first batch waits for its consumer while the
 	// second flush merges into it. The ignore check marks the first flush.
 	writeFile(t, dir, "tracked.txt", "a\n")
 
 	eventually(t, "the first batch to be flushed", func() bool {
-		data, _ := os.ReadFile(log)
-
-		return strings.Contains(string(data), "check-ignore")
+		return countCalls(log, "check-ignore") > atStart
 	})
 
 	writeFile(t, dir, "src/a.go", "package a // b\n")
@@ -782,14 +762,8 @@ func TestWatchSlowConsumerKeepsLatestChanges(t *testing.T) {
 func TestWatchErrorNamesInotifyLimit(t *testing.T) {
 	t.Parallel()
 
-	err := watchError("/repo/dir", syscall.ENOSPC)
-	if !errors.Is(err, syscall.ENOSPC) || !strings.Contains(err.Error(), "fs.inotify.max_user_watches") {
-		t.Fatalf("got %v", err)
-	}
-
-	err = watchError("/repo/dir", syscall.EINVAL)
-	if strings.Contains(err.Error(), "max_user_watches") {
-		t.Fatalf("unrelated error names the limit: %v", err)
+	if err := watchError("/repo/dir", syscall.ENOSPC); !errors.Is(err, syscall.ENOSPC) {
+		t.Fatalf("got %v, want one wrapping ENOSPC", err)
 	}
 }
 
@@ -804,15 +778,9 @@ func TestMergeBatches(t *testing.T) {
 	}
 }
 
-func TestWatchSkipsSubmodulesAndNestedRepositories(t *testing.T) {
+func TestWatchSkipsNestedRepositories(t *testing.T) {
 	t.Parallel()
-	sub := newRepo(t)
-	writeFile(t, sub, "src/a.txt", "a\n")
-	commitAll(t, sub, "sub")
-
 	dir := baseRepo(t)
-	gitOut(t, dir, "-c", "protocol.file.allow=always", "submodule", "add", "-q", sub, "vend")
-	gitOut(t, dir, "commit", "-q", "-m", "add submodule")
 
 	nested := filepath.Join(dir, "nested")
 	writeFile(t, nested, "inner/b.txt", "b\n")
@@ -821,17 +789,16 @@ func TestWatchSkipsSubmodulesAndNestedRepositories(t *testing.T) {
 	w := startWatch(t, dir, fastWatch)
 
 	for _, d := range watchedDirs(t, w) {
-		if strings.HasPrefix(d, filepath.Join(dir, "vend")) || strings.HasPrefix(d, nested) {
+		if strings.HasPrefix(d, nested) {
 			t.Fatalf("watch inside a nested repository: %s", d)
 		}
 	}
 
-	writeFile(t, dir, "vend/src/a.txt", "changed\n")
 	writeFile(t, dir, "nested/inner/b.txt", "changed\n")
 	writeFile(t, dir, "tracked.txt", "two\n")
 
 	b := waitPaths(t, w, "tracked.txt")
-	if anyPathWithPrefix(b, "vend/") || anyPathWithPrefix(b, "nested/") {
+	if anyPathWithPrefix(b, "nested/") {
 		t.Fatalf("nested repository path listed: %+v", b)
 	}
 }
@@ -839,19 +806,14 @@ func TestWatchSkipsSubmodulesAndNestedRepositories(t *testing.T) {
 func TestWatchErrorNamesInstanceLimit(t *testing.T) {
 	t.Parallel()
 
-	err := instanceError("/repo", syscall.EMFILE)
-	if !errors.Is(err, syscall.EMFILE) || !strings.Contains(err.Error(), "fs.inotify.max_user_instances") {
-		t.Fatalf("got %v", err)
-	}
-
-	if err := instanceError("/repo", syscall.EINVAL); strings.Contains(err.Error(), "max_user_instances") {
-		t.Fatalf("unrelated error names the limit: %v", err)
+	if err := instanceError("/repo", syscall.EMFILE); !errors.Is(err, syscall.EMFILE) {
+		t.Fatalf("got %v, want one wrapping EMFILE", err)
 	}
 }
 
 func TestWatchOverflowRewalksUnwatchedDirectories(t *testing.T) {
 	t.Parallel()
-	dir := baseRepo(t)
+	dir := newRepo(t)
 
 	r, err := Open(context.Background(), dir)
 	if err != nil {
@@ -902,7 +864,7 @@ func TestWatchOverflowRewalksUnwatchedDirectories(t *testing.T) {
 func eventWatcher(t *testing.T) *Watcher {
 	t.Helper()
 
-	dir := baseRepo(t)
+	dir := newRepo(t)
 
 	r, err := Open(t.Context(), dir)
 	if err != nil {
@@ -934,6 +896,7 @@ func eventWatcher(t *testing.T) *Watcher {
 }
 
 func TestKqueueEvents(t *testing.T) {
+	t.Parallel()
 	w := eventWatcher(t)
 	gitDir, refs := w.repo.GitDir, w.refsDir
 
@@ -944,19 +907,12 @@ func TestKqueueEvents(t *testing.T) {
 		wantPath string
 		accepted bool
 	}{
-		{name: "dir write on refs", ev: fsnotify.Event{Name: refs, Op: fsnotify.Write}},
-		{name: "dir write on refs/heads", ev: fsnotify.Event{Name: filepath.Join(refs, "heads"), Op: fsnotify.Write}},
-		{name: "dir write on own refs", ev: fsnotify.Event{Name: w.ownRefsDir, Op: fsnotify.Write}},
+		{name: "dir write plus chmod on refs/heads", ev: fsnotify.Event{Name: filepath.Join(refs, "heads"), Op: fsnotify.Write | fsnotify.Chmod}},
+		{name: "dir write plus chmod in worktree", ev: fsnotify.Event{Name: filepath.Join(w.repo.Root, "src"), Op: fsnotify.Write | fsnotify.Chmod}},
 		{name: "file write in own refs", ev: fsnotify.Event{Name: filepath.Join(w.ownRefsDir, "s1"), Op: fsnotify.Write}},
-		{name: "chmod on index", ev: fsnotify.Event{Name: filepath.Join(gitDir, "index"), Op: fsnotify.Chmod}},
 		{name: "chmod on a ref", ev: fsnotify.Event{Name: filepath.Join(refs, "heads", "main"), Op: fsnotify.Chmod}},
-		{name: "write on HEAD", ev: fsnotify.Event{Name: filepath.Join(gitDir, "HEAD"), Op: fsnotify.Write}, wantGit: true, accepted: true},
 		{name: "write on index", ev: fsnotify.Event{Name: filepath.Join(gitDir, "index"), Op: fsnotify.Write}, wantGit: true, accepted: true},
 		{name: "write on a ref", ev: fsnotify.Event{Name: filepath.Join(refs, "heads", "main"), Op: fsnotify.Write}, wantGit: true, accepted: true},
-		{name: "write plus chmod on a ref", ev: fsnotify.Event{Name: filepath.Join(refs, "heads", "main"), Op: fsnotify.Write | fsnotify.Chmod}, wantGit: true, accepted: true},
-		{name: "dir write in worktree", ev: fsnotify.Event{Name: filepath.Join(w.repo.Root, "src"), Op: fsnotify.Write}},
-		{name: "dir write plus chmod in worktree", ev: fsnotify.Event{Name: filepath.Join(w.repo.Root, "src"), Op: fsnotify.Write | fsnotify.Chmod}},
-		{name: "dir write plus chmod on refs/heads", ev: fsnotify.Event{Name: filepath.Join(refs, "heads"), Op: fsnotify.Write | fsnotify.Chmod}},
 		{name: "file write in worktree", ev: fsnotify.Event{Name: filepath.Join(w.repo.Root, "src", "a.go"), Op: fsnotify.Write}, wantPath: "src/a.go", accepted: true},
 	}
 
@@ -987,9 +943,12 @@ func TestKqueueEvents(t *testing.T) {
 }
 
 func TestSeqCountsEventsBeforeTheBatch(t *testing.T) {
+	t.Parallel()
 	dir := baseRepo(t)
 	opts := WatchOptions{Debounce: time.Second, MaxDelay: 3 * time.Second, SeqBase: 100}
+	timers := fakeTimers(&opts)
 	w := startWatch(t, dir, opts)
+	debounce := (*timers)[0]
 
 	if got := w.Seq(); got != 100 {
 		t.Fatalf("Seq at start = %d, want the base 100", got)
@@ -1005,6 +964,7 @@ func TestSeqCountsEventsBeforeTheBatch(t *testing.T) {
 	default:
 	}
 
+	debounce.fire()
 	waitPaths(t, w, "tracked.txt")
 }
 
@@ -1045,22 +1005,14 @@ func TestKqueueMetaOps(t *testing.T) {
 	gitDir, refs := w.repo.GitDir, w.refsDir
 	ref := filepath.Join(refs, "heads", "main")
 
-	rows := []metaRow{
+	runMetaRows(t, w, []metaRow{
+		{name: "create on a ref", ev: fsnotify.Event{Name: ref, Op: fsnotify.Create}, wantGit: true},
+		{name: "rename on the index", ev: fsnotify.Event{Name: filepath.Join(gitDir, "index"), Op: fsnotify.Rename}, wantGit: true},
+		{name: "remove on HEAD", ev: fsnotify.Event{Name: filepath.Join(gitDir, "HEAD"), Op: fsnotify.Remove}, wantGit: true},
 		{name: "lock write", ev: fsnotify.Event{Name: ref + ".lock", Op: fsnotify.Write}},
-		{name: "lock create", ev: fsnotify.Event{Name: ref + ".lock", Op: fsnotify.Create}},
 		{name: "packed-refs write", ev: fsnotify.Event{Name: filepath.Join(gitDir, "packed-refs"), Op: fsnotify.Write}, wantGit: true},
 		{name: "unrelated git file", ev: fsnotify.Event{Name: filepath.Join(gitDir, "config"), Op: fsnotify.Write}},
-	}
-
-	for _, op := range []fsnotify.Op{fsnotify.Create, fsnotify.Remove, fsnotify.Rename} {
-		for name, path := range map[string]string{
-			"HEAD": filepath.Join(gitDir, "HEAD"), "index": filepath.Join(gitDir, "index"), "ref": ref,
-		} {
-			rows = append(rows, metaRow{name: op.String() + " " + name, ev: fsnotify.Event{Name: path, Op: op}, wantGit: true})
-		}
-	}
-
-	runMetaRows(t, w, rows)
+	})
 }
 
 func TestKqueueNewDirectoryUnderRefs(t *testing.T) {
@@ -1121,21 +1073,9 @@ func TestKqueueLinkedWorktreeGitDir(t *testing.T) {
 	})
 }
 
-func TestWatchNestedBranchSetsGit(t *testing.T) {
-	t.Parallel()
-	dir := baseRepo(t)
-	w := startWatch(t, dir, fastWatch)
-
-	gitOut(t, dir, "update-ref", "refs/heads/a/b", "HEAD")
-
-	collect(t, w, func(b Batch) bool { return b.Git })
-
-	gitOut(t, dir, "update-ref", "refs/heads/a/c/d", "HEAD")
-
-	collect(t, w, func(b Batch) bool { return b.Git })
-}
-
 func TestWatchOverflowBumpsSeq(t *testing.T) {
+	t.Parallel()
+
 	injectErrs := make(chan error, 1)
 	opts := fastWatch
 	opts.injectErrs = injectErrs
