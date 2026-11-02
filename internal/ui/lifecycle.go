@@ -23,14 +23,15 @@ const cwdProbeEvery = 500 * time.Millisecond
 const agentGrace = 10 * time.Second
 
 // paneCwdMsg carries a pane's looked-up working directory and foreground
-// process name; each is empty when unknown. due marks the probe that
-// paneKindDueMsg starts, which is outside the cwd throttle.
+// process name; each is empty when unknown. due marks any probe outside the
+// cwd throttle, hook the one that held hooks started.
 type paneCwdMsg struct {
-	id  core.PaneID
-	p   *pane
-	cwd string
-	fg  string
-	due bool
+	id   core.PaneID
+	p    *pane
+	cwd  string
+	fg   string
+	due  bool
+	hook bool
 }
 
 // paneKindDueMsg is the probe agentGrace after an agent launch.
@@ -473,6 +474,14 @@ func probe(p *pane, due bool) tea.Cmd {
 	}
 }
 
+// hookProbe is the probe a held hook starts; like the grace probe it leaves the
+// cwd throttle alone.
+func hookProbe(p *pane) tea.Cmd {
+	return func() tea.Msg {
+		return paneCwdMsg{id: p.id, p: p, cwd: p.workingDir(), fg: p.foreground(), due: true, hook: true}
+	}
+}
+
 // onKindDue probes an agent pane at the end of its grace period. It leaves the
 // cwd throttle alone.
 func (a *App) onKindDue(msg paneKindDueMsg) tea.Cmd {
@@ -509,12 +518,28 @@ func (a *App) onCwd(msg paneCwdMsg) tea.Cmd {
 		p.cwdBusy = false
 	}
 
-	if msg.cwd != "" && a.store.State().Panes[msg.id].Cwd != msg.cwd {
+	if msg.hook {
+		p.heldProbe = false
+	}
+
+	m := a.store.State().Panes[msg.id]
+
+	// An agent's Cwd is its launch directory; the foreground's cwd may be stale.
+	if m.Kind == core.KindShell && msg.cwd != "" && m.Cwd != msg.cwd {
 		// dispatch logs its own failures.
 		_ = a.dispatch(core.SetPaneCwd{ID: msg.id, Cwd: msg.cwd})
 	}
 
-	return a.applyKind(p, msg.fg)
+	kind := a.applyKind(p, msg.fg)
+
+	switch {
+	case len(p.held) > 0 && a.store.State().Panes[msg.id].Kind == core.KindAgent:
+		return tea.Batch(kind, a.replayHeld(p))
+	case msg.hook:
+		p.held = nil
+	}
+
+	return kind
 }
 
 // harnessOf is the harness that recognises the pane's agent: its own, else the
@@ -563,6 +588,7 @@ func (a *App) applyKind(p *pane, fg string) tea.Cmd {
 	case m.Kind == core.KindShell && fg == h.Program():
 		p.seen = true
 		p.launched = time.Time{}
+		p.launchDue = true
 
 		// dispatch logs its own failures.
 		_ = a.dispatch(core.SetPaneKind{ID: p.id, Kind: core.KindAgent, Harness: h.ID()})
@@ -572,6 +598,7 @@ func (a *App) applyKind(p *pane, fg string) tea.Cmd {
 	case m.Kind == core.KindAgent && (p.seen || !a.clock.Now().Before(p.launched.Add(agentGrace))):
 		p.seen = false
 		p.launched = time.Time{}
+		p.launchDue = false
 
 		// dispatch logs its own failures.
 		_ = a.dispatch(core.SetPaneKind{ID: p.id, Kind: core.KindShell})

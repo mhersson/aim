@@ -66,7 +66,17 @@ func (f *fakeProc) Resize(cols, rows int) error {
 
 func (f *fakeProc) Done() <-chan struct{} { return f.done }
 
+func (f *fakeProc) setCwd(dir string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.cwd = dir
+}
+
 func (f *fakeProc) Cwd() (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	if f.cwd == "" {
 		return "", io.ErrUnexpectedEOF
 	}

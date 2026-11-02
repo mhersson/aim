@@ -11,12 +11,16 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 
 	"github.com/mhersson/aim/internal/core"
+	"github.com/mhersson/aim/internal/harness"
 	"github.com/mhersson/aim/internal/term"
 )
 
 // readChunk is the PTY read size; large enough that a flooding child costs
 // few lock round trips.
 const readChunk = 32 << 10
+
+// maxHeld bounds the hook events kept for a shell pane while a probe runs.
+const maxHeld = 16
 
 // proc is the child process behind a pane; *term.Process implements it.
 type proc interface {
@@ -62,16 +66,19 @@ type pane struct {
 	wg     sync.WaitGroup
 
 	// Update-goroutine state, outside mu.
-	holdArmed bool      // a holdTick is outstanding
-	cwdAt     time.Time // start of the last cwd lookup
-	cwdBusy   bool      // a lookup is running
-	cwdWait   bool      // a deferred lookup is scheduled
-	launched  time.Time // when AIM started the agent; zero otherwise
-	seen      bool      // the harness program was the foreground process
-	resuming  bool      // launched with --resume and no SessionStart yet
-	lastOut   time.Time // when output last arrived
-	workingAt time.Time // when the agent last entered working
-	stale     bool      // output or a resize arrived while its tab was hidden; render when shown
+	holdArmed bool            // a holdTick is outstanding
+	cwdAt     time.Time       // start of the last cwd lookup
+	cwdBusy   bool            // a lookup is running
+	cwdWait   bool            // a deferred lookup is scheduled
+	launched  time.Time       // when AIM started the agent; zero otherwise
+	seen      bool            // the harness program was the foreground process
+	resuming  bool            // launched with --resume and no SessionStart yet
+	lastOut   time.Time       // when output last arrived
+	workingAt time.Time       // when the agent last entered working
+	held      []harness.Event // hooks that arrived while the pane was a shell, applied if a probe makes it an agent
+	heldProbe bool            // a probe started by a held hook is out
+	launchDue bool            // the next SessionStart names the directory Claude was typed in
+	stale     bool            // output or a resize arrived while its tab was hidden; render when shown
 
 	mu         sync.Mutex
 	vt         term.VT
