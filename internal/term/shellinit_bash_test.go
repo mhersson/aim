@@ -107,6 +107,35 @@ func TestBashCommands(t *testing.T) {
 	}
 }
 
+func TestBashCommandsAppleBash(t *testing.T) {
+	t.Setenv("PATH", "/usr/bin:/bin")
+
+	const dir = "/run/1-shell"
+
+	env := func(string) string { return "/bin/bash" }
+	ig := Integration{Dir: dir, goos: "darwin"}
+
+	sh := ShellCommand(env, ig, "/w", nil)
+	if want := []string{"/bin/bash", "-l"}; !slices.Equal(sh.Argv, want) {
+		t.Errorf("shell argv = %q, want %q", sh.Argv, want)
+	}
+
+	ag := AgentCommand(env, ig, "/w", []string{"claude"}, nil)
+	if !strings.HasSuffix(ag.Argv[4], `; exec "$SHELL" -l`) || strings.Contains(ag.Argv[4], "init.bash") {
+		t.Errorf("agent script = %q, want the plain tail", ag.Argv[4])
+	}
+
+	for name, c := range map[string]Command{"shell": sh, "agent": ag} {
+		if hasKey(c.Env, "ENV") || hasKey(c.Env, "AIM_ENV") {
+			t.Errorf("%s env has ENV or AIM_ENV: %q", name, c.Env)
+		}
+
+		if !hasEnv(c.Env, "PATH="+dir+"/bin:/usr/bin:/bin") || !hasEnv(c.Env, "AIM_SHELL_DIR="+dir) {
+			t.Errorf("%s env lacks PATH or AIM_SHELL_DIR: %q", name, c.Env)
+		}
+	}
+}
+
 func bashEnv(string) string {
 	p, err := exec.LookPath("bash")
 	if err != nil {

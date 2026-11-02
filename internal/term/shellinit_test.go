@@ -31,12 +31,14 @@ func TestIntegrationCommands(t *testing.T) {
 		wantTail  string
 		wantZdot  string // AIM's ZDOTDIR entry of the shell command; "" means none
 		wantAimZd string // AIM_ZDOTDIR entry; "" means none
+		emptyZdot bool   // ZDOTDIR is inherited set but empty; zdotdir is then ""
 	}{
-		{"zsh on, ZDOTDIR set", "/bin/zsh", true, "/home/u/zd", []string{"/bin/zsh", "-l"}, zshTailText, "ZDOTDIR=" + dir + "/zsh", "AIM_ZDOTDIR=/home/u/zd"},
-		{"zsh on, ZDOTDIR unset", "/bin/zsh", true, "", []string{"/bin/zsh", "-l"}, zshTailText, "ZDOTDIR=" + dir + "/zsh", ""},
-		{"zsh off", "/bin/zsh", false, "/home/u/zd", []string{"/bin/zsh", "-l"}, plain, "", ""},
-		{"fish", "/usr/bin/fish", false, "", []string{"/usr/bin/fish", "-l", "-C", fishInit}, fishTail, "", ""},
-		{"sh", "/bin/sh", true, "/home/u/zd", []string{"/bin/sh", "-l"}, plain, "", ""},
+		{"zsh on, ZDOTDIR set", "/bin/zsh", true, "/home/u/zd", []string{"/bin/zsh", "-l"}, zshTailText, "ZDOTDIR=" + dir + "/zsh", "AIM_ZDOTDIR=/home/u/zd", false},
+		{"zsh on, ZDOTDIR unset", "/bin/zsh", true, "", []string{"/bin/zsh", "-l"}, zshTailText, "ZDOTDIR=" + dir + "/zsh", "", false},
+		{"zsh on, ZDOTDIR set but empty", "/bin/zsh", true, "", []string{"/bin/zsh", "-l"}, zshTailText, "ZDOTDIR=" + dir + "/zsh", "AIM_ZDOTDIR=", true},
+		{"zsh off", "/bin/zsh", false, "/home/u/zd", []string{"/bin/zsh", "-l"}, plain, "", "", false},
+		{"fish", "/usr/bin/fish", false, "", []string{"/usr/bin/fish", "-l", "-C", fishInit}, fishTail, "", "", false},
+		{"sh", "/bin/sh", true, "/home/u/zd", []string{"/bin/sh", "-l"}, plain, "", "", false},
 	}
 
 	for _, tt := range tests {
@@ -46,7 +48,7 @@ func TestIntegrationCommands(t *testing.T) {
 			// Setenv registers the restore; the Unsetenv then leaves it unset.
 			t.Setenv("ZDOTDIR", tt.zdotdir)
 
-			if tt.zdotdir == "" {
+			if tt.zdotdir == "" && !tt.emptyZdot {
 				if err := os.Unsetenv("ZDOTDIR"); err != nil {
 					t.Fatal(err)
 				}
@@ -72,7 +74,7 @@ func TestIntegrationCommands(t *testing.T) {
 			}
 
 			wantZ := tt.wantZdot
-			if wantZ == "" && tt.zdotdir != "" {
+			if wantZ == "" && (tt.zdotdir != "" || tt.emptyZdot) {
 				wantZ = "ZDOTDIR=" + tt.zdotdir // not AIM's: left as inherited
 			}
 
@@ -88,11 +90,11 @@ func TestIntegrationCommands(t *testing.T) {
 				t.Errorf("agent script = %q, want tail %q", ag.Argv[4], tt.wantTail)
 			}
 
-			if tt.zdotdir == "" && hasKey(ag.Env, "ZDOTDIR") {
+			if tt.zdotdir == "" && !tt.emptyZdot && hasKey(ag.Env, "ZDOTDIR") {
 				t.Errorf("agent env sets ZDOTDIR: %q", ag.Env)
 			}
 
-			if tt.zdotdir != "" && !hasEnv(ag.Env, "ZDOTDIR="+tt.zdotdir) {
+			if (tt.zdotdir != "" || tt.emptyZdot) && !hasEnv(ag.Env, "ZDOTDIR="+tt.zdotdir) {
 				t.Errorf("agent env lost the inherited ZDOTDIR: %q", ag.Env)
 			}
 
@@ -115,25 +117,87 @@ func TestIntegrationCommands(t *testing.T) {
 	}
 }
 
+// fixedEnv makes os.Environ exactly kvs, in order, until the test ends.
+func fixedEnv(t *testing.T, kvs ...string) {
+	t.Helper()
+
+	for _, kv := range os.Environ() {
+		k, _, _ := strings.Cut(kv, "=")
+
+		// Setenv registers the restore; the Unsetenv then leaves it unset.
+		t.Setenv(k, "")
+
+		if err := os.Unsetenv(k); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, kv := range kvs {
+		k, v, _ := strings.Cut(kv, "=")
+		t.Setenv(k, v)
+	}
+}
+
+func TestIntegrationEnvOrder(t *testing.T) {
+	const dir = "/run/1-shell"
+
+	fixedEnv(t, "HOME=/home/u", "SHELL=/bin/old", "PATH=/usr/bin:/bin", "ZDOTDIR=/home/u/zd", "TERM=dumb")
+
+	env := func(string) string { return "/bin/zsh" }
+	ig := Integration{Dir: dir, Zsh: true}
+	extra := []string{"AIM_PANE=p1"}
+
+	base := []string{"HOME=/home/u", "TERM=xterm-256color", "COLORTERM=truecolor"}
+	common := []string{"SHELL=/bin/zsh", "PATH=" + dir + "/bin:/usr/bin:/bin", "AIM_SHELL_DIR=" + dir, "AIM_ZDOTDIR=/home/u/zd"}
+
+	tests := []struct {
+		name string
+		got  []string
+		want []string
+	}{
+		// The shell root takes AIM's ZDOTDIR; an agent keeps the inherited one in place.
+		{"shell", ShellCommand(env, ig, "/w", extra).Env, slices.Concat(base, common, []string{"ZDOTDIR=" + dir + "/zsh"}, extra)},
+		{"agent", AgentCommand(env, ig, "/w", []string{"claude"}, extra).Env, slices.Concat(
+			[]string{"HOME=/home/u", "ZDOTDIR=/home/u/zd", "TERM=xterm-256color", "COLORTERM=truecolor"}, common, extra)},
+	}
+
+	for _, tt := range tests {
+		if !slices.Equal(tt.got, tt.want) {
+			t.Errorf("%s env = %q, want %q", tt.name, tt.got, tt.want)
+		}
+	}
+}
+
 func TestIntegrationOff(t *testing.T) {
-	t.Setenv("PATH", "/usr/bin")
+	fixedEnv(t, "HOME=/home/u", "SHELL=/bin/old", "PATH=/usr/bin", "TERM=dumb")
 
 	env := func(string) string { return "/bin/zsh" }
 	extra := []string{"AIM_PANE=p1"}
 
-	want := append(append(dropKeys(PaneEnv(os.Environ()), "SHELL"), "SHELL=/bin/zsh"), extra...)
+	want := []string{"HOME=/home/u", "PATH=/usr/bin", "TERM=xterm-256color", "COLORTERM=truecolor", "SHELL=/bin/zsh", "AIM_PANE=p1"}
+	tail := `; exec "$SHELL" -l`
 
-	for name, c := range map[string]Command{
-		"shell":  ShellCommand(env, Integration{}, "/w", extra),
-		"agent":  AgentCommand(env, Integration{}, "/w", []string{"claude"}, extra),
-		"editor": EditorCommand(env, Integration{}, "/w", "vi", nil, extra),
-	} {
-		if !slices.Equal(c.Env, want) {
-			t.Errorf("%s env = %q, want %q", name, c.Env, want)
+	tests := []struct {
+		name string
+		c    Command
+		argv []string
+	}{
+		{"shell", ShellCommand(env, Integration{}, "/w", extra), []string{"/bin/zsh", "-l"}},
+		{"agent", AgentCommand(env, Integration{}, "/w", []string{"claude"}, extra), []string{"/bin/zsh", "-l", "-i", "-c", `"$@"` + tail, "zsh", "claude"}},
+		{"editor", EditorCommand(env, Integration{}, "/w", "vi", nil, extra), []string{"/bin/zsh", "-l", "-i", "-c", `vi "$@"` + tail, "zsh"}},
+	}
+
+	for _, tt := range tests {
+		if !slices.Equal(tt.c.Env, want) {
+			t.Errorf("%s env = %q, want %q", tt.name, tt.c.Env, want)
+		}
+
+		if !slices.Equal(tt.c.Argv, tt.argv) {
+			t.Errorf("%s argv = %q, want %q", tt.name, tt.c.Argv, tt.argv)
 		}
 	}
 
-	if c := AgentCommand(env, Integration{Zsh: true}, "/w", []string{"claude"}, nil); !strings.HasSuffix(c.Argv[4], `; exec "$SHELL" -l`) || hasKey(c.Env, "AIM_SHELL_DIR") {
+	if c := AgentCommand(env, Integration{Zsh: true}, "/w", []string{"claude"}, nil); !strings.HasSuffix(c.Argv[4], tail) || hasKey(c.Env, "AIM_SHELL_DIR") {
 		t.Errorf("a Zsh flag without a Dir changed the command: %q", c.Argv)
 	}
 }

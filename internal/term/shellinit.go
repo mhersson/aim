@@ -31,6 +31,18 @@ type Integration struct {
 	// Zsh means zsh panes take AIM's ZDOTDIR; with no user startup files zsh
 	// gets the wrapper on PATH only.
 	Zsh bool
+
+	// goos overrides runtime.GOOS for the Apple bash rule; tests set it.
+	goos string
+}
+
+// platform is the OS the bash rule applies to.
+func (ig Integration) platform() string {
+	if ig.goos != "" {
+		return ig.goos
+	}
+
+	return runtime.GOOS
 }
 
 // NewIntegration is the integration for dir. getenv reads the environment the
@@ -207,7 +219,7 @@ func bashReadsENV(goos, sh string) bool { return goos != "darwin" || sh != "/bin
 
 // bash is whether sh is a bash that takes the integration through ENV.
 func (ig Integration) bash(sh string) bool {
-	return ig.Dir != "" && filepath.Base(sh) == "bash" && bashReadsENV(runtime.GOOS, sh)
+	return ig.Dir != "" && filepath.Base(sh) == "bash" && bashReadsENV(ig.platform(), sh)
 }
 
 // fish is whether sh is a fish that takes the integration through -C.
