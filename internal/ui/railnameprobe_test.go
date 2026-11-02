@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -486,45 +487,89 @@ func TestRailNameProbeFailures(t *testing.T) {
 	})
 }
 
+// countingHarness counts the transcript reads. Its id is not one harness.ByID
+// knows, so a pane without a harness id of its own is read through it.
+type countingHarness struct {
+	harness.Harness
+	reads atomic.Int32
+}
+
+func (h *countingHarness) CustomName(ctx context.Context, transcript string) (string, error) {
+	h.reads.Add(1)
+
+	return h.Harness.CustomName(ctx, transcript)
+}
+
 func TestRailNameProbeSharesTheProbeSlots(t *testing.T) {
 	t.Parallel()
 
-	r := newRailApp(t, false)
-	id := r.addAgent(t, false, r.repo(t, "proj").Root())
-	r.openRail()
+	// start fills every slot and starts a name probe that has to wait.
+	start := func(t *testing.T) (*railApp, *countingHarness, <-chan tea.Msg) {
+		t.Helper()
 
-	transcript := transcriptNamed(t, "early")
-	r.session(t, id, transcript)
+		r := newRailApp(t, false)
+		h := &countingHarness{Harness: r.harness}
+		r.harness = h
 
-	cmd := r.railFire(r.store.State(), id, probeName)
-	if cmd == nil {
-		t.Fatal("no name probe started")
-	}
+		id := r.addAgent(t, true, r.repo(t, "proj").Root())
+		r.openRail()
+		r.session(t, id, transcriptNamed(t, "waited"))
 
-	for range railProbeMax {
-		r.probeSem <- struct{}{}
-	}
-
-	done := make(chan tea.Msg, 1)
-
-	go func() { done <- cmd() }()
-
-	// The transcript is read only once a slot is free, so it holds what it says now.
-	rewriteTranscript(t, transcript, "waited")
-	<-r.probeSem
-
-	select {
-	case msg := <-done:
-		if nm, ok := msg.(railNameMsg); !ok || nm.name != "waited" {
-			t.Errorf("answer = %+v, want the name written while every slot was taken", msg)
+		cmd := r.railFire(r.store.State(), id, probeName)
+		if cmd == nil {
+			t.Fatal("no name probe started")
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("the name probe did not run once a slot was free")
+
+		for range railProbeMax {
+			r.probeSem <- struct{}{}
+		}
+
+		done := make(chan tea.Msg, 1)
+
+		go func() { done <- cmd() }()
+
+		return r, h, done
 	}
 
-	for range railProbeMax - 1 {
+	t.Run("a full set of slots keeps the transcript unread", func(t *testing.T) {
+		t.Parallel()
+
+		r, h, done := start(t)
+		r.railClosed()
+
+		select {
+		case msg := <-done:
+			if nm, ok := msg.(railNameMsg); !ok || !errors.Is(nm.err, context.Canceled) {
+				t.Errorf("answer = %+v, want a cancel", msg)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("the waiting name probe did not end with the rail")
+		}
+
+		if n := h.reads.Load(); n != 0 {
+			t.Errorf("the transcript was read %d times with every probe slot taken", n)
+		}
+	})
+
+	t.Run("a free slot lets it read once", func(t *testing.T) {
+		t.Parallel()
+
+		r, h, done := start(t)
 		<-r.probeSem
-	}
+
+		select {
+		case msg := <-done:
+			if nm, ok := msg.(railNameMsg); !ok || nm.name != "waited" {
+				t.Errorf("answer = %+v, want the name", msg)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("the name probe did not run once a slot was free")
+		}
+
+		if n := h.reads.Load(); n != 1 {
+			t.Errorf("the transcript was read %d times, want 1", n)
+		}
+	})
 }
 
 func TestRailNameProbeCleansWhatItReads(t *testing.T) {

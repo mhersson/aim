@@ -41,7 +41,7 @@ func (r *railApp) repoAhead(t *testing.T, name string, n int) *fakeRepo {
 // probes an update raises for the agents, then the rail's own probes.
 func (r *railApp) openRail() []tea.Msg { return r.deliver(tea.Batch(r.settle(), r.railOpened())) }
 
-// gitBatch hands the app a watcher batch for the pane's worktree (dir, a fake root), as the watch
+// gitBatch hands the app a watcher batch for the pane's worktree at dir, as the watch
 // set would, and answers the probes it raises. An update that follows drops
 // the pane's watch, since no watch set holds one.
 func (r *railApp) gitBatch(t *testing.T, id core.PaneID, dir string, b git.Batch) []tea.Msg {
@@ -277,6 +277,7 @@ func TestFocusedShellHeadIsProbed(t *testing.T) {
 
 // brokenUpstream drops the tracking ref its branch's upstream names: the
 // branch still has an upstream, but the commits past it cannot be counted.
+// (The "same cwd" case gets the same from a new branch with no tracking ref.)
 func brokenUpstream(rp *fakeRepo) { rp.track("origin", "main", "") }
 
 func TestHeadProbeKeepsTheBranchWhenTheCountFails(t *testing.T) {
@@ -346,10 +347,6 @@ func TestHeadProbeCountTimeoutIsNoAnswer(t *testing.T) {
 	// Only the count runs out of budget: the probe has no answer to give.
 	r.git = countTimeoutGit{r.fake}
 	r.probeBudget = time.Nanosecond
-	release := r.fake.hold("Ahead")
-
-	defer release()
-
 	r.clk.Advance(time.Minute)
 
 	msgs := flatten(hook(r.App, idleHook(id)))

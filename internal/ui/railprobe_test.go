@@ -344,10 +344,7 @@ func TestRailSlowGitIsCancelledAndKeepsTheLastResult(t *testing.T) {
 	id := r.addAgent(t, false, r.repo(t, "proj").Root())
 	r.openRail()
 
-	// The slow call waits for its context, which the spent budget has ended.
-	release := r.fake.hold("Open")
-	defer release()
-
+	// A spent budget ends the probe's context before git is asked anything.
 	r.probeBudget = time.Nanosecond
 	r.clk.Advance(6 * time.Second)
 
