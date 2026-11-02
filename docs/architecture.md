@@ -86,11 +86,11 @@ nothing, and anywhere else it closes the popover and goes no further.
 **Pane kind.** A pane is an agent while its terminal's foreground process
 group leader is `claude` (`internal/term/fg_linux.go`, `fg_darwin.go`), probed
 with the cwd at most every 500 ms, so a hand-typed `claude` makes an agent and
-an exited one a shell. Hooks never change the kind. Up to 16 events
-for a shell pane are held while a probe they start runs (`holdHook`). They are
-applied once a probe makes the pane an agent, so a typed `claude`'s
-`SessionStart` is not lost to the 500 ms throttle, and they are dropped when
-that probe does not. A launched agent has 10 s (`agentGrace`) to show `claude` first.
+an exited one a shell. Hooks never change the kind. Up to 16 events for a shell
+pane are held while a probe they start runs (`holdHook`). They are applied once
+a probe makes the pane an agent, so a typed `claude`'s `SessionStart` is not
+lost to the 500 ms throttle, and they are dropped when that probe does not. A
+launched agent has 10 s (`agentGrace`) to show `claude` first.
 The leader's name is its comm on Linux. On macOS it is argv[0]'s base name, or
 argv[1]'s when argv[0] is `node` or `bun` and argv[1] is not an option, since an
 npm install's `claude` runs as `node <path>/claude` (`internal/term/procargs.go`).
@@ -273,11 +273,12 @@ A pane has three directories (`internal/core/layout.go`):
 | `FollowDir()` | the worktree of the latest counted edit, else `WorkDir()` | rail, watch, drawer, poller, push | no |
 
 Claude Code files its sessions under the directory it was launched in, and
-`--resume` must start there, so a hook's cwd never changes the saved `Cwd`, except the first `SessionStart`
-of a typed `claude`, whose `cwd` is where Claude was launched. The probe updates
-`Cwd` only while the pane is a shell, so a stale OSC 7 path cannot move it. An
-agent edits in other worktrees (a `cd` in Bash, an absolute path), so what the
-operator reviews follows its edits, not its launch directory.
+`--resume` must start there, so a hook's cwd never changes the saved `Cwd`,
+except the first `SessionStart` of a typed `claude`, whose `cwd` is where Claude
+was launched. The probe updates `Cwd` only while the pane is a shell, so a stale
+OSC 7 path cannot move it. An agent edits in other worktrees (a `cd` in Bash, an
+absolute path), so what the operator reviews follows its edits, not its launch
+directory.
 
 Edits come from the edit tools' paths and from Claude Code's list of files a
 Bash command changed. `git.EditPlace` resolves a path to its worktree (the

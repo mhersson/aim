@@ -21,6 +21,8 @@ func TestHeldHooksWaitForTheProbe(t *testing.T) {
 	ev := startEvent(launch)
 
 	t.Run("claude in front", func(t *testing.T) {
+		t.Parallel()
+
 		a, st, _ := kindApp(t)
 		st.proc(0).setFg("claude")
 
@@ -45,6 +47,8 @@ func TestHeldHooksWaitForTheProbe(t *testing.T) {
 
 	for _, fg := range []string{"zsh", ""} {
 		t.Run("shell in front "+fg, func(t *testing.T) {
+			t.Parallel()
+
 			a, st, clk := kindApp(t)
 			st.proc(0).setFg(fg)
 
@@ -70,6 +74,8 @@ func TestHeldHooksWaitForTheProbe(t *testing.T) {
 	}
 
 	t.Run("status before the probe", func(t *testing.T) {
+		t.Parallel()
+
 		a, st, _ := kindApp(t)
 		st.proc(0).setFg("claude")
 
@@ -88,6 +94,8 @@ func TestHeldHooksWaitForTheProbe(t *testing.T) {
 	})
 
 	t.Run("a probe already out", func(t *testing.T) {
+		t.Parallel()
+
 		a, st, clk := kindApp(t)
 		st.proc(0).setFg("zsh")
 		clk.Advance(time.Second)
@@ -120,6 +128,8 @@ func TestHeldHooksWaitForTheProbe(t *testing.T) {
 	})
 
 	t.Run("at most maxHeld", func(t *testing.T) {
+		t.Parallel()
+
 		a, st, _ := kindApp(t)
 		st.proc(0).setFg("zsh")
 
