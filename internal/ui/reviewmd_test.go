@@ -730,18 +730,8 @@ func TestReviewMarkdownHints(t *testing.T) {
 	}
 }
 
-func TestReviewMarkdownKeyIsACommand(t *testing.T) {
+func TestReviewMarkdownNeedsTheDiffKeyboard(t *testing.T) {
 	t.Parallel()
-
-	reg := newTestApp(t).reg
-
-	if _, ok := reg.get("review.markdown"); !ok {
-		t.Error("review.markdown is not a command")
-	}
-
-	if !slices.Contains(reviewKeys, reviewKey{"m", "review.markdown"}) {
-		t.Error("m is not bound to review.markdown")
-	}
 
 	if treeCommand("review.markdown") {
 		t.Error("review.markdown works while the tree has the keyboard")

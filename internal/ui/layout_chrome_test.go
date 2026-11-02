@@ -329,8 +329,6 @@ func TestLayoutModuleGivesWayAfterLoadAndBeforeTabNames(t *testing.T) {
 	}
 }
 
-func chromeThemes() []string { return []string{"catppuccin-mocha", "catppuccin-latte"} }
-
 type layoutChromeCase struct {
 	name  string
 	build func(t *testing.T, th string, icons bool) *App

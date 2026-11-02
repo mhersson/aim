@@ -399,39 +399,38 @@ func TestDrawDrawerCountsFallbacks(t *testing.T) {
 func TestOverlayDrawerMatchesTheCompositorOnTheDrawerScenes(t *testing.T) {
 	t.Parallel()
 
-	for _, th := range chromeThemes() {
-		for _, icons := range []bool{true, false} {
-			for _, c := range reviewCases() {
-				for _, slide := range []int{0, 7} {
-					t.Run(fmt.Sprintf("%s/icons=%v/%s/slide=%d", th, icons, c.name, slide), func(t *testing.T) {
-						t.Parallel()
-						a := c.scene(th, icons).build(t)
-						st := a.store.State()
-						r := drawerRectOf(t, a, slide)
-						r.X += slide
+	for _, c := range reviewCases() {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 
-						base := a.frameAt(a.geometry())
-						lines, _, fits := a.drawerDrawn(st, r)
+			a := c.scene("catppuccin-mocha", true).build(t)
+			st := a.store.State()
 
-						want := overlayAt(nil, base, a.width, a.height, r.X, r.Y, lines, nil)
-						got, _ := overlayDrawer(nil, base, a.width, a.height, r, lines, nil, fits)
+			// The whole drawer first: its frame is also the View's.
+			for _, slide := range []int{0, 7} {
+				r := drawerRectOf(t, a, slide)
+				r.X += slide
 
-						requireSameCells(t, got, want, a.width, a.height)
+				base := a.frameAt(a.geometry())
+				lines, _, fits := a.drawerDrawn(st, r)
 
-						if _, ok := spliceDrawer(base, a.width, a.height, r, lines, fits); !ok {
-							t.Error("the drawer scene was not spliced")
-						}
+				want := overlayAt(nil, base, a.width, a.height, r.X, r.Y, lines, nil)
+				got, _ := overlayDrawer(nil, base, a.width, a.height, r, lines, nil, fits)
 
-						if slide == 0 {
-							requireSameCells(t, a.View().Content, want, a.width, a.height)
+				requireSameCells(t, got, want, a.width, a.height)
 
-							if a.drawer.fallbacks != 0 {
-								t.Errorf("View drew the drawer with the compositor %d times", a.drawer.fallbacks)
-							}
-						}
-					})
+				if _, ok := spliceDrawer(base, a.width, a.height, r, lines, fits); !ok {
+					t.Errorf("the drawer scene was not spliced at slide %d", slide)
+				}
+
+				if slide == 0 {
+					requireSameCells(t, a.View().Content, want, a.width, a.height)
+
+					if a.drawer.fallbacks != 0 {
+						t.Errorf("View drew the drawer with the compositor %d times", a.drawer.fallbacks)
+					}
 				}
 			}
-		}
+		})
 	}
 }

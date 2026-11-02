@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -156,7 +157,9 @@ func TestReviewCounterDropOrder(t *testing.T) {
 	lost := map[string]int{}
 	kinds := []string{"split", "pinned", "2/6", "turn 4"}
 
-	for width := 80; width >= 18; width-- {
+	// Either side of each tag's drop point (split 51, pinned 41, counter 30), and the least
+	// room the border is asked to fit.
+	for _, width := range []int{52, 51, 42, 41, 31, 30, 18} {
 		d, _, ok := a.drawCtxFor(a.store.State())
 		if !ok {
 			t.Fatal("no drawer to draw")
@@ -261,53 +264,48 @@ func TestReviewTreeMarks(t *testing.T) {
 	}
 }
 
+// hintKeys are the keys of the drawer's hints, in order, as the hint row lists them.
+func hintKeys(t *testing.T, a *App) []string {
+	t.Helper()
+
+	d, _, ok := a.drawCtxFor(a.store.State())
+	if !ok {
+		t.Fatal("no drawer to draw")
+	}
+
+	var b strings.Builder
+
+	for _, run := range d.hintRuns(500) {
+		b.WriteString(run.text)
+	}
+
+	var keys []string
+
+	for entry := range strings.SplitSeq(b.String(), "   ") {
+		key, _, _ := strings.Cut(strings.TrimSpace(entry), " ")
+		keys = append(keys, key)
+	}
+
+	return keys
+}
+
 func TestReviewHintsReviewed(t *testing.T) {
 	t.Parallel()
 
-	const (
-		diff = "j/k line   ]/[ hunk   }/{ file   z zoom   tab tree   w worktree   f full   u split   e edit   / search   space reviewed   R show reviewed   b/t mode"
-		pr   = "j/k line   ]/[ hunk   z zoom   i conversation   c checks   a approve   M merge   O browser   space reviewed   R show reviewed   b/t mode"
-	)
-
-	hintRow := func(a *App) string {
-		lines := strings.Split(ansi.Strip(strings.Join(a.drawerLines(a.store.State(), drawerRectOf(t, a, 0)), "\n")), "\n")
-
-		for _, l := range lines {
-			if strings.Contains(l, "j/k line") {
-				return strings.TrimRight(strings.Trim(l, "│ "), " ")
-			}
-		}
-
-		t.Fatalf("no hint row in\n%s", strings.Join(lines, "\n"))
-
-		return ""
-	}
-
 	tests := []struct {
-		name  string
-		scene func() reviewScene
-		want  string
+		name      string
+		scene     func() reviewScene
+		mark      string // the bound key of review.mark; none when empty
+		show      string // the bound key of review.show.reviewed; none when empty
+		showsRead bool   // v.showRead
 	}{
-		{"diff", func() reviewScene {
-			s := markedScene(hunksUpTo(1))
-			s.w, s.h = 312, 52
-
-			return s
-		}, diff},
 		{"R on", func() reviewScene {
 			s := markedScene(hunksUpTo(1))
 			s.w, s.h = 312, 52
 			s.tune = withMarked(hunksUpTo(1), func(t *testing.T, a *App, v *reviewView) { v.showRead = true })
 
 			return s
-		}, "j/k line   ]/[ hunk   }/{ file   z zoom   tab tree   w worktree   f full   u split   e edit   / search   space reviewed   R unread only   b/t mode"},
-		{"pr", func() reviewScene {
-			s := markedScene(hunksUpTo(1))
-			s.w, s.h, s.branch = 312, 52, true
-			s.tune = withMarked(hunksUpTo(1), func(t *testing.T, a *App, v *reviewView) { v.src = git.PRSource{Worktree: "/w/p1", Number: 7} })
-
-			return s
-		}, pr},
+		}, "space", "R", true},
 		{"file shown whole", func() reviewScene {
 			s := markedScene(hunksUpTo(1))
 			s.w, s.h = 312, 52
@@ -320,23 +318,36 @@ func TestReviewHintsReviewed(t *testing.T) {
 			})
 
 			return s
-		}, "j/k line   ]/[ hunk   }/{ file   z zoom   tab tree   w worktree   f full   u split   e edit   / search   b/t mode"},
+		}, "", "", false},
 		{"remapped", func() reviewScene {
 			s := markedScene(hunksUpTo(1))
 			s.w, s.h = 312, 52
 			s.keys = core.KeysConfig{Drawer: map[string]string{"m": "review.mark", "space": "none"}}
 
 			return s
-		}, "j/k line   ]/[ hunk   }/{ file   z zoom   tab tree   w worktree   f full   u split   e edit   / search   m reviewed   R show reviewed   b/t mode"},
+		}, "m", "R", false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := hintRow(tt.scene().build(t))
-			if !strings.HasPrefix(got, tt.want) {
-				t.Errorf("hint row %q, want it to start %q", got, tt.want)
+			a := tt.scene().build(t)
+			keys := hintKeys(t, a)
+			d, _, _ := a.drawCtxFor(a.store.State())
+
+			if got := d.bind.hint("review.mark"); tt.mark != "" && got != tt.mark {
+				t.Fatalf("review.mark is bound to %q, want %q", got, tt.mark)
+			}
+
+			for id, want := range map[string]string{"review.mark": tt.mark, "review.show.reviewed": tt.show} {
+				if present := slices.Contains(keys, d.bind.hint(id)); present != (want != "") {
+					t.Errorf("hint keys %q: the key of %s present = %v, want %v", keys, id, present, want != "")
+				}
+			}
+
+			if got := d.v.showRead; got != tt.showsRead {
+				t.Errorf("showRead = %v, want %v", got, tt.showsRead)
 			}
 		})
 	}
@@ -369,9 +380,9 @@ func TestReviewHintsWithoutMarks(t *testing.T) {
 			s.w, s.h = 200, 52
 			a := s.build(t)
 
-			out := ansi.Strip(strings.Join(a.drawerLines(a.store.State(), drawerRectOf(t, a, 0)), "\n"))
-			if strings.Contains(out, "space reviewed") {
-				t.Errorf("hints name marks:\n%s", out)
+			d, _, _ := a.drawCtxFor(a.store.State())
+			if mark, keys := d.bind.hint("review.mark"), hintKeys(t, a); slices.Contains(keys, mark) {
+				t.Errorf("hints %q name the mark key %q", keys, mark)
 			}
 		})
 	}

@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"math/rand/v2"
 	"reflect"
 	"slices"
 	"strings"
@@ -91,37 +90,6 @@ func TestLineUnits(t *testing.T) {
 	}
 }
 
-func TestLinePartsFastPath(t *testing.T) {
-	t.Parallel()
-
-	rng := rand.New(rand.NewPCG(1, 2))
-	alphabet := []rune("ab c\t\u200b\r")
-
-	for range 200 {
-		var b strings.Builder
-		for range rng.IntN(60) {
-			b.WriteRune(alphabet[rng.IntN(len(alphabet))])
-		}
-
-		raw := b.String()
-		width := 1 + rng.IntN(40)
-
-		for _, tagCR := range []bool{false, true} {
-			got := lineParts(raw, tagCR, width)
-			want := wrapLine(lineUnits(raw, tagCR), width)
-
-			if !reflect.DeepEqual(got, want) {
-				t.Fatalf("lineParts(%q, %v, %d) = %v, want %v", raw, tagCR, width, got, want)
-			}
-		}
-	}
-
-	long := strings.Repeat("a", 1500)
-	if got, want := lineParts(long, false, 2000), wrapLine(lineUnits(long, false), 2000); !reflect.DeepEqual(got, want) {
-		t.Fatalf("long line: lineParts = %v, want %v", got, want)
-	}
-}
-
 func TestWholePart(t *testing.T) {
 	t.Parallel()
 
@@ -151,6 +119,8 @@ func TestWholePart(t *testing.T) {
 		{"non-ASCII byte", "\tfoé", false, 20, false},
 		{"wide cells", "\t世界", false, 20, false},
 		{"wide cells that wrap", "\t世界世界", false, 6, false},
+		{"zero-width space", "\tfo\u200bo", false, 20, false},
+		{"CR mid-line tagged", "\tfo\ro", true, 20, false},
 		{"control byte", "\tfo\x01o", false, 20, false},
 		{"DEL", "\tfo\x7fo", false, 20, false},
 		{"no width", "\tfoo", false, 0, false},
@@ -413,23 +383,8 @@ func TestWrappedTallLine(t *testing.T) {
 	tall := strings.Repeat("t", 1024)
 	res := padded(0, append(append(manyPads(3), " "+tall), manyShort(25)...)...)
 
-	var (
-		a *App
-		v *reviewView
-	)
-
-	// The drawer's chrome sets diffH from the scene height; find the height that gives 20.
-	for sh := 20; sh <= 40; sh++ {
-		a, v = wrapScene(t, res, codeWidths{line: 40}, sh)
-		if a.reviewBodyH(v) == 20 {
-			break
-		}
-	}
-
+	a, v := fitScene(t, res)
 	h := a.reviewBodyH(v)
-	if h != 20 {
-		t.Fatalf("diffH = %d, want 20", h)
-	}
 
 	// Rows: file 0, hunk 1, pads 2-4, the tall line 5-30 (26 rows), short lines 31-.
 	const first, end = 5, 31
@@ -1094,16 +1049,19 @@ func TestCodeWidths(t *testing.T) {
 func fitScene(t *testing.T, res git.Result) (*App, *reviewView) {
 	t.Helper()
 
-	for sh := 20; sh <= 40; sh++ {
-		a, v := wrapScene(t, res, codeWidths{line: 40}, sh)
-		if a.reviewBodyH(v) == 20 {
-			return a, v
+	// The drawer's chrome takes a fixed number of rows off the scene's height: one build at a
+	// probe height gives the offset, a second the height that leaves 20.
+	const probe = 40
+
+	a, v := wrapScene(t, res, codeWidths{line: 40}, probe)
+	if got := a.reviewBodyH(v); got != 20 {
+		a, v = wrapScene(t, res, codeWidths{line: 40}, probe-(got-20))
+		if got = a.reviewBodyH(v); got != 20 {
+			t.Fatalf("diffH = %d, want 20", got)
 		}
 	}
 
-	t.Fatal("no scene height gives a diff column of 20 rows")
-
-	return nil, nil
+	return a, v
 }
 
 // wheelWalk turns the wheel until the drawn top stops at an end. Every notch

@@ -134,11 +134,14 @@ func TestDrawnLongLinesWrap(t *testing.T) {
 func TestChunkLinesAreBounded(t *testing.T) {
 	t.Parallel()
 
+	// An escape is cleaned into a tag of 8 runes, so a line of them just past the budget is
+	// longer than 8*lineBudget runes unless it is cut first.
+	long := longLines{plain: pastBudgetLines().plain, tags: strings.Repeat("\x1b", lineBudget+16)}
 	f := fileSpec("long.go", git.Modified, hunkSpec(1, 1, "",
-		"+"+longPlain(),
-		"+"+longTags(),
-		"+"+longPlain()+"\r",
-		"-"+longTags(),
+		"+"+long.plain,
+		"+"+long.tags,
+		"+"+long.plain+"\r",
+		"-"+long.tags,
 	))
 	res := git.Result{Turn: 1, Files: []git.FileDiff{f}}
 
@@ -149,7 +152,7 @@ func TestChunkLinesAreBounded(t *testing.T) {
 	}{
 		{"new side of a hunk", spanKey{file: 0, hunk: 0, side: sideNew}, fullText{}},
 		{"old side of a hunk", spanKey{file: 0, hunk: 0, side: sideOld}, fullText{}},
-		{"a whole file", spanKey{file: 0, hunk: -1, side: sideNew}, fullText{new: []string{longPlain(), longTags(), longPlain() + "\r"}}},
+		{"a whole file", spanKey{file: 0, hunk: -1, side: sideNew}, fullText{new: []string{long.plain, long.tags, long.plain + "\r"}}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			v := &reviewView{res: res, full: map[string]fullText{"long.go": tt.full}}
@@ -160,9 +163,8 @@ func TestChunkLinesAreBounded(t *testing.T) {
 			}
 
 			for i, l := range lines {
-				// A rune of text is cleaned into at most ten.
-				if n := utf8.RuneCountInString(l); n > 10*lineBudget+1 {
-					t.Errorf("line %d has %d runes, want at most %d", i, n, 10*lineBudget+1)
+				if n := utf8.RuneCountInString(l); n > 8*lineBudget+1 {
+					t.Errorf("line %d has %d runes, want at most %d", i, n, 8*lineBudget+1)
 				}
 			}
 
