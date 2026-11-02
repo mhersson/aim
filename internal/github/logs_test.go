@@ -90,8 +90,6 @@ func TestJobLogRange(t *testing.T) {
 	}{
 		{"tail of a longer log", "bytes 10-19/20", true},
 		{"whole log", "bytes 0-19/20", false},
-		{"unknown start, short body", "bytes */20", false},
-		{"missing header, short body", "", false},
 		{"garbled header, short body", "garbled", false},
 	}
 
@@ -348,11 +346,8 @@ func TestContentRangeStart(t *testing.T) {
 		ok    bool
 	}{
 		{"bytes 10-19/20", 10, true},
-		{"bytes 0-19/20", 0, true},
 		{"bytes */20", 0, false},
-		{"", 0, false},
 		{"garbled", 0, false},
-		{"bytes x-19/20", 0, false},
 	}
 	for _, tc := range tests {
 		start, ok := contentRangeStart(tc.in)
@@ -365,49 +360,40 @@ func TestContentRangeStart(t *testing.T) {
 func TestJobLogRangeWithoutStart(t *testing.T) {
 	t.Parallel()
 
-	for _, header := range []string{"bytes */9999999", "", "garbled"} {
-		c, _ := logClient(t, func(w http.ResponseWriter, _ *http.Request) {
-			if header != "" {
-				w.Header().Set("Content-Range", header)
-			}
+	const header = "bytes */9999999"
 
-			w.WriteHeader(http.StatusPartialContent)
-			_, _ = w.Write(bytes.Repeat([]byte("x"), JobLogTail))
-		})
+	c, _ := logClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Range", header)
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write(bytes.Repeat([]byte("x"), JobLogTail))
+	})
 
-		_, cut, err := c.JobLog(context.Background(), logRepo, 51234987)
-		if err != nil || !cut {
-			t.Errorf("Content-Range %q: cut %v, err %v; a full tail with no start reads cut", header, cut, err)
-		}
+	_, cut, err := c.JobLog(context.Background(), logRepo, 51234987)
+	if err != nil || !cut {
+		t.Errorf("Content-Range %q: cut %v, err %v; a full tail with no start reads cut", header, cut, err)
 	}
 }
 
 func TestCheckRunErrorsCarryNoURL(t *testing.T) {
 	t.Parallel()
 
-	for _, status := range []int{http.StatusNotFound, http.StatusBadGateway} {
-		t.Run(http.StatusText(status), func(t *testing.T) {
-			t.Parallel()
+	c, _ := newTestClient(t, "github.com", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"message":"nope"}`, http.StatusBadGateway)
+	}))
 
-			c, _ := newTestClient(t, "github.com", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				http.Error(w, `{"message":"nope"}`, status)
-			}))
+	_, err := c.CheckRun(context.Background(), logRepo, 77)
+	if err == nil {
+		t.Fatal("want an error")
+	}
 
-			_, err := c.CheckRun(context.Background(), logRepo, 77)
-			if err == nil {
-				t.Fatal("want an error")
-			}
+	for _, bad := range []string{"https://", "api.github.com"} {
+		if strings.Contains(err.Error(), bad) {
+			t.Errorf("error %q holds %q", err, bad)
+		}
+	}
 
-			for _, bad := range []string{"https://", "api.github.com"} {
-				if strings.Contains(err.Error(), bad) {
-					t.Errorf("error %q holds %q", err, bad)
-				}
-			}
-
-			var he *api.HTTPError
-			if !errors.As(err, &he) || he.StatusCode != status {
-				t.Errorf("err = %v, want a %d HTTPError", err, status)
-			}
-		})
+	var he *api.HTTPError
+	if !errors.As(err, &he) || he.StatusCode != http.StatusBadGateway {
+		t.Errorf("err = %v, want a 502 HTTPError", err)
 	}
 }

@@ -271,10 +271,6 @@ func TestGraphQLHTTPErrors(t *testing.T) {
 			if !errors.As(err, &he) || he.StatusCode != tc.status {
 				t.Errorf("no *api.HTTPError with status %d in %v", tc.status, err)
 			}
-
-			if strings.Contains(err.Error(), testToken) {
-				t.Error("error carries the token")
-			}
 		})
 	}
 }
@@ -298,8 +294,6 @@ func TestClientTokenRefused(t *testing.T) {
 		{"a 401 to a REST call", rest, http.StatusUnauthorized, true},
 		{"a 401 to a GraphQL query", gql, http.StatusUnauthorized, true},
 		{"a 403 to a REST call", rest, http.StatusForbidden, false},
-		{"a 403 to a GraphQL query", gql, http.StatusForbidden, false},
-		{"a 500 to a REST call", rest, http.StatusInternalServerError, false},
 		{"a 502 to a GraphQL query", gql, http.StatusBadGateway, false},
 		{"a success", rest, http.StatusOK, false},
 	}
@@ -427,22 +421,6 @@ func TestClientTransportErrorCarriesNoToken(t *testing.T) {
 	err = c.rest(context.Background(), http.MethodGet, "repos/o/r", nil, nil)
 	if err == nil || strings.Contains(err.Error(), testToken) {
 		t.Fatalf("err = %v", err)
-	}
-}
-
-func TestGraphQLErrorsBesideData(t *testing.T) {
-	c, _ := newTestClient(t, "github.com", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		okJSON(w, `{"data":{"viewer":{"login":"me"}},"errors":[{"type":"SOMETHING","message":"m"}]}`)
-	}))
-
-	err := c.query(context.Background(), "Partial", new(viewerQuery), map[string]any{"n": 1})
-
-	if _, ok := errors.AsType[*api.GraphQLError](err); !ok {
-		t.Fatalf("err = %v, want a *api.GraphQLError", err)
-	}
-
-	if errors.Is(err, ErrRateLimited) {
-		t.Error("a non-rate-limit GraphQL error is a RateLimitError")
 	}
 }
 

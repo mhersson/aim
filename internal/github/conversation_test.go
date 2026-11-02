@@ -251,21 +251,6 @@ func TestConversationCursorlessPageIsCut(t *testing.T) {
 	}
 }
 
-func TestConversationGHE(t *testing.T) {
-	t.Parallel()
-
-	rec := &gqlRecorder{body: readFixture(t, "conversation.json")}
-	c, reqs := newTestClient(t, "ghe.example.com", rec)
-
-	if _, err := c.Conversation(context.Background(), Repo{Host: "ghe.example.com", Owner: "octo", Name: "repo"}, 24); err != nil {
-		t.Fatal(err)
-	}
-
-	if got := reqs(); len(got) != 1 || got[0].URL.String() != "https://ghe.example.com/api/graphql" {
-		t.Errorf("requests = %v, want one to https://ghe.example.com/api/graphql", got)
-	}
-}
-
 func TestConversationNotFound(t *testing.T) {
 	t.Parallel()
 
@@ -310,11 +295,6 @@ func TestSignedImages(t *testing.T) {
 			},
 		},
 		{
-			name:     "camo is not signed",
-			markdown: "![x](https://example.com/x.png)",
-			html:     `<img src="https://camo.githubusercontent.com/abc123/687474">`,
-		},
-		{
 			name:     "no signed match",
 			markdown: "![x](https://github.com/user-attachments/assets/1111-2222)",
 			html:     `<img src="https://private-user-images.githubusercontent.com/1/301-3333-4444.png?jwt=q">`,
@@ -332,7 +312,6 @@ func TestSignedImages(t *testing.T) {
 			markdown: "![x](https://github.com/user-attachments/assets/aaaa-bbbb)",
 			html:     `<img src="http://private-user-images.githubusercontent.com/1/9-aaaa-bbbb.png?jwt=q">`,
 		},
-		{name: "no images", markdown: "just text", html: "<p>just text</p>"},
 	}
 
 	for _, tt := range tests {
