@@ -64,7 +64,12 @@ func TestWatchSetSharesARoot(t *testing.T) {
 
 	// One watcher serves both holders, so one change makes one batch.
 	s.mu.Lock()
-	entries, refs := len(s.entries), s.entries[r.Root].refs
+	entries, refs := len(s.entries), 0
+
+	if e, ok := s.entries[r.Root]; ok {
+		refs = e.refs
+	}
+
 	s.mu.Unlock()
 
 	if entries != 1 || refs != 2 {

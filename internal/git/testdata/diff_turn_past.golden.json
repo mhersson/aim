@@ -40,6 +40,38 @@
       "Untracked": false
     },
     {
+      "Added": 0,
+      "Binary": false,
+      "Hunks": [
+        {
+          "Lines": [
+            {
+              "Kind": "-",
+              "New": 0,
+              "NoNewline": false,
+              "Old": 1,
+              "Text": "b"
+            }
+          ],
+          "NewLines": 0,
+          "NewStart": 0,
+          "OldLines": 1,
+          "OldStart": 1,
+          "Section": ""
+        }
+      ],
+      "NewMode": "",
+      "NewOID": "",
+      "OldMode": "100644",
+      "OldOID": "61780798228d17af2d34fce4cfbdf35556832472",
+      "OldPath": "",
+      "Path": "b.txt",
+      "Removed": 1,
+      "Status": "deleted",
+      "Truncated": false,
+      "Untracked": false
+    },
+    {
       "Added": 1,
       "Binary": false,
       "Hunks": [
@@ -74,7 +106,7 @@
   ],
   "Head": "",
   "Live": false,
-  "New": "26fd0144baa936547a52123726876bd420895f32",
+  "New": "d5087b48179fb669bb8e305ded3438802f8b3876",
   "Old": "0fdd53e99e07e14b25d9740ebe914d0509a9995c",
   "Truncated": false,
   "Turn": 1,

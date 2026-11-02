@@ -652,6 +652,7 @@ func TestDiffTurnLiveAndPast(t *testing.T) {
 	dir := turnRepo(t)
 	writeFile(t, dir, "a.txt", "turn two\n")
 	writeFile(t, dir, "two.txt", "two\n")
+	must(t, os.Remove(filepath.Join(dir, "b.txt")))
 	snap(t, dir, sessA, SnapshotOptions{})
 	writeFile(t, dir, "a.txt", "after two\n")
 	writeFile(t, dir, "live.txt", "live\n")
@@ -679,6 +680,10 @@ func TestDiffTurnLiveAndPast(t *testing.T) {
 
 	if past.Live || past.Turn != 1 {
 		t.Errorf("past: Live=%v Turn=%d", past.Live, past.Turn)
+	}
+
+	if f := fileByPath(t, past, "b.txt"); f.Status != Deleted {
+		t.Errorf("b.txt status = %q in the past turn, want deleted", f.Status)
 	}
 
 	for _, f := range past.Files {
