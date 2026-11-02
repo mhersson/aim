@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -105,8 +106,10 @@ func TestRunErrorCarriesStderrFirstLine(t *testing.T) {
 		t.Fatal("want an error")
 	}
 
-	if !strings.Contains(err.Error(), "rev-parse") || !strings.Contains(err.Error(), "fatal:") {
-		t.Errorf("err = %q", err)
+	// The UI cuts the message at "exit status " and then ": ", so the stderr
+	// line must follow the exit status directly.
+	if !regexp.MustCompile(`^git rev-parse: exit status \d+: fatal: `).MatchString(err.Error()) {
+		t.Errorf("err = %q, want git rev-parse: exit status N: fatal: ...", err)
 	}
 }
 

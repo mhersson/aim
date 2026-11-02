@@ -427,6 +427,17 @@ func TestCreateWorktreeFailureNamesGitsReason(t *testing.T) {
 	}
 }
 
+// A base that is no ref passes AIM's own checks and fails inside git.
+func TestCreateWorktreeUnknownBaseNamesGitsReason(t *testing.T) {
+	t.Parallel()
+	_, r := seededRepo(t)
+
+	_, err := CreateWorktree(t.Context(), r, NewWorktree{Branch: "fix", Base: "nosuchref", Root: RootInside})
+	if err == nil || errors.Is(err, ErrNoBase) || !strings.Contains(err.Error(), "fatal:") {
+		t.Fatalf("err = %v, want git's fatal: line and not ErrNoBase", err)
+	}
+}
+
 func TestCreateWorktreeRefusals(t *testing.T) {
 	t.Parallel()
 	dir, r := seededRepo(t)
