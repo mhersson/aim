@@ -152,6 +152,7 @@ func (ig Integration) tail(sh string) string {
 // env is the pane environment for sh: base with the integration's entries.
 // shellRoot is true for the plain login shell, where zsh takes AIM's ZDOTDIR.
 func (ig Integration) env(base []string, sh string, shellRoot bool, extra []string) []string {
+	// SHELL is always set: the tail's exec "$SHELL" needs it when it was unset.
 	if ig.Dir == "" {
 		return append(append(dropKeys(base, "SHELL"), "SHELL="+sh), extra...)
 	}

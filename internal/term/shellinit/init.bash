@@ -9,10 +9,14 @@ fi
 set +o posix
 # Posix mode changed these at startup; an exported value is the user's own.
 shopt -u inherit_errexit 2>/dev/null
-if (( BASH_VERSINFO[0] * 100 + BASH_VERSINFO[1] >= 404 )); then
-  [[ ${HISTFILE@a} == *x* ]] || HISTFILE=~/.bash_history
-  [[ ${MAILCHECK@a} == *x* ]] || MAILCHECK=60
-fi
+# The attribute word of declare -p ("-x", "--") is cut before the value, so a value cannot match.
+__aim_a=$(declare -p HISTFILE 2>/dev/null)
+__aim_a=${__aim_a#declare }
+[[ ${__aim_a%% *} == *x* ]] || HISTFILE=~/.bash_history
+__aim_a=$(declare -p MAILCHECK 2>/dev/null)
+__aim_a=${__aim_a#declare }
+[[ ${__aim_a%% *} == *x* ]] || MAILCHECK=60
+unset __aim_a
 
 if [ -r /etc/profile ]; then
   . /etc/profile

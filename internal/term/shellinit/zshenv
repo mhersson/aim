@@ -32,6 +32,6 @@ _aim_shell_init() {
   fi
 }
 
-if [[ -r ${ZDOTDIR:-$HOME}/.zshenv ]]; then
-  builtin source ${ZDOTDIR:-$HOME}/.zshenv
+if [[ -r "${ZDOTDIR:-$HOME}/.zshenv" ]]; then
+  builtin source "${ZDOTDIR:-$HOME}/.zshenv"
 fi
