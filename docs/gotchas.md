@@ -226,6 +226,19 @@ what to do about it. Skim it before your first commit each session.
   an alias named `claude`, the alias expands inside the second form's
   definition.
 
+- Debian and Ubuntu `/etc/profile` overwrite PATH for a login bash, which is
+  why bash gets a `claude` function and AIM's `init.bash` puts `bin` first
+  again after the login files.
+- Apple's `/bin/bash` 3.2 ignores `ENV`, so it gets the wrapper on PATH only
+  (plain `-l`, plain tail).
+- `bash --posix` turns on `inherit_errexit`, sets `HISTFILE=~/.sh_history` and
+  `MAILCHECK=600`, and `set +o posix` does not undo them. `init.bash` restores
+  bash's defaults unless the value was exported.
+- `claude() {` is a syntax error while an alias `claude` exists, so the
+  function is written `function claude {` in bash too.
+- A hashed `claude` outlives its file: the function drops the hash entry
+  before it falls back to `command claude`.
+
 ## Git and worktrees
 
 - Tests run with their package dir as the working directory, so in a checkout

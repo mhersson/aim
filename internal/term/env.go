@@ -30,7 +30,12 @@ func PaneEnv(base []string) []string {
 func ShellCommand(env func(string) string, ig Integration, dir string, extraEnv []string) Command {
 	sh := shellPath(env)
 
-	return Command{Argv: []string{sh, "-l"}, Dir: dir, Env: ig.env(PaneEnv(os.Environ()), sh, true, extraEnv)}
+	argv := []string{sh, "-l"}
+	if ig.bash(sh) {
+		argv = []string{sh, "--posix", "-l"}
+	}
+
+	return Command{Argv: argv, Dir: dir, Env: ig.env(PaneEnv(os.Environ()), sh, true, extraEnv)}
 }
 
 // AgentCommand runs argv in an interactive login shell, then stays in a shell

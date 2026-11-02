@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -18,6 +19,7 @@ type script struct{ embedded, path string }
 func scripts() []script {
 	return []script{
 		{"shellinit/zshenv", "zsh/.zshenv"},
+		{"shellinit/init.bash", "bash/init.bash"},
 	}
 }
 
@@ -106,8 +108,16 @@ func WriteIntegration(dir, wrapper string) (err error) {
 // zshTail is the agent and editor script's tail for a zsh with the integration.
 const zshTail = `; if [ -r "$AIM_SHELL_DIR/zsh/.zshenv" ]; then export ZDOTDIR="$AIM_SHELL_DIR/zsh"; fi; exec "$SHELL" -l`
 
+// bashTail is the tail for a bash that reads ENV: the next shell is a posix-mode
+// one that reads AIM's init.bash.
+const bashTail = `; if [ -r "$AIM_SHELL_DIR/bash/init.bash" ]; then export ENV="$AIM_SHELL_DIR/bash/init.bash"; exec "$SHELL" --posix -l; fi; exec "$SHELL" -l`
+
 // tail is the script's tail that leaves the pane in a login shell.
 func (ig Integration) tail(sh string) string {
+	if ig.bash(sh) {
+		return bashTail
+	}
+
 	if ig.Dir != "" && ig.Zsh && filepath.Base(sh) == "zsh" {
 		return zshTail
 	}
@@ -122,9 +132,9 @@ func (ig Integration) env(base []string, sh string, shellRoot bool, extra []stri
 		return append(append(dropKeys(base, "SHELL"), "SHELL="+sh), extra...)
 	}
 
-	var path, zdot string
+	var path, zdot, inheritedEnv string
 
-	var hasZdot bool
+	var hasZdot, hasInhEnv bool
 
 	for _, kv := range base {
 		switch k, v, _ := strings.Cut(kv, "="); k {
@@ -132,10 +142,13 @@ func (ig Integration) env(base []string, sh string, shellRoot bool, extra []stri
 			path = v
 		case "ZDOTDIR":
 			zdot, hasZdot = v, true
+		case "ENV":
+			inheritedEnv, hasInhEnv = v, true
 		}
 	}
 
 	zsh := ig.Zsh && filepath.Base(sh) == "zsh"
+	bash := ig.bash(sh)
 	drop := []string{"SHELL"}
 
 	if path != "" {
@@ -144,6 +157,10 @@ func (ig Integration) env(base []string, sh string, shellRoot bool, extra []stri
 
 	if zsh && shellRoot {
 		drop = append(drop, "ZDOTDIR")
+	}
+
+	if bash && shellRoot {
+		drop = append(drop, "ENV")
 	}
 
 	out := append(dropKeys(base, drop...), "SHELL="+sh)
@@ -162,5 +179,21 @@ func (ig Integration) env(base []string, sh string, shellRoot bool, extra []stri
 		out = append(out, "ZDOTDIR="+filepath.Join(ig.Dir, "zsh"))
 	}
 
+	if bash && hasInhEnv {
+		out = append(out, "AIM_ENV="+inheritedEnv)
+	}
+
+	if bash && shellRoot {
+		out = append(out, "ENV="+filepath.Join(ig.Dir, "bash", "init.bash"))
+	}
+
 	return append(out, extra...)
+}
+
+// bashReadsENV is false for Apple's /bin/bash 3.2, which ignores ENV.
+func bashReadsENV(goos, sh string) bool { return goos != "darwin" || sh != "/bin/bash" }
+
+// bash is whether sh is a bash that takes the integration through ENV.
+func (ig Integration) bash(sh string) bool {
+	return ig.Dir != "" && filepath.Base(sh) == "bash" && bashReadsENV(runtime.GOOS, sh)
 }
