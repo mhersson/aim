@@ -78,6 +78,10 @@ func (a *App) checksBox(lk look, w, room int) []string {
 	switch {
 	case checks == nil:
 		body = []string{row(on(ui.Muted).Render(noticeChecksLoading))}
+	case checks.Err != "":
+		for _, l := range wrapRows(fmt.Sprintf(noticeChecksUnread, checks.Err), cw, max(room-2, 1)) {
+			body = append(body, row(on(ui.Muted).Render(l)))
+		}
 	case len(rows) == 0:
 		head := checks.HeadOID[:min(shortOIDLen, len(checks.HeadOID))]
 		body = []string{row(on(ui.Muted).Render(fmt.Sprintf(noticeChecksNone, printable(head))))}

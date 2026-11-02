@@ -299,7 +299,9 @@ the followed place back, and one after a session change records nothing.
   GraphQL has no conditional requests and a `304` costs no rate limit. Polls
   come every 10 s while a shown pull request has pending checks, else every
   60 s; a rate limit waits for its reset, other errors back off to 5 min. A
-  failed poll keeps the last good data on show.
+  failed poll keeps the last good data on show. Focused checks that cannot be
+  read fail only themselves: the poll keeps its pull requests, and a rate limit
+  there still waits for its reset.
 - **Approve and merge are pinned to the reviewed head.** Both send `Result.Head`
   of the diff the drawer loaded, never the poll's head (`internal/ui/reviewpr.go`),
   and every route to them (drawer, `leader g m`, the list) loads that diff

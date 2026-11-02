@@ -65,7 +65,7 @@ The keys are in [Keys](keys.md#pr-list): `j` and `k` move; `enter` shows the dif
 
 ## Checks
 
-To see the checks of the drawer's pull request, press `c` in the drawer, or `c` on a list row. The overlay lists each check with how long it took, failed first, then running, passed and skipped; before they arrive it says `loading checks…`, and with none `no checks on <sha7>`.
+To see the checks of the drawer's pull request, press `c` in the drawer, or `c` on a list row. The overlay lists each check with how long it took, failed first, then running, passed and skipped; before they arrive it says `loading checks…`, and with none `no checks on <sha7>`. When GitHub refuses them, as it does a token without access to checks, it says `could not read the checks: <reason>`; the pull requests keep updating, and each poll and `r` try again.
 
 The keys are in [Keys](keys.md#checks-overlay). `j` and `k` select, `l` opens a log or summary page, `O` opens the check's page in the browser (`no page for that check` when it has none), `r` refreshes and `esc` closes.
 

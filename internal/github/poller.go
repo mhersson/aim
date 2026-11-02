@@ -29,6 +29,7 @@ type FocusedChecks struct {
 	Number  int
 	HeadOID string
 	Checks  []Check
+	Err     error // the checks could not be read; Checks is empty
 }
 
 // Snapshot is the result of one poll of one repository.
@@ -243,7 +244,7 @@ func (p *Poller) run(ctx context.Context, rp *repoPoller) {
 		now := p.opts.now()
 		wait = p.nextWait(snap, pending, &failures, now)
 
-		if errors.Is(snap.Err, ErrRateLimited) {
+		if _, limited := rateLimitOf(snap); limited {
 			notBefore = now.Add(wait)
 		} else {
 			notBefore = time.Time{}
@@ -279,29 +280,41 @@ func (p *Poller) sleepUntil(ctx context.Context, t time.Time) bool {
 // nextWait is how long to wait after a poll: the error backoff, the rate
 // limit reset, or the cadence for the checks' state.
 func (p *Poller) nextWait(s Snapshot, pending bool, failures *int, now time.Time) time.Duration {
-	var rl *RateLimitError
+	if s.Err == nil {
+		*failures = 0
+	}
+
+	rl, limited := rateLimitOf(s)
 
 	switch {
-	case s.Err == nil:
-		*failures = 0
-
-		if pending {
-			return p.opts.Fast
-		}
-
-		return p.opts.Slow
-	case errors.As(s.Err, &rl):
+	case limited:
 		return min(max(rl.Reset.Sub(now), p.opts.Fast), maxRateLimitWait)
-	default:
-		*failures++
-
-		wait := p.opts.Fast
-		for i := 1; i < *failures && wait < p.opts.MaxBackoff; i++ {
-			wait *= 2
-		}
-
-		return min(wait, p.opts.MaxBackoff)
+	case s.Err == nil && pending:
+		return p.opts.Fast
+	case s.Err == nil:
+		return p.opts.Slow
 	}
+
+	*failures++
+
+	wait := p.opts.Fast
+	for i := 1; i < *failures && wait < p.opts.MaxBackoff; i++ {
+		wait *= 2
+	}
+
+	return min(wait, p.opts.MaxBackoff)
+}
+
+// rateLimitOf is the rate limit a poll met: its own, else the focused checks'.
+func rateLimitOf(s Snapshot) (*RateLimitError, bool) {
+	switch {
+	case s.Err != nil:
+		return errors.AsType[*RateLimitError](s.Err)
+	case s.Focused != nil:
+		return errors.AsType[*RateLimitError](s.Focused.Err)
+	}
+
+	return nil, false
 }
 
 // poll fetches one repository; pending reports whether a visible or focused
@@ -334,12 +347,10 @@ func (p *Poller) poll(ctx context.Context, rp *repoPoller) (snap Snapshot, pendi
 			continue
 		}
 
+		// Checks the token may not read fail only themselves, so the pull
+		// requests stay fresh.
 		checks, err := c.Checks(ctx, rp.repo, pr.HeadOID)
-		if err != nil {
-			return fail(err)
-		}
-
-		focused = &FocusedChecks{Number: pr.Number, HeadOID: pr.HeadOID, Checks: checks}
+		focused = &FocusedChecks{Number: pr.Number, HeadOID: pr.HeadOID, Checks: checks, Err: err}
 
 		break
 	}
