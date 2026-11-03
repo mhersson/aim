@@ -20,7 +20,9 @@ var _ proc = (*term.Process)(nil)
 
 var t0 = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
-const testDeadline = 5 * time.Second
+// hangGuard bounds an event wait; it expires only when the test is already failing,
+// so it is long enough for a stalled CI runner.
+const hangGuard = 30 * time.Second
 
 // fakeProc feeds the pane from an io.Pipe and records what the pane writes.
 type fakeProc struct {
@@ -146,7 +148,7 @@ func next(t *testing.T, p *pane) tea.Msg {
 	select {
 	case m := <-ch:
 		return m
-	case <-time.After(testDeadline):
+	case <-time.After(hangGuard):
 		t.Fatal("wait did not return")
 
 		return nil
@@ -174,7 +176,7 @@ func feedAndWait(t *testing.T, p *pane, fp *fakeProc, s string) {
 func eventually(t *testing.T, what string, cond func() bool) {
 	t.Helper()
 
-	deadline := time.Now().Add(testDeadline)
+	deadline := time.Now().Add(hangGuard)
 
 	for !cond() {
 		if time.Now().After(deadline) {

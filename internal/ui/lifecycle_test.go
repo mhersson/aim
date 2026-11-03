@@ -81,7 +81,7 @@ func (s *starts) proc(i int) *fakeProc {
 func closeApp(t *testing.T, a *App) {
 	t.Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), hangGuard)
 	defer cancel()
 
 	if err := a.Close(ctx); err != nil {
@@ -995,7 +995,7 @@ func TestAppCloseNoLeaks(t *testing.T) {
 		t.Fatalf("started %d processes, want 3", len(pids))
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), hangGuard)
 	defer cancel()
 
 	if err := r.Close(ctx); err != nil {
@@ -1012,7 +1012,7 @@ func TestAppCloseNoLeaks(t *testing.T) {
 		t.Errorf("second Close() error = %v", err)
 	}
 
-	eventually2(t, 2*time.Second, "goroutines to return to baseline", func() bool { return runtime.NumGoroutine() <= base })
+	eventually2(t, hangGuard, "goroutines to return to baseline", func() bool { return runtime.NumGoroutine() <= base })
 }
 
 // eventually2 is eventually with its own limit.
@@ -1091,8 +1091,8 @@ func (p *pump) stopWith(t *testing.T, a *App) {
 
 		select {
 		case <-ended:
-		case <-time.After(5 * time.Second):
-			t.Error("the pump's commands still ran 5s after the app closed")
+		case <-time.After(hangGuard):
+			t.Error("the pump's commands still ran after the app closed")
 		}
 	})
 }
@@ -1149,7 +1149,7 @@ func TestFloodingPaneQuits(t *testing.T) {
 	pm.run(chord(r.App, 'v'))
 	// p2 (cat) is focused; the flood runs in p1.
 
-	pumped, stop := context.WithTimeout(context.Background(), 5*time.Second)
+	pumped, stop := context.WithTimeout(context.Background(), hangGuard)
 	defer stop()
 
 	floods := 0
@@ -1186,7 +1186,7 @@ func TestFloodingPaneQuits(t *testing.T) {
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), hangGuard)
 	defer cancel()
 
 	if err := r.Close(ctx); err != nil {
@@ -1208,7 +1208,7 @@ func TestOrphanedExitClosesPane(t *testing.T) {
 	pid := r.pidList()[0]
 	p := r.panes["p1"]
 
-	deadline := time.After(2 * time.Second)
+	deadline := time.After(hangGuard)
 	done := make(chan tea.Msg, 1)
 
 	go func() {
@@ -1226,14 +1226,14 @@ func TestOrphanedExitClosesPane(t *testing.T) {
 	case m := <-done:
 		r.Update(m)
 	case <-deadline:
-		t.Fatal("the pane did not report its exit within 2s")
+		t.Fatal("the pane did not report its exit within the hang guard")
 	}
 
 	if got := len(r.store.State().Panes); got != 0 || len(r.panes) != 0 {
 		t.Errorf("panes after the exit: state %d, registry %d", got, len(r.panes))
 	}
 
-	eventually2(t, 3*time.Second, "the orphan to be killed", func() bool { return gone(pid) })
+	eventually2(t, hangGuard, "the orphan to be killed", func() bool { return gone(pid) })
 }
 
 // Bubble Tea reports shifted leader keys with their shifted character
@@ -1489,7 +1489,7 @@ func TestCloseBoundsLoaderWait(t *testing.T) {
 		if !errors.Is(err, context.Canceled) {
 			t.Errorf("Close() error = %v, want the context's", err)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(hangGuard):
 		t.Fatal("Close did not return while a loader worker was stuck")
 	}
 }

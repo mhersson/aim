@@ -386,7 +386,7 @@ func TestApproveWithoutActions(t *testing.T) {
 func feedUntil[T tea.Msg](t *testing.T, r *drawerRig) T {
 	t.Helper()
 
-	deadline := time.After(10 * time.Second)
+	deadline := time.After(hangGuard)
 
 	for {
 		select {

@@ -103,7 +103,7 @@ func TestHostTicks(t *testing.T) {
 		t.Errorf("ticks = %v, want user, system and idle ticks", first)
 	}
 
-	deadline := time.After(10 * time.Second)
+	deadline := time.After(hangGuard)
 
 	for {
 		cur, err := read()

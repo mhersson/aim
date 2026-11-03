@@ -435,7 +435,7 @@ func TestWaitEvent(t *testing.T) {
 			if m != nil {
 				t.Errorf("message = %#v, want none", m)
 			}
-		case <-time.After(5 * time.Second):
+		case <-time.After(hangGuard):
 			t.Fatal("waitEvent kept waiting after the context ended")
 		}
 	})

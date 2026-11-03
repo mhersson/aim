@@ -484,7 +484,7 @@ func TestResumeRestartsAgentWhoseClaudeNeverAppeared(t *testing.T) {
 		t.Errorf("pane = %+v, want an agent with the session cleared", m)
 	}
 
-	eventually2(t, 5*time.Second, "the old process to close", func() bool { return isClosed(r.st.proc(0)) })
+	eventually2(t, hangGuard, "the old process to close", func() bool { return isClosed(r.st.proc(0)) })
 
 	// The old pane's late exit must not close the new one.
 	r.a.Update(paneExitedMsg{id: "p1", p: old})

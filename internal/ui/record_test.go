@@ -60,11 +60,11 @@ func TestRecordFlag(t *testing.T) {
 	// The read loop ends once the child's output is drained.
 	select {
 	case <-pn.exited:
-	case <-time.After(testDeadline):
+	case <-time.After(hangGuard):
 		t.Fatal("pane output did not end")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
+	ctx, cancel := context.WithTimeout(context.Background(), hangGuard)
 	defer cancel()
 
 	if err := app.Close(ctx); err != nil {
@@ -249,7 +249,7 @@ func TestRecordTapDropsWhenBehind(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(testDeadline):
+	case <-time.After(hangGuard):
 		close(bw.release)
 		t.Fatal("enqueue blocked behind a stalled writer")
 	}

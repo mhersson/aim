@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/charmbracelet/x/exp/teatest/v2"
 
@@ -61,7 +60,7 @@ func TestShellFlow(t *testing.T) {
 	waitFor := func(want string) {
 		t.Helper()
 		teatest.WaitFor(t, tm.Output(), func(out []byte) bool { return bytes.Contains(out, []byte(want)) },
-			teatest.WithDuration(5*time.Second))
+			teatest.WithDuration(hangGuard))
 	}
 
 	// The quotes keep the typed line from containing the output.
@@ -80,9 +79,9 @@ func TestShellFlow(t *testing.T) {
 	tm.Send(keyRune('x'))
 	tm.Send(keyLeader)
 	tm.Send(keyRune('q'))
-	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+	tm.WaitFinished(t, teatest.WithFinalTimeout(hangGuard))
 
-	final := tm.FinalModel(t, teatest.WithFinalTimeout(3*time.Second)).(*App)
+	final := tm.FinalModel(t, teatest.WithFinalTimeout(hangGuard)).(*App)
 	if got := len(final.store.State().Panes); got != 1 {
 		t.Errorf("panes after split and close = %d, want 1", got)
 	}
@@ -148,7 +147,7 @@ func TestTabFlow(t *testing.T) {
 	waitFor := func(want string) {
 		t.Helper()
 		teatest.WaitFor(t, tm.Output(), func(out []byte) bool { return bytes.Contains(out, []byte(want)) },
-			teatest.WithDuration(5*time.Second))
+			teatest.WithDuration(hangGuard))
 	}
 
 	tm.Send(keyLeader)
@@ -171,9 +170,9 @@ func TestTabFlow(t *testing.T) {
 	tm.Send(keyRune('X'))
 	tm.Send(keyLeader)
 	tm.Send(keyRune('q'))
-	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+	tm.WaitFinished(t, teatest.WithFinalTimeout(hangGuard))
 
-	final := tm.FinalModel(t, teatest.WithFinalTimeout(3*time.Second)).(*App)
+	final := tm.FinalModel(t, teatest.WithFinalTimeout(hangGuard)).(*App)
 
 	if s := final.store.State(); len(s.Tabs) != 1 || len(s.Panes) != 1 || s.Tab().ID != "t1" {
 		t.Errorf("tabs = %d, panes = %d after closing the second tab, want 1 and 1", len(s.Tabs), len(s.Panes))

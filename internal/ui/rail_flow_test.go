@@ -92,7 +92,7 @@ func (f *flowApp) sent() string {
 func (f *flowApp) waitSent(t *testing.T, want string) string {
 	t.Helper()
 
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(hangGuard)
 	for !strings.Contains(f.sent(), want) && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
@@ -947,7 +947,7 @@ func TestRailFlow(t *testing.T) {
 	tm.Send(keyLeader)
 	tm.Send(keyRune('a'))
 	teatest.WaitFor(t, tm.Output(), func(out []byte) bool { return bytes.Contains(out, []byte("Agents")) },
-		teatest.WithDuration(3*time.Second))
+		teatest.WithDuration(hangGuard))
 
 	tm.Send(keyRune('/'))
 	tm.Send(keyRune('z'))
@@ -960,7 +960,7 @@ func TestRailFlow(t *testing.T) {
 		t.Fatalf("Quit() error = %v", err)
 	}
 
-	final := tm.FinalModel(t, teatest.WithFinalTimeout(3*time.Second)).(*App)
+	final := tm.FinalModel(t, teatest.WithFinalTimeout(hangGuard)).(*App)
 	if !final.rail.focused || final.rail.query != "" || !final.store.State().Rail {
 		t.Errorf("final: focused = %v, query = %q, open = %v, want the rail open, focused again, with no filter", final.rail.focused, final.rail.query, final.store.State().Rail)
 	}

@@ -899,7 +899,7 @@ func TestPollerAndResolverEndWithTheApp(t *testing.T) {
 			if m != nil {
 				t.Errorf("waitPRs returned %v after the app closed, want nothing", m)
 			}
-		case <-time.After(5 * time.Second):
+		case <-time.After(hangGuard):
 			t.Fatal("waitPRs still waits after the app closed")
 		}
 	})
@@ -955,7 +955,7 @@ func TestPollerAndResolverEndWithTheApp(t *testing.T) {
 			if got, ok := m.(prResolvedMsg); !ok || !errors.Is(got.err, context.Canceled) {
 				t.Errorf("the resolution returned %+v, want a cancelled one", m)
 			}
-		case <-time.After(5 * time.Second):
+		case <-time.After(hangGuard):
 			t.Fatal("the resolution outlived the app's context")
 		}
 	})
@@ -982,7 +982,7 @@ func TestPollerAndResolverEndWithTheApp(t *testing.T) {
 			if got, ok := m.(prBranchMsg); !ok || !errors.Is(got.err, context.Canceled) {
 				t.Errorf("the lookup returned %+v, want a cancelled one", m)
 			}
-		case <-time.After(5 * time.Second):
+		case <-time.After(hangGuard):
 			t.Fatal("the lookup outlived the app's context")
 		}
 	})

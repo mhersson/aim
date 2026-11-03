@@ -437,7 +437,7 @@ func TestLoaderClose(t *testing.T) {
 	recv(t, l)
 	l.close()
 
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(hangGuard)
 	for runtime.NumGoroutine() > before && time.Now().Before(deadline) {
 		runtime.Gosched()
 	}

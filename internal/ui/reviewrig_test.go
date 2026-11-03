@@ -174,7 +174,7 @@ func startDrawerRig(t *testing.T, opts ...func(*Options)) *drawerRig {
 	set0 := func(o *Options) { o.GitTempDir, o.IndexCache = tmp, cache }
 
 	a, _, clk := kindApp(t, append([]func(*Options){set0}, opts...)...)
-	r := &drawerRig{App: a, ticks: &heldTicks{}, clk: clk, pm: newPump(t), fake: fake, wait: watchWait}
+	r := &drawerRig{App: a, ticks: &heldTicks{}, clk: clk, pm: newPump(t), fake: fake, wait: hangGuard}
 	r.pm.stopWith(t, a)
 	a.tick = r.ticks.tick
 

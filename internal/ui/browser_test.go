@@ -155,7 +155,7 @@ func TestOpenURLUsesTheAppContext(t *testing.T) {
 
 	go func() { done <- a.openURL("https://github.com/o/r")() }()
 
-	deadline := time.After(10 * time.Second)
+	deadline := time.After(hangGuard)
 
 	for len(f.urls()) == 0 {
 		select {

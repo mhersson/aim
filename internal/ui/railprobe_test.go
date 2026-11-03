@@ -562,7 +562,7 @@ func TestRailProbesRunFourAtATime(t *testing.T) {
 
 	release()
 
-	if got := drain(t, msgs, 20*time.Second); got != 10 {
+	if got := drain(t, msgs, hangGuard); got != 10 {
 		t.Fatalf("%d of 10 probes finished after the release", got)
 	}
 
@@ -600,7 +600,7 @@ func TestRailClosingFreesWaitingProbes(t *testing.T) {
 
 	r.railClosed()
 
-	if got := drain(t, msgs, 5*time.Second); got != 10 {
+	if got := drain(t, msgs, hangGuard); got != 10 {
 		t.Fatalf("%d of 10 probes returned after the rail closed; waiting probes were not cancelled", got)
 	}
 }

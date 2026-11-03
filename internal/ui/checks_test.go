@@ -392,7 +392,7 @@ func TestBrowserKey(t *testing.T) {
 func (f *fakeOpen) opened(t *testing.T, n int) []string {
 	t.Helper()
 
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(hangGuard)
 
 	for len(f.urls()) < n {
 		if time.Now().After(deadline) {

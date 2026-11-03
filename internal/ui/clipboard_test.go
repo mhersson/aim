@@ -273,7 +273,7 @@ func TestClipboardNativeTimeout(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(5 * time.Second):
+	case <-time.After(hangGuard):
 		t.Fatal("native write Cmd did not return after the timeout")
 	}
 

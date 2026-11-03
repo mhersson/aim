@@ -832,7 +832,7 @@ func runBench(cfg benchConfig) (benchResult, error) {
 	}
 
 	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), hangGuard)
 		defer cancel()
 
 		_ = app.Close(ctx)

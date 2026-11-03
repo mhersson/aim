@@ -755,7 +755,7 @@ func TestHLRunnerStartsOneBatchAndStopsWithTheApp(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(5 * time.Second):
+	case <-time.After(hangGuard):
 		t.Fatal("the runner blocked after the app ended")
 	}
 

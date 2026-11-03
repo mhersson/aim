@@ -28,7 +28,7 @@ type keysProbe struct {
 func (p *keysProbe) wait(t *testing.T, what string, cond func(keysSnap) bool) {
 	t.Helper()
 
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(hangGuard)
 
 	for {
 		p.mu.Lock()
@@ -121,7 +121,7 @@ func TestLeaderDOpensFocusesClosesAndRetargets(t *testing.T) {
 		t.Fatalf("Quit() error = %v", err)
 	}
 
-	tm.FinalModel(t, teatest.WithFinalTimeout(5*time.Second))
+	tm.FinalModel(t, teatest.WithFinalTimeout(hangGuard))
 }
 
 func TestFocusSkipsCoveredPanes(t *testing.T) {
