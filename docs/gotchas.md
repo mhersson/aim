@@ -287,10 +287,11 @@ what to do about it. Skim it before your first commit each session.
 ## CI
 
 - A pull request that changes only `README.md`, `AGENTS.md`,
-  `THIRD_PARTY.md`, `LICENSE` or files under `docs/` skips the Go jobs, and
-  `static-checks` still runs the case check and `make scan`. Any other file,
-  or a `.go` file anywhere, brings the Go jobs back. A push to `main` that
-  changes only those files runs no CI at all.
+  `THIRD_PARTY.md`, `LICENSE` or files under `docs/` skips the Go jobs:
+  `doc-tests` runs only the doc tests (`make doc-tests`), and `static-checks`
+  still runs the case check and `make scan`. Any other file, or a `.go` file
+  anywhere, brings the Go jobs back. A push to `main` that changes only those
+  files runs no CI at all.
 - CI pins golangci-lint to v2.15.0. Use the same version locally: another one
   can format or lint differently and fail `fmt-check` or `lint` in CI only.
 - `release.yaml` calls `ci.yaml`, and inside a called workflow the event is the

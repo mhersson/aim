@@ -1,4 +1,4 @@
-.PHONY: help build build-darwin run test test-changed test-race vet lint fmt fmt-check tidy-check scan scan-commits check-fast check-fast-full check install clean
+.PHONY: help build build-darwin run test test-changed test-race doc-tests vet lint fmt fmt-check tidy-check scan scan-commits check-fast check-fast-full check install clean
 
 help:
 	@echo "Targets:"
@@ -9,6 +9,7 @@ help:
 	@echo "  test         run the tests"
 	@echo "  test-changed run the tests of the changed packages; TEST_PKGS=... overrides"
 	@echo "  test-race    run the tests with the race detector"
+	@echo "  doc-tests    run the doc tests: TestKeysPage, TestGuideLinks, TestConfigExample and TestReadmeKeys"
 	@echo "  vet          go vet, with and without the bench and live tags"
 	@echo "  lint         golangci-lint run"
 	@echo "  fmt          format the code with golangci-lint fmt"
@@ -46,6 +47,9 @@ test-changed:
 
 test-race:
 	CGO_ENABLED=1 go test -race ./...
+
+doc-tests:
+	go test -run '^(TestKeysPage|TestGuideLinks|TestConfigExample|TestReadmeKeys)$$' ./internal/ui ./cmd/aim
 
 vet:
 	go vet ./...
@@ -108,7 +112,7 @@ check-fast:
 		$(MAKE) --no-print-directory check-fast-full; \
 	else \
 		echo "check-fast: no code changed; running only the scan and the doc tests"; \
-		$(MAKE) --no-print-directory scan && go test -run '^(TestKeysPage|TestGuideLinks|TestConfigExample|TestReadmeKeys)$$' ./internal/ui ./cmd/aim; \
+		$(MAKE) --no-print-directory scan doc-tests; \
 	fi
 
 check-fast-full: build fmt-check vet lint test-changed scan
