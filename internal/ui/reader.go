@@ -113,7 +113,6 @@ const noticeConvNoFile = "the conversation has no file to open"
 
 // planEdit opens the shown file in the editor at the cursor's source line in a
 // new shell pane and closes the overlay.
-
 func (a *App) planEdit() tea.Cmd {
 	pv := a.plan
 	line, path, root := pv.shown().sourceLine(), pv.shownPath(), pv.root
