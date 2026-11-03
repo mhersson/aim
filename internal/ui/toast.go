@@ -33,6 +33,18 @@ func (l toastLevel) colour(ui theme.UI) theme.Hex {
 	return ui.Warning
 }
 
+// icon is the level's glyph, drawn when icons are on.
+func (l toastLevel) icon() string {
+	switch l {
+	case levelSuccess:
+		return iconSuccess
+	case levelError:
+		return iconAlert
+	}
+
+	return iconInfo
+}
+
 // toastMark is the level a notice text was raised at.
 type toastMark struct {
 	text  string
@@ -102,7 +114,7 @@ func overlayToast(f *frameLayers, base string, width, height int, notice string,
 
 	mid := tone.Render("│") + st.toastText.Render(" ")
 	if icons {
-		mid += tone.Render(iconAlert) + st.toastText.Render(" ")
+		mid += tone.Render(level.icon()) + st.toastText.Render(" ")
 	}
 
 	mid += st.toastText.Render(text+" ") + tone.Render("│")
