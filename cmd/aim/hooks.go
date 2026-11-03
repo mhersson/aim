@@ -287,14 +287,24 @@ func wrapperTarget(arg0, exe string, lookPath func(string) (string, error)) stri
 // placeBinary puts the binary src at dst: a hard link when link succeeds, else
 // a copy renamed into place. A link fails across filesystems, on an old file at
 // dst and, on Linux with fs.protected_hardlinks, for a file the user does not own.
+// A placed file that cannot run, as on a noexec mount, is removed.
 func placeBinary(src, dst string, link func(oldname, newname string) error) error {
-	linkErr := link(src, dst)
-	if linkErr == nil {
-		return nil
+	// link(2) may link a symlink itself, and macOS's os.Executable() can be one.
+	target, err := filepath.EvalSymlinks(src)
+	if err != nil {
+		return err
 	}
 
-	if err := copyBinary(src, dst); err != nil {
-		return fmt.Errorf("%w; copy: %w", linkErr, err)
+	if linkErr := link(target, dst); linkErr != nil {
+		if err := copyBinary(target, dst); err != nil {
+			return fmt.Errorf("%w; copy: %w", linkErr, err)
+		}
+	}
+
+	if err := unix.Access(dst, unix.X_OK); err != nil {
+		_ = os.Remove(dst)
+
+		return fmt.Errorf("%s cannot run: %w", dst, err)
 	}
 
 	return nil

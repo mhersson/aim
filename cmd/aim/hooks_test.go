@@ -477,13 +477,18 @@ func TestPlaceBinary(t *testing.T) {
 	refuse := func(string, string) error { return errors.New("invalid cross-device link") }
 
 	tests := []struct {
-		name  string
-		link  func(oldname, newname string) error
-		old   bool // a file is already at the destination
-		owned bool // the result must be a copy of its own with mode 0755
+		name    string
+		link    func(oldname, newname string) error
+		mode    os.FileMode // the binary's
+		viaLink bool        // the binary is named by a relative symlink, as on macOS
+		old     bool        // a file is already at the destination
+		owned   bool        // the result must be a copy of its own with mode 0755
+		fails   bool        // the placed file cannot run, so nothing stays placed
 	}{
-		{"link refused", refuse, false, true},
-		{"old file in the way", os.Link, true, false},
+		{"link refused", refuse, 0o600, false, false, true, false},
+		{"old file in the way", os.Link, 0o755, false, true, false, false},
+		{"symlinked binary", os.Link, 0o755, true, false, false, false},
+		{"placed file cannot run", os.Link, 0o644, false, false, false, true},
 	}
 
 	for _, tt := range tests {
@@ -491,11 +496,30 @@ func TestPlaceBinary(t *testing.T) {
 			t.Parallel()
 
 			dir := t.TempDir()
-			src := filepath.Join(dir, "aim")
-			dst := filepath.Join(dir, "4242-aim")
+			file := filepath.Join(dir, "real", "aim")
+			runDir := filepath.Join(dir, "state", "run")
+			dst := filepath.Join(runDir, "4242-aim")
 
-			if err := os.WriteFile(src, []byte("the binary"), 0o600); err != nil {
+			for _, d := range []string{filepath.Dir(file), runDir} {
+				if err := os.MkdirAll(d, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			if err := os.WriteFile(file, []byte("the binary"), tt.mode); err != nil {
 				t.Fatal(err)
+			}
+
+			src := file
+			if tt.viaLink {
+				src = filepath.Join(dir, "bin", "aim")
+				if err := os.MkdirAll(filepath.Dir(src), 0o700); err != nil {
+					t.Fatal(err)
+				}
+
+				if err := os.Symlink(filepath.Join("..", "real", "aim"), src); err != nil {
+					t.Fatal(err)
+				}
 			}
 
 			if tt.old {
@@ -504,17 +528,40 @@ func TestPlaceBinary(t *testing.T) {
 				}
 			}
 
-			if err := placeBinary(src, dst, tt.link); err != nil {
+			err := placeBinary(src, dst, tt.link)
+
+			entries, rerr := os.ReadDir(runDir)
+			if want := map[bool]int{false: 1, true: 0}[tt.fails]; rerr != nil || len(entries) != want {
+				t.Errorf("run dir = %v, %v, want %d entries", entries, rerr, want)
+			}
+
+			if tt.fails {
+				if err == nil {
+					t.Fatal("placeBinary = nil, want an error for a file that cannot run")
+				}
+
+				return
+			}
+
+			if err != nil {
 				t.Fatalf("placeBinary: %v", err)
 			}
 
-			got, err := os.ReadFile(dst)
-			if err != nil || string(got) != "the binary" {
-				t.Fatalf("destination = %q, %v, want the source's content", got, err)
+			fi, err := os.Lstat(dst)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if !fi.Mode().IsRegular() {
+				t.Fatalf("destination mode = %v, want a regular file", fi.Mode())
+			}
+
+			if got, err := os.ReadFile(dst); err != nil || string(got) != "the binary" {
+				t.Fatalf("destination = %q, %v, want the binary's content", got, err)
 			}
 
 			if tt.owned {
-				a, errA := os.Stat(src)
+				a, errA := os.Stat(file)
 
 				b, errB := os.Stat(dst)
 				if errA != nil || errB != nil {
@@ -524,11 +571,6 @@ func TestPlaceBinary(t *testing.T) {
 				if os.SameFile(a, b) || b.Mode().Perm() != 0o755 {
 					t.Errorf("destination: same file = %v, mode %v, want a copy with mode 0755", os.SameFile(a, b), b.Mode().Perm())
 				}
-			}
-
-			entries, err := os.ReadDir(dir)
-			if err != nil || len(entries) != 2 {
-				t.Errorf("dir = %v, %v, want only the source and the destination", entries, err)
 			}
 		})
 	}

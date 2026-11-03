@@ -159,15 +159,17 @@ same name `setupHooks` writes.
 
 **The instance's binary.** The hooks, the status line and the wrapper run
 `<state dir>/run/<pid>-aim`, which `setupHooks` places and `Stop` removes: a
-hard link to `os.Executable()`, else a copy renamed into place (`placeBinary`).
-An upgrade replaces the installed binary under a running instance: on Linux
-`os.Executable()` is the resolved path, such as a Homebrew Cellar dir that
-`brew upgrade` deletes, and on macOS it is the symlink, which moves to the new
-version. With its own binary an instance's hooks keep running, on its own
-version. A link fails across filesystems and, under Linux's
-`fs.protected_hardlinks`, for a binary the user does not own, so the copy
-covers both. When both fail, a warning is logged and the hooks and the wrapper
-keep the paths above; AIM still starts with hooks.
+hard link to the file `os.Executable()` names, symlinks resolved, else a copy
+renamed into place (`placeBinary`). An upgrade replaces the installed binary
+under a running instance: on Linux `os.Executable()` is the resolved path, such
+as a Homebrew Cellar dir that `brew upgrade` deletes, and on macOS it is the
+symlink, which moves to the new version. With its own binary an instance's
+hooks keep running, on its own version. A link fails across filesystems and,
+under Linux's `fs.protected_hardlinks`, for a binary the user does not own, so
+the copy covers both. When both fail, or the placed file cannot run (a
+`noexec` mount), a warning is logged, the hooks and the status line run
+`os.Executable()` and the wrapper links as its bullet says; AIM still starts
+with hooks.
 
 **The subcommands.** Claude runs `aim hook claude-code` per event and
 `aim statusline` for its status line (`cmd/aim/hook.go`, `statusline.go`). Each
