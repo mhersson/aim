@@ -410,6 +410,8 @@ func (j reviewJob) run(ctx context.Context) reviewLoadedMsg {
 	case err != nil:
 		msg.err = err
 	default:
+		// Tree order, before anything indexes by file. Update sorts its own result, so prev's order is free.
+		res.Files = inTreeOrder(res.Files)
 		msg.res = res
 		msg.info.hidden = hiddenFlags(res.Files)
 		j.marked(ctx, &msg)

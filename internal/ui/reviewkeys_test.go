@@ -475,7 +475,7 @@ func TestTreeKeys(t *testing.T) {
 			for _, step := range []struct {
 				key  rune
 				want string
-			}{{'j', "z.txt"}, {'j', "z.txt"}, {'k', "a.txt"}, {'k', "dir/b.txt"}, {'k', "dir/sub/c.txt"}, {'k', "dir/sub/c.txt"}} {
+			}{{'k', "dir/sub/c.txt"}, {'j', "dir/b.txt"}, {'j', "a.txt"}, {'j', "z.txt"}, {'j', "z.txt"}} {
 				r.keys(keyRune(step.key))
 
 				if got := v.res.Files[v.treeSel].Path; got != step.want {
@@ -491,8 +491,8 @@ func TestTreeKeys(t *testing.T) {
 
 			r.keys(keyEnter)
 
-			if r.drawer.tree || !r.drawer.focused || !treeIsOpen(r.App) || fileAtCursor(v) != "dir/sub/c.txt" || v.rows[v.cursor].kind != rowFile {
-				t.Errorf("enter: tree has the keyboard = %v, drawer = %v, tree open = %v, cursor on %s (kind %d), want the diff on dir/sub/c.txt's header and the tree open",
+			if r.drawer.tree || !r.drawer.focused || !treeIsOpen(r.App) || fileAtCursor(v) != "z.txt" || v.rows[v.cursor].kind != rowFile {
+				t.Errorf("enter: tree has the keyboard = %v, drawer = %v, tree open = %v, cursor on %s (kind %d), want the diff on z.txt's header and the tree open",
 					r.drawer.tree, r.drawer.focused, treeIsOpen(r.App), fileAtCursor(v), v.rows[v.cursor].kind)
 			}
 
@@ -505,6 +505,36 @@ func TestTreeKeys(t *testing.T) {
 					r.drawer.tree, treeIsOpen(r.App), cursor, v.cursor)
 			}
 		})
+	}
+}
+
+func TestDiffInTreeOrder(t *testing.T) {
+	t.Parallel()
+
+	r, _ := fakeKeysRig(t)
+	v := r.opened(t)
+
+	// The keys repository's path order is a.txt, dir/b.txt, dir/sub/c.txt, z.txt.
+	want := []string{"dir/sub/c.txt", "dir/b.txt", "a.txt", "z.txt"}
+
+	var headers []string
+
+	for _, row := range v.rows {
+		if row.kind == rowFile {
+			headers = append(headers, v.res.Files[row.file].Path)
+		}
+	}
+
+	if !slices.Equal(headers, want) {
+		t.Errorf("the diff's files are %v, want %v", headers, want)
+	}
+
+	for _, path := range want[1:] {
+		r.keys(keyRune('}'))
+
+		if got := fileAtCursor(v); got != path || v.rows[v.cursor].kind != rowFile {
+			t.Fatalf("} lands on %s (row kind %d), want %s's header", got, v.rows[v.cursor].kind, path)
+		}
 	}
 }
 

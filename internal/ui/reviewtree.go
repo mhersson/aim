@@ -60,6 +60,29 @@ func treeItems(files []git.FileDiff) []treeItem {
 	return appendTree(nil, root, 0)
 }
 
+// inTreeOrder returns a new slice of the files in the order the tree lists
+// them, so the diff and the tree cannot drift apart. A file the tree cannot
+// place keeps its relative place after the rest.
+func inTreeOrder(files []git.FileDiff) []git.FileDiff {
+	out := make([]git.FileDiff, 0, len(files))
+	placed := make([]bool, len(files))
+
+	for _, it := range treeItems(files) {
+		if !it.dir {
+			out = append(out, files[it.file])
+			placed[it.file] = true
+		}
+	}
+
+	for i, f := range files {
+		if !placed[i] {
+			out = append(out, f)
+		}
+	}
+
+	return out
+}
+
 func appendTree(out []treeItem, n *treeNode, depth int) []treeItem {
 	for _, name := range slices.Sorted(maps.Keys(n.dirs)) {
 		c := n.dirs[name]

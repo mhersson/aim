@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -65,6 +66,42 @@ func TestTreeItemsJoinChains(t *testing.T) {
 		if g.dir != w.dir || g.name != w.name || g.depth != w.depth || g.file != w.file {
 			t.Errorf("item %d = %+v, want %+v", i, g, w)
 		}
+	}
+}
+
+func TestInTreeOrder(t *testing.T) {
+	t.Parallel()
+
+	renamed := paths("z.go", "a.go")
+	renamed[0].Status, renamed[0].OldPath = git.Renamed, "dir/old.go"
+
+	tests := []struct {
+		name  string
+		files []git.FileDiff
+		want  []string
+	}{
+		{
+			"folders before files at each level, by name",
+			paths("README.md", "b.go", "cmd/main.go", "internal/b.go", "internal/z/x.go"),
+			[]string{"cmd/main.go", "internal/z/x.go", "internal/b.go", "README.md", "b.go"},
+		},
+		{"a folder before a file of its name", paths("a", "a/b"), []string{"a/b", "a"}},
+		{"a renamed file under its new path", renamed, []string{"a.go", "z.go"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var got []string
+			for _, f := range inTreeOrder(tt.files) {
+				got = append(got, f.Path)
+			}
+
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("inTreeOrder = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
