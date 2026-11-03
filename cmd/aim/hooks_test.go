@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -212,6 +213,10 @@ func TestStartHooksSweepsDeadInstances(t *testing.T) {
 		strconv.Itoa(live) + "-index-a1b2.lock": true,
 		"abc-index-a1b2":                        true,
 		strconv.Itoa(dead) + "-indexed":         true,
+		strconv.Itoa(dead) + "-aim":             false,
+		strconv.Itoa(dead) + "-aim-0123":        false,
+		strconv.Itoa(live) + "-aim":             true,
+		strconv.Itoa(dead) + "-aimed":           true,
 	}
 	for name := range files {
 		if err := os.WriteFile(filepath.Join(runDir, name), nil, 0o600); err != nil {
@@ -262,11 +267,6 @@ func TestStartHooksSweepsDeadInstances(t *testing.T) {
 func TestStartHooksWritesTheShellIntegration(t *testing.T) {
 	t.Parallel()
 
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	t.Run("on", func(t *testing.T) {
 		stateDir := shortDir(t)
 
@@ -293,8 +293,8 @@ func TestStartHooksWritesTheShellIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if want := wrapperTarget(os.Args[0], exe, exec.LookPath); got != want {
-			t.Errorf("bin/claude -> %q, want %q", got, want)
+		if want := filepath.Join(stateDir, "run", strconv.Itoa(os.Getpid())+"-aim"); got != want {
+			t.Errorf("bin/claude -> %q, want the instance's binary %q", got, want)
 		}
 
 		h.Stop()
@@ -340,8 +340,10 @@ func TestStartHooksWritesTheShellIntegration(t *testing.T) {
 			t.Fatalf("runtime = %+v, want hooks off", h)
 		}
 
-		if exists(filepath.Join(runDir, pid+"-claude.json")) || exists(filepath.Join(runDir, pid+"-shell")) {
-			t.Error("a failed setup left the settings file or the integration dir behind")
+		for _, name := range []string{pid + "-claude.json", pid + "-shell", pid + "-aim"} {
+			if exists(filepath.Join(runDir, name)) {
+				t.Errorf("a failed setup left %s behind", name)
+			}
 		}
 	})
 
@@ -365,7 +367,234 @@ func TestStartHooksWritesTheShellIntegration(t *testing.T) {
 		if h.Shell != (term.Integration{}) || exists(filepath.Join(runDir, strconv.Itoa(os.Getpid())+"-shell")) {
 			t.Error("the integration dir was written for a failed setup")
 		}
+
+		if exists(filepath.Join(runDir, strconv.Itoa(os.Getpid())+"-aim")) {
+			t.Error("a failed setup left the instance's binary behind")
+		}
 	})
+}
+
+func TestStartHooksRunsHooksFromTheInstanceBinary(t *testing.T) {
+	t.Parallel()
+
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stateDir := shortDir(t)
+
+	h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces(), false)
+	defer h.Stop()
+
+	if h.Notice != "" {
+		t.Fatalf("notice = %q, want none", h.Notice)
+	}
+
+	bin := filepath.Join(stateDir, "run", strconv.Itoa(os.Getpid())+"-aim")
+	sameBinary(t, bin, exe)
+
+	hooks, status := hookCommands(t, h.Settings)
+	for _, c := range hooks {
+		if c != bin {
+			t.Errorf("hook command = %q, want %q", c, bin)
+		}
+	}
+
+	if want := "'" + bin + "' statusline"; status != want {
+		t.Errorf("status line = %q, want %q", status, want)
+	}
+
+	h.Stop()
+
+	if exists(bin) {
+		t.Error("Stop left the instance's binary behind")
+	}
+}
+
+func TestStartHooksKeepsTheInstalledPathsWhenTheBinaryCannotBePlaced(t *testing.T) {
+	t.Parallel()
+
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stateDir := shortDir(t)
+	runDir := filepath.Join(stateDir, "run")
+	pid := strconv.Itoa(os.Getpid())
+	bin := filepath.Join(runDir, pid+"-aim")
+
+	// A non-empty dir where the binary belongs fails both the link and the copy's rename.
+	if err := os.MkdirAll(filepath.Join(bin, "x"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	var log bytes.Buffer
+
+	h := startHooks(slog.New(slog.NewTextHandler(&log, nil)), stateDir, "", testWatches(t), testPlaces(), true)
+	defer h.Stop()
+
+	if h.Notice != "" {
+		t.Fatalf("notice = %q, want hooks on", h.Notice)
+	}
+
+	hooks, status := hookCommands(t, h.Settings)
+	for _, c := range hooks {
+		if c != exe {
+			t.Errorf("hook command = %q, want the running binary %q", c, exe)
+		}
+	}
+
+	if want := "'" + exe + "' statusline"; status != want {
+		t.Errorf("status line = %q, want %q", status, want)
+	}
+
+	got, err := os.Readlink(filepath.Join(h.Shell.Dir, "bin", "claude"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want := wrapperTarget(os.Args[0], exe, exec.LookPath); got != want {
+		t.Errorf("bin/claude -> %q, want %q", got, want)
+	}
+
+	h.Stop()
+
+	if s := log.String(); !strings.Contains(s, "level=WARN") || !strings.Contains(s, "path="+bin) {
+		t.Errorf("log = %q, want a warning that names %s", s, bin)
+	}
+
+	temps, err := filepath.Glob(bin + "-*")
+	if err != nil || len(temps) > 0 {
+		t.Errorf("temporary copies left = %v, %v, want none", temps, err)
+	}
+}
+
+func TestPlaceBinary(t *testing.T) {
+	t.Parallel()
+
+	refuse := func(string, string) error { return errors.New("invalid cross-device link") }
+
+	tests := []struct {
+		name  string
+		link  func(oldname, newname string) error
+		old   bool // a file is already at the destination
+		owned bool // the result must be a copy of its own with mode 0755
+	}{
+		{"link refused", refuse, false, true},
+		{"old file in the way", os.Link, true, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			src := filepath.Join(dir, "aim")
+			dst := filepath.Join(dir, "4242-aim")
+
+			if err := os.WriteFile(src, []byte("the binary"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			if tt.old {
+				if err := os.WriteFile(dst, []byte("an older binary"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			if err := placeBinary(src, dst, tt.link); err != nil {
+				t.Fatalf("placeBinary: %v", err)
+			}
+
+			got, err := os.ReadFile(dst)
+			if err != nil || string(got) != "the binary" {
+				t.Fatalf("destination = %q, %v, want the source's content", got, err)
+			}
+
+			if tt.owned {
+				a, errA := os.Stat(src)
+
+				b, errB := os.Stat(dst)
+				if errA != nil || errB != nil {
+					t.Fatal(errA, errB)
+				}
+
+				if os.SameFile(a, b) || b.Mode().Perm() != 0o755 {
+					t.Errorf("destination: same file = %v, mode %v, want a copy with mode 0755", os.SameFile(a, b), b.Mode().Perm())
+				}
+			}
+
+			entries, err := os.ReadDir(dir)
+			if err != nil || len(entries) != 2 {
+				t.Errorf("dir = %v, %v, want only the source and the destination", entries, err)
+			}
+		})
+	}
+}
+
+// sameBinary fails the test unless path is exe or a byte-for-byte copy of it.
+func sameBinary(t *testing.T, path, exe string) {
+	t.Helper()
+
+	a, errA := os.Stat(path)
+
+	b, errB := os.Stat(exe)
+	if errA != nil || errB != nil {
+		t.Fatalf("stat: %v, %v", errA, errB)
+	}
+
+	if os.SameFile(a, b) {
+		return
+	}
+
+	got, errA := os.ReadFile(path) //nolint:gosec // G304: a test's own temp file
+
+	want, errB := os.ReadFile(exe)
+	if errA != nil || errB != nil || !bytes.Equal(got, want) {
+		t.Fatalf("%s is neither %s nor a copy of it (%v, %v)", path, exe, errA, errB)
+	}
+}
+
+// hookCommands returns every hook's command in the settings file at path and
+// the status line's command.
+func hookCommands(t *testing.T, path string) (hooks []string, status string) {
+	t.Helper()
+
+	data, err := os.ReadFile(path) //nolint:gosec // G304: a test's own temp file
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	type handler struct {
+		Command string `json:"command"`
+	}
+
+	var s struct {
+		Hooks map[string][]struct {
+			Hooks []handler `json:"hooks"`
+		} `json:"hooks"`
+		StatusLine handler `json:"statusLine"`
+	}
+
+	if err := json.Unmarshal(data, &s); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, groups := range s.Hooks {
+		for _, g := range groups {
+			for _, h := range g.Hooks {
+				hooks = append(hooks, h.Command)
+			}
+		}
+	}
+
+	if len(hooks) == 0 {
+		t.Fatalf("settings = %s, want hooks", data)
+	}
+
+	return hooks, s.StatusLine.Command
 }
 
 func TestWrapperTarget(t *testing.T) {

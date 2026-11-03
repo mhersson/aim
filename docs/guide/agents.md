@@ -180,3 +180,5 @@ Only one AIM saves. A second one started while the first runs starts fresh, neve
 ### Where it lives
 
 The state is in `$XDG_STATE_HOME/aim` (`~/.local/state/aim` when unset or relative) on Linux and `~/Library/Application Support/aim` on macOS. `state.json` is the layout and `aim.log` is the log; a second AIM writes `aim-<pid>.log` ([Config](config.md) says how long each log stays).
+
+`run/` holds each running AIM's hook files and a link to or a copy of its binary, which its agents' hooks run. So upgrading AIM while agents run keeps their hooks working, on the version that AIM started with; restart AIM to move them to the new one.
