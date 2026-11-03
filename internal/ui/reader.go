@@ -130,10 +130,11 @@ func (a *App) planEdit() tea.Cmd {
 func (a *App) planRefresh() tea.Cmd {
 	pv := a.plan
 	if len(pv.pages) > 0 || pv.file != nil {
+		pics := a.pictures.reloadAll(docPictures{reg: a.pictures, root: pv.root}, pv.shown().layout())
 		cmd := a.mdCheck(pv)
 		pv.askSeq = pv.reloadSeq
 
-		return cmd
+		return tea.Batch(pics, cmd)
 	}
 
 	return a.reloadPlan(pv.plan, true)
@@ -238,7 +239,7 @@ func readerCommands() []command {
 		}),
 		cmd("reader.refresh", "read again", func(a *App, _ *mdView, conv bool) tea.Cmd {
 			if conv {
-				return a.readConversation(a.conv)
+				return a.readConversation(a.conv, true)
 			}
 
 			return a.planRefresh()

@@ -235,7 +235,7 @@ func (a *App) reviewReload() tea.Cmd {
 		return a.reloadPage(tab.ID, v, true)
 	}
 
-	a.retryPictures(v)
+	pics := a.reloadPictures(v)
 
 	// A drawer still opening for a pull request shows it but no longer acts on it.
 	if n := a.drawer.prNext; n != nil {
@@ -246,24 +246,28 @@ func (a *App) reviewReload() tea.Cmd {
 		// r overtakes a pending pull request ask, as a newer ask does.
 		a.drawer.prSeq++
 
-		return a.refreshViews(tab.Review.Pane, nil)
+		return tea.Batch(pics, a.refreshViews(tab.Review.Pane, nil))
 	}
 
 	if repo, ok := repoOfKey(v.pr.Repo); ok && a.prs.src != nil {
 		a.prs.src.Refresh(repo)
 	}
 
-	return a.askPR(tab.ID, &prWant{repo: v.pr.Repo, number: v.pr.Number, root: v.pr.Root}, v.prBase, thenNothing)
+	return tea.Batch(pics, a.askPR(tab.ID, &prWant{repo: v.pr.Repo, number: v.pr.Number, root: v.pr.Root}, v.prBase, thenNothing))
 }
 
-// retryPictures forgets the failed images of the rendered files v shows, so
-// they load again.
-func (a *App) retryPictures(v *reviewView) {
+// reloadPictures forgets the pictures of the rendered files v shows, so they
+// load again, and returns the command that deletes what the terminal held.
+func (a *App) reloadPictures(v *reviewView) tea.Cmd {
+	var cmds []tea.Cmd
+
 	for path := range v.mdOn {
 		if f := v.mdFiles[path]; f != nil {
-			a.pictures.retry(docPictures{reg: a.pictures, root: v.root}, f.doc.layout(max(v.mdW, 1), v.mdIcons))
+			cmds = append(cmds, a.pictures.reloadAll(docPictures{reg: a.pictures, root: v.root}, f.doc.layout(max(v.mdW, 1), v.mdIcons)))
 		}
 	}
+
+	return tea.Batch(cmds...)
 }
 
 // showPR shows the pull request of the active tab's drawer place in its drawer

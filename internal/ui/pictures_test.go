@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"errors"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/colorprofile"
@@ -343,11 +346,14 @@ func TestPictureRetry(t *testing.T) {
 		t.Error("retry did not move gen")
 	}
 
-	if got := p.size(dp, ghURL, 96); !got.Loading || len(jobs.take()) != 1 {
-		t.Errorf("after retry = %+v", got)
+	got := p.size(dp, ghURL, 96)
+
+	again := jobs.take()
+	if !got.Loading || len(again) != 1 {
+		t.Fatalf("after retry = %+v", got)
 	}
 
-	p.done(pictureDoneMsg{job: pictureJob{key: key}, err: errors.New("boom again")})
+	p.done(pictureDoneMsg{job: again[0], err: errors.New("boom again")})
 
 	if n := lb.count(); n != 2 {
 		t.Errorf("%d log records, want 2", n)
@@ -854,5 +860,167 @@ func TestPictureKeptRender(t *testing.T) {
 
 	if got := p.size(dp, "/repo/a.png", 96); got.ID != job.id || len(jobs.take()) != 0 {
 		t.Errorf("later size gave %+v", got)
+	}
+}
+
+func TestPictureSignedKeepsAcrossReads(t *testing.T) {
+	t.Parallel()
+
+	const (
+		src    = "https://github.com/user-attachments/assets/aaaa"
+		bare   = "https://private-user-images.githubusercontent.com/1/9-aaaa.png"
+		first  = bare + "?jwt=one"
+		second = bare + "?jwt=two"
+	)
+
+	p, jobs, _ := onPictures(t)
+	dp := func(signed string) docPictures {
+		return docPictures{reg: p, host: "github.com", alias: map[string]string{src: signed}}
+	}
+
+	p.size(dp(first), src, 96)
+
+	j := jobs.take()
+	if len(j) != 1 || j[0].key.src != bare || j[0].url != first {
+		t.Fatalf("first job = %+v, want key %q fetching %q", j, bare, first)
+	}
+
+	p.done(pictureDoneMsg{job: j[0], w: 100, h: 100})
+
+	if got := p.size(dp(second), src, 96); got.ID == 0 || len(jobs.jobs) != 0 {
+		t.Fatalf("a re-read with a new token = %+v with %d jobs, want the kept picture", got, len(jobs.jobs))
+	}
+
+	p.shown([]uint32{p.size(dp(second), src, 96).ID})
+
+	r := jobs.take()
+	if len(r) != 1 || !r[0].render || r[0].url != second {
+		t.Errorf("render jobs = %+v, want one fetching the newest URL", r)
+	}
+}
+
+func TestPictureReloadAll(t *testing.T) {
+	t.Parallel()
+
+	p, jobs, _ := onPictures(t)
+	dp := docPictures{reg: p, root: "/repo", host: "github.com"}
+	lay := md.Layout{Images: []md.Image{{Src: ghURL}}}
+
+	id, cmd := rendered(t, p, jobs, dp, ghURL)
+	if cmd == nil {
+		t.Fatal("render gave no escape")
+	}
+
+	p.size(dp, ghURL, 96)
+	stale := pictureJob{key: pictureKey{ghURL, "github.com"}}
+
+	del := p.reloadAll(dp, lay)
+	if del == nil || !strings.Contains(rawOf(t, del), kitty.Delete(id)) {
+		t.Errorf("reloadAll did not delete image %d", id)
+	}
+
+	if got := p.size(dp, ghURL, 96); !got.Loading {
+		t.Fatalf("after reloadAll = %+v, want loading", got)
+	}
+
+	j := jobs.take()
+	if len(j) != 1 || j[0].render || !j[0].fresh {
+		t.Fatalf("jobs after reloadAll = %+v, want one fresh info job", j)
+	}
+
+	p.done(pictureDoneMsg{job: stale, w: 5, h: 5})
+
+	if got := p.size(dp, ghURL, 96); !got.Loading {
+		t.Errorf("an answer of the forgotten entry was taken: %+v", got)
+	}
+
+	p.done(pictureDoneMsg{job: j[0], w: 100, h: 100})
+
+	if got := p.size(dp, ghURL, 96); got.ID == 0 {
+		t.Errorf("the reloaded entry never settled: %+v", got)
+	}
+}
+
+func TestPictureStaleLocal(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		change func(t *testing.T, path string)
+		stale  bool
+	}{
+		{"unchanged", func(*testing.T, string) {}, false},
+		{"rewritten larger", func(t *testing.T, path string) {
+			t.Helper()
+
+			if err := os.WriteFile(path, []byte("longer than before"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}, true},
+		{"same size, new mtime", func(t *testing.T, path string) {
+			t.Helper()
+
+			if err := os.Chtimes(path, time.Unix(1, 0), time.Unix(1, 0)); err != nil {
+				t.Fatal(err)
+			}
+		}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			path := filepath.Join(root, "a.png")
+
+			if err := os.WriteFile(path, []byte("12345678"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			fi, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			p, jobs, _ := onPictures(t)
+			dp := docPictures{reg: p, root: root}
+			lay := md.Layout{Images: []md.Image{{Src: path}}}
+
+			p.size(dp, path, 96)
+
+			j := jobs.take()
+			if len(j) != 1 {
+				t.Fatalf("jobs = %+v", j)
+			}
+
+			p.done(pictureDoneMsg{job: j[0], w: 100, h: 100, stamp: pictureStamp{fi.Size(), fi.ModTime().UnixNano()}})
+			tt.change(t, path)
+
+			cmd := p.retry(dp, lay)
+
+			var msg tea.Msg
+			if cmd != nil {
+				msg = cmd()
+			}
+
+			sm, ok := msg.(pictureStaleMsg)
+			if ok != tt.stale {
+				t.Fatalf("stale answer = %#v, want stale %v", msg, tt.stale)
+			}
+
+			if !tt.stale {
+				if got := p.size(dp, path, 96); got.ID == 0 {
+					t.Errorf("an unchanged file's picture was forgotten: %+v", got)
+				}
+
+				return
+			}
+
+			p.onStale(sm)
+
+			if got := p.size(dp, path, 96); !got.Loading || len(jobs.take()) != 1 {
+				t.Errorf("a changed file did not load again: %+v", got)
+			}
+		})
 	}
 }

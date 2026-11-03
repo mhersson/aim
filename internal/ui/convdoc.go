@@ -987,3 +987,16 @@ func (d *convDoc) lineOf(id string, offset int) int {
 
 	return min(d.starts[k]+max(offset, 0), max(end-1, d.starts[k]))
 }
+
+// allPictures is the pictures of d with the signed URLs of every body's images,
+// for keying the images of the whole document.
+func (d *convDoc) allPictures() docPictures {
+	p := d.pics
+	p.alias = map[string]string{}
+
+	for _, b := range d.bodies {
+		maps.Copy(p.alias, b.images)
+	}
+
+	return p
+}

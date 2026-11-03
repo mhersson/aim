@@ -322,9 +322,9 @@ func (a *App) reloadPage(tab core.TabID, v *reviewView, notice bool) tea.Cmd {
 	v.reloadSeq++
 	v.reloadNotice = notice
 
-	a.pictures.retry(docPictures{reg: a.pictures, root: v.root}, p.view.layout())
+	pics := a.pictures.reloadAll(docPictures{reg: a.pictures, root: v.root}, p.view.layout())
 
-	return a.readPageCmd(tab, v, p.path, v.reloadSeq, true, nil)
+	return tea.Batch(pics, a.readPageCmd(tab, v, p.path, v.reloadSeq, true, nil))
 }
 
 // checkPage reads the shown page's file and parses it again only when its
@@ -338,8 +338,9 @@ func (a *App) checkPage(tab core.TabID, v *reviewView) tea.Cmd {
 	v.reloadSeq++
 	v.reloadNotice = false
 	sum := p.sum
+	pics := a.pictures.stale(docPictures{reg: a.pictures, root: v.root}, p.view.layout())
 
-	return a.readPageCmd(tab, v, p.path, v.reloadSeq, true, &sum)
+	return tea.Batch(pics, a.readPageCmd(tab, v, p.path, v.reloadSeq, true, &sum))
 }
 
 // pageBatch checks the pages of a watcher batch's worktree: the shown one now,

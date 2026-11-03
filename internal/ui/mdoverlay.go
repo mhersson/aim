@@ -260,7 +260,7 @@ func (a *App) mdCheck(pv *planView) tea.Cmd {
 // mdBatch re-checks the shown doc when a file overlay is open on root.
 func (a *App) mdBatch(root string) tea.Cmd {
 	if pv := a.plan; pv != nil && pv.file != nil && pv.root == root {
-		return a.mdCheck(pv)
+		return tea.Batch(a.pictures.stale(docPictures{reg: a.pictures, root: pv.root}, pv.shown().layout()), a.mdCheck(pv))
 	}
 
 	return nil

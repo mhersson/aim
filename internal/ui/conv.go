@@ -69,7 +69,7 @@ func (a *App) openConversation(repo string, number int, pr core.PRInfo) tea.Cmd 
 	a.prs.dirty = true
 	a.sizeConv()
 
-	return a.readConversation(a.conv)
+	return a.readConversation(a.conv, false)
 }
 
 // closeConv closes the overlay and drops any read still on its way.
@@ -84,7 +84,8 @@ func (a *App) closeConv() {
 
 // readConversation reads and parses the conversation of v off the update loop,
 // under the timeout and the app's context. An answer of an older read is stale.
-func (a *App) readConversation(v *convView) tea.Cmd {
+// again says the operator asked for it, so every picture loads again.
+func (a *App) readConversation(v *convView, again bool) tea.Cmd {
 	v.seq++
 	v.loading, v.err = true, ""
 
@@ -100,8 +101,15 @@ func (a *App) readConversation(v *convView) tea.Cmd {
 		v.readAt = info.UpdatedAt
 	}
 
+	var pics tea.Cmd
+
 	if v.doc != nil {
-		a.pictures.retry(docPictures{reg: a.pictures, host: repo.Host}, v.view.layout())
+		d := v.doc.allPictures()
+		if again {
+			pics = a.pictures.reloadAll(d, v.view.layout())
+		} else {
+			pics = a.pictures.retry(d, v.view.layout())
+		}
 	}
 
 	var (
@@ -113,7 +121,7 @@ func (a *App) readConversation(v *convView) tea.Cmd {
 		tok, hl     = a.drawer.hl.HighlightLang, a.drawer.hl.Highlight
 	)
 
-	return func() tea.Msg {
+	read := func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parent, convReadTimeout)
 		defer cancel()
 
@@ -124,6 +132,8 @@ func (a *App) readConversation(v *convView) tea.Cmd {
 
 		return convReadMsg{view: v, seq: seq, doc: parseConversation(c, base, tok, hl, now), pr: prInfoOf(c.PR)}
 	}
+
+	return tea.Batch(pics, read)
 }
 
 // convFailed reports a failed read: in the notice when a conversation is on
@@ -214,7 +224,7 @@ func (a *App) convPoll(st core.State, repo string) tea.Cmd {
 	}
 
 	if info, ok := prInfoByNumber(st, repo, v.number); ok && info.UpdatedAt.After(v.readAt) {
-		return a.readConversation(v)
+		return a.readConversation(v, false)
 	}
 
 	return nil
