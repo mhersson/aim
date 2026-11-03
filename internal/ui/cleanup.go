@@ -28,6 +28,11 @@ const (
 
 const noticeNothingToClean = "nothing to clean up"
 
+// noticeNoCleanupWorktree answers a clean-up command when no worktree has branch.
+func noticeNoCleanupWorktree(branch string) string {
+	return "no worktree has " + printable(branch)
+}
+
 // cleanupFound is the worktree that has a merged branch checked out and what a
 // cleanup would remove with it. managed is false for the main checkout and for a
 // worktree outside AIM's roots: those are found but never removed, nor is
@@ -350,6 +355,14 @@ func (a *App) onCleanupFound(msg cleanupFoundMsg) tea.Cmd { //nolint:unparam // 
 
 		return nil
 	case !msg.ok:
+		switch {
+		case msg.from != fromCommand:
+		case msg.pr.HeadBranch == "":
+			a.notice = noticeNothingToClean
+		default:
+			a.notice = noticeNoCleanupWorktree(msg.pr.HeadBranch)
+		}
+
 		return nil
 	}
 

@@ -1191,3 +1191,21 @@ func TestConversationReadingText(t *testing.T) {
 		})
 	}
 }
+
+func TestConversationEditSaysWhy(t *testing.T) {
+	t.Parallel()
+
+	a, _ := convApp(t, true, 80, 24)
+	convOpen(t, a)
+
+	a.notice = ""
+	press(a, keyRune('e'))
+
+	if a.notice != noticeConvNoFile {
+		t.Errorf("notice = %q, want %q", a.notice, noticeConvNoFile)
+	}
+
+	if a.conv == nil {
+		t.Error("e closed the conversation")
+	}
+}
