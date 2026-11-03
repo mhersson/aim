@@ -2,7 +2,7 @@
 
 # AIM
 
-**A terminal multiplexer for coding agents: watch them work, review their diffs, merge their pull requests**
+**A terminal multiplexer for coding agents: review while they code, merge when they're done**
 
 <a href="https://github.com/mhersson/aim/actions/workflows/ci.yaml"><img src="https://github.com/mhersson/aim/actions/workflows/ci.yaml/badge.svg?branch=main" alt="CI"></a>
 <a href="https://github.com/mhersson/aim/releases/latest"><img src="https://img.shields.io/github/v/release/mhersson/aim" alt="Latest release"></a>
@@ -10,7 +10,7 @@
 
 </div>
 
-AIM (Agents In-flight Multiplexer) hosts Claude Code agents in live terminal panes, with each agent's diff, its pull request and the CI checks beside it. You watch the agents work, review what they change while they change it, and push, open, check and merge their pull requests without leaving the terminal.
+AIM (Agents In-flight Multiplexer) hosts Claude Code agents in live terminal panes, with each agent's diff, its pull request and the CI checks beside it. You review what the agents change while they change it, and push, open, check and merge their pull requests without leaving the terminal.
 
 <div align="center">
 
