@@ -11,9 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -457,83 +455,5 @@ func TestLoaderClose(t *testing.T) {
 
 	if queued != 0 {
 		t.Fatalf("add after close queued %d jobs", queued)
-	}
-}
-
-// urlFetcher records the URLs it was asked for.
-type urlFetcher struct {
-	data []byte
-	mu   sync.Mutex
-	urls []string
-}
-
-func (f *urlFetcher) Fetch(_ context.Context, u, _ string, _ int64) ([]byte, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	f.urls = append(f.urls, u)
-
-	return f.data, nil
-}
-
-func (f *urlFetcher) got() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	return slices.Clone(f.urls)
-}
-
-func TestLoaderRemoteFetchesURLAndFresh(t *testing.T) {
-	t.Parallel()
-
-	const (
-		bare   = "https://private-user-images.githubusercontent.com/1/9-a.png"
-		signed = bare + "?jwt=one"
-	)
-
-	f := &urlFetcher{data: testPNG(t, 8, 6)}
-
-	l := newPictureLoader(t.Context(), f, t.TempDir(), nil)
-	t.Cleanup(l.close)
-
-	job := pictureJob{key: pictureKey{src: bare}, url: signed}
-
-	for _, fresh := range []bool{false, true} {
-		job.fresh = fresh
-
-		l.add(job)
-
-		if m := recv(t, l); m.err != nil {
-			t.Fatalf("answer = %+v", m)
-		}
-	}
-
-	if got := f.got(); len(got) != 2 || got[0] != signed || got[1] != signed {
-		t.Errorf("fetched %v, want the signed URL twice (the second skipping the caches)", got)
-	}
-}
-
-func TestLoaderLocalStamp(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	src := filepath.Join(root, "shot.png")
-
-	if err := os.WriteFile(src, testPNG(t, 10, 5), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	fi, err := os.Stat(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	l := newPictureLoader(t.Context(), nil, "", nil)
-	t.Cleanup(l.close)
-
-	l.add(localJob(root, src))
-
-	if m := recv(t, l); m.err != nil || m.stamp != (pictureStamp{fi.Size(), fi.ModTime().UnixNano()}) {
-		t.Errorf("answer = %+v, want the file's stamp", m)
 	}
 }

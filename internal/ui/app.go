@@ -581,8 +581,6 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
-	case pictureStaleMsg:
-		return a, a.pictures.onStale(msg)
 	case pictureDoneMsg:
 		cmd := a.pictures.done(msg)
 

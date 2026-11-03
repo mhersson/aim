@@ -49,28 +49,6 @@ func ImageHost(rawURL, docHost string) bool {
 	return docHost != "" && h == strings.ToLower(docHost)
 }
 
-// ImageKey returns rawURL without the signed token that GitHub puts in the
-// query of a private-user-images URL (only its jwt parameter), so the same
-// image keeps one address across reads. Any other URL is returned as it is.
-func ImageKey(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil || u.Scheme != "https" || !strings.EqualFold(u.Hostname(), signedImageHost) || u.RawQuery == "" {
-		return rawURL
-	}
-
-	var keep []string
-
-	for kv := range strings.SplitSeq(u.RawQuery, "&") {
-		if name, _, _ := strings.Cut(kv, "="); name != "jwt" {
-			keep = append(keep, kv)
-		}
-	}
-
-	u.RawQuery = strings.Join(keep, "&")
-
-	return u.String()
-}
-
 // ImageOptions are the seams of an ImageFetcher.
 type ImageOptions struct {
 	Token     func(ctx context.Context, host string) (string, error) // nil = Token with default options

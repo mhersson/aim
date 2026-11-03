@@ -306,11 +306,15 @@ func TestRenderedPictureReload(t *testing.T) {
 		t.Fatal("the reload did not show the new text")
 	}
 
-	// r reloads every picture, so the source is asked for again.
-	m.View()
+	// Same source, same size: the registry answers the image it sent.
+	content := m.View().Content
 
-	if jobs := m.jobs.take(); len(jobs) != 1 || jobs[0].render {
-		t.Errorf("jobs after the reload = %+v, want one info job", jobs)
+	if got := placeholders(content, id); len(got) != 3 {
+		t.Errorf("placeholder rows after the reload = %+v, want 3 of id %d", got, id)
+	}
+
+	if jobs := m.jobs.take(); len(jobs) != 0 {
+		t.Errorf("jobs after the reload = %+v, want none", jobs)
 	}
 }
 

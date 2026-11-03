@@ -614,7 +614,7 @@ func TestConversationReadClosesChooser(t *testing.T) {
 	convOpen(t, a)
 
 	a.conv.chooser = &linkChooser{}
-	ciDeliver(a, a.readConversation(a.conv, false))
+	ciDeliver(a, a.readConversation(a.conv))
 
 	if a.conv.chooser != nil {
 		t.Error("a re-read left the link chooser open on the old document's links")
@@ -1065,8 +1065,8 @@ func TestConversationPictures(t *testing.T) {
 	}
 
 	for _, j := range got {
-		if j.key.src != github.ImageKey(convShotURL) || j.url != convShotURL || j.host != "github.com" {
-			t.Errorf("job for %q fetching %q on host %q, want the alias URL on github.com", j.key.src, j.url, j.host)
+		if j.key.src != convShotURL || j.host != "github.com" {
+			t.Errorf("job for %q on host %q, want the alias URL on github.com", j.key.src, j.host)
 		}
 	}
 
@@ -1096,37 +1096,6 @@ func TestConversationPictures(t *testing.T) {
 
 	if got := placeholders(a.View().Content, id); len(got) != 0 {
 		t.Errorf("placeholders under the chooser: %+v", got)
-	}
-}
-
-func TestConversationPicturesAcrossReads(t *testing.T) {
-	t.Parallel()
-
-	a, _ := convApp(t, true, 160, 48)
-	a.pictures.getenv = func(string) string { return "" }
-	jobs := picturesOn(t, a)
-
-	convOpen(t, a)
-	a.View()
-	answerInfo(a, jobs, 5, 3, nil)
-	a.View()
-	jobs.take()
-
-	// A poll's re-read signs the image again; the picture stays.
-	ciDeliver(a, a.readConversation(a.conv, false))
-	a.View()
-
-	if got := jobs.take(); len(got) != 0 {
-		t.Errorf("jobs after a re-read = %+v, want none", got)
-	}
-
-	// r reloads every picture.
-	ciDeliver(a, a.readConversation(a.conv, true))
-	a.View()
-
-	got := jobs.take()
-	if len(got) == 0 || !got[0].fresh {
-		t.Errorf("jobs after r = %+v, want a fresh load", got)
 	}
 }
 

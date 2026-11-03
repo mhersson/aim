@@ -244,7 +244,7 @@ func TestConversationRereadSelection(t *testing.T) {
 			convDragLooks(t, r)
 
 			old := a.conv.doc
-			ciDeliver(a, a.readConversation(a.conv, false))
+			ciDeliver(a, a.readConversation(a.conv))
 
 			if a.conv.doc == old {
 				t.Fatal("the re-read kept the old doc")

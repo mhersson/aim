@@ -457,28 +457,3 @@ func TestFetchTokenSafe(t *testing.T) {
 		}
 	})
 }
-
-func TestImageKey(t *testing.T) {
-	t.Parallel()
-
-	const signed = "https://private-user-images.githubusercontent.com/1/301-e8b9.png"
-
-	tests := []struct{ name, in, want string }{
-		{"the token goes", signed + "?jwt=abc", signed},
-		{"other parameters stay", signed + "?x=1&jwt=abc&y=2", signed + "?x=1&y=2"},
-		{"no token", signed + "?x=1", signed + "?x=1"},
-		{"another host keeps its jwt", "https://example.com/a.png?jwt=abc", "https://example.com/a.png?jwt=abc"},
-		{"a github host keeps its query", "https://raw.githubusercontent.com/a/b.png?jwt=abc", "https://raw.githubusercontent.com/a/b.png?jwt=abc"},
-		{"a local path", "/repo/a.png", "/repo/a.png"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			if got := ImageKey(tt.in); got != tt.want {
-				t.Errorf("ImageKey(%q) = %q, want %q", tt.in, got, tt.want)
-			}
-		})
-	}
-}

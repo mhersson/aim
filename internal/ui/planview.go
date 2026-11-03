@@ -197,16 +197,9 @@ func (a *App) reloadPlan(p core.Plan, again bool) tea.Cmd {
 	pv := a.plan
 	pv.reloadSeq++
 
-	d := docPictures{reg: a.pictures, root: pv.root}
+	a.pictures.retry(docPictures{reg: a.pictures, root: pv.root}, pv.view.layout())
 
-	var pics tea.Cmd
-	if again {
-		pics = a.pictures.reloadAll(d, pv.view.layout())
-	} else {
-		pics = a.pictures.retry(d, pv.view.layout())
-	}
-
-	return tea.Batch(pics, a.readPlanCmd(planReadMsg{seq: pv.reloadSeq, reload: true, again: again, known: pv.sum, view: pv, pane: pv.pane, plan: p, root: pv.root, base: pv.base}))
+	return a.readPlanCmd(planReadMsg{seq: pv.reloadSeq, reload: true, again: again, known: pv.sum, view: pv, pane: pv.pane, plan: p, root: pv.root, base: pv.base})
 }
 
 // onPlanReload swaps in a rewritten plan, keeping the view's place. An answer

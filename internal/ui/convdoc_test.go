@@ -383,7 +383,7 @@ func TestConvDocPictures(t *testing.T) {
 		keys = append(keys, j.key.src)
 	}
 
-	for _, want := range []string{github.ImageKey(convShotURL), github.ImageKey(url2), src3} {
+	for _, want := range []string{convShotURL, url2, src3} {
 		if !slices.Contains(keys, want) {
 			t.Errorf("no job for %q in %v", want, keys)
 		}
