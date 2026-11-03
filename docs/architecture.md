@@ -106,7 +106,8 @@ instance's settings file from two pieces, both from
   scripts. So the scripts put AIM's `bin` first once the startup files are
   done, and the wrapper catches what the function does not.
 - **The wrapper** is AIM's binary run as `claude` (`bin/claude` is a symlink to
-  the path AIM was started by, else to `os.Executable()`; `main` dispatches on
+  the instance's binary, below; when that could not be placed, to the path AIM
+  was started by, else to `os.Executable()`; `main` dispatches on
   `filepath.Base(os.Args[0])`, `runShim`, `cmd/aim/shim.go`). It puts
   `--settings <file>` in front of the arguments only when `AIM_SOCK` names
   `<dir>/<pid>.sock` and the instance's settings file exists, `CLAUDECODE` is
@@ -155,6 +156,20 @@ the project's hooks keep running. The status line has no exec form, so
 control character or invalid UTF-8; such a binary gets hooks and no status line.
 The wrapper reads the instance's file from `AIM_SOCK` (`settingsForSock`), the
 same name `setupHooks` writes.
+
+**The instance's binary.** The hooks, the status line and the wrapper run
+`<state dir>/run/<pid>-aim`, which `setupHooks` places and `Stop` removes: a
+hard link to the file `os.Executable()` names, symlinks resolved, else a copy
+renamed into place (`placeBinary`). An upgrade replaces the installed binary
+under a running instance: on Linux `os.Executable()` is the resolved path, such
+as a Homebrew Cellar dir that `brew upgrade` deletes, and on macOS it is the
+symlink, which moves to the new version. With its own binary an instance's
+hooks keep running, on its own version. A link fails across filesystems and,
+under Linux's `fs.protected_hardlinks`, for a binary the user does not own, so
+the copy covers both. When both fail, or the placed file cannot run (a
+`noexec` mount), a warning is logged, the hooks and the status line run
+`os.Executable()` and the wrapper links as its bullet says; AIM still starts
+with hooks.
 
 **The subcommands.** Claude runs `aim hook claude-code` per event and
 `aim statusline` for its status line (`cmd/aim/hook.go`, `statusline.go`). Each
@@ -419,7 +434,7 @@ the followed place back, and one after a session change records nothing.
 | `<state dir>/aim.log`, `aim.log.1` | the saver's log and its previous run's | per run; the saver rotates them at start |
 | `<state dir>/aim-<pid>.log` | a second instance's log | per run, appended; the saver sweeps one at start once its pid is dead and it is untouched 7 days |
 | `<state dir>/reviews/*.json` | reviewed-hunk marks, per repository | atomic, not fsynced |
-| `<state dir>/run/` | socket, settings, shell integration, temporary indexes | per run; swept |
+| `<state dir>/run/` | socket, settings, the instance's binary, shell integration, temporary indexes | per run; swept |
 | `<user cache dir>/aim/` | index copies, fetched images | as used; swept at start: index copies not refreshed for 14 days, images untouched 30 |
 
 - **Only what cannot come back is saved.** Agent states, actions, reported

@@ -66,6 +66,12 @@ what to do about it. Skim it before your first commit each session.
   `filepath.EvalSymlinks` before comparing it with git output, as `newRepo`
   does.
 
+- Whether `os.Link` follows a symlink differs between platforms; on Linux it
+  hard-links the symlink itself. macOS's `os.Executable()` is the path the
+  binary was started by, which may be a symlink such as Homebrew's `bin/aim`,
+  so resolve it with `filepath.EvalSymlinks` before linking, as `placeBinary`
+  does.
+
 ## Unix sockets
 
 - A Unix socket path holds at most 103 bytes on macOS and 107 on Linux.

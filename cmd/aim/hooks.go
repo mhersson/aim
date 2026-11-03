@@ -1,9 +1,11 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -70,10 +72,10 @@ func imageCacheDir(indexCache string) string {
 	return filepath.Join(indexCache, "images")
 }
 
-// startHooks prepares <stateDir>/run: it sweeps files of dead instances, writes
-// this instance's settings file and serves its socket. A failure leaves nothing
-// behind and yields a runtime with a notice, so agents start without hooks.
-// With shell it also writes the shell integration dir.
+// startHooks prepares <stateDir>/run: it sweeps files of dead instances, places
+// this instance's binary, writes its settings file and serves its socket. A
+// failure leaves nothing behind and yields a runtime with a notice, so agents
+// start without hooks. With shell it also writes the shell integration dir.
 func startHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.WatchSet, places *git.PlaceCache, shell bool) hookRuntime {
 	h, err := setupHooks(logger, stateDir, indexCache, watches, places, shell, defaultHookTimes())
 	if err != nil {
@@ -90,7 +92,7 @@ type hookTimes struct{ hold, budget time.Duration }
 
 func defaultHookTimes() hookTimes { return hookTimes{hold: turnHold, budget: turnBudget} }
 
-func setupHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.WatchSet, places *git.PlaceCache, shell bool, times hookTimes) (hookRuntime, error) {
+func setupHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.WatchSet, places *git.PlaceCache, shell bool, times hookTimes) (_ hookRuntime, err error) {
 	runDir := filepath.Join(stateDir, "run")
 	if err := os.MkdirAll(runDir, 0o700); err != nil {
 		return hookRuntime{}, fmt.Errorf("run dir: %w", err)
@@ -115,12 +117,29 @@ func setupHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.W
 		return hookRuntime{}, fmt.Errorf("socket path too long (%d bytes, at most %d)", len(sockPath), maxSockPath)
 	}
 
-	settings, err := harness.Claude{}.Settings(exe)
+	// Hooks, the status line and the wrapper run this instance's own binary, so an
+	// upgrade can neither delete the binary under them nor mix versions.
+	bin := filepath.Join(runDir, strconv.Itoa(pid)+"-aim")
+	if err := placeBinary(exe, bin, os.Link); err != nil {
+		logger.Warn("hooks run from the installed binary", "path", bin, "err", err)
+
+		bin = ""
+	}
+
+	defer func() {
+		if err != nil && bin != "" {
+			_ = os.Remove(bin)
+		}
+	}()
+
+	hookExe := cmp.Or(bin, exe)
+
+	settings, err := harness.Claude{}.Settings(hookExe)
 	if err != nil {
 		return hookRuntime{}, err
 	}
 
-	warnStatusLineOff(logger, exe)
+	warnStatusLineOff(logger, hookExe)
 
 	// A per-instance file needs no sync: a crash leaves it to the next sweep.
 	if err := store.WriteAtomicNoSync(settingsPath, settings); err != nil {
@@ -133,8 +152,13 @@ func setupHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.W
 	)
 
 	if shell {
+		target := bin
+		if target == "" {
+			target = wrapperTarget(os.Args[0], exe, exec.LookPath)
+		}
+
 		shellDir = filepath.Join(runDir, strconv.Itoa(pid)+"-shell")
-		if err := term.WriteIntegration(shellDir, wrapperTarget(os.Args[0], exe, exec.LookPath)); err != nil {
+		if err := term.WriteIntegration(shellDir, target); err != nil {
 			logger.Warn("shell integration is off", "err", err)
 
 			shellDir = ""
@@ -190,6 +214,12 @@ func setupHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.W
 		if shellDir != "" {
 			if err := os.RemoveAll(shellDir); err != nil {
 				logger.Warn("remove shell integration", "err", err)
+			}
+		}
+
+		if bin != "" {
+			if err := os.Remove(bin); err != nil && !errors.Is(err, os.ErrNotExist) {
+				logger.Warn("remove instance binary", "err", err)
 			}
 		}
 	})
@@ -254,8 +284,72 @@ func wrapperTarget(arg0, exe string, lookPath func(string) (string, error)) stri
 	return abs
 }
 
-// sweepRunDir removes the socket, settings file, integration dir and temporary
-// indexes of instances that are gone.
+// placeBinary puts the binary src at dst: a hard link when link succeeds, else
+// a copy renamed into place. A link fails across filesystems, on an old file at
+// dst and, on Linux with fs.protected_hardlinks, for a file the user does not own.
+// A placed file that cannot run, as on a noexec mount, is removed.
+func placeBinary(src, dst string, link func(oldname, newname string) error) error {
+	// link(2) may link a symlink itself, and macOS's os.Executable() can be one.
+	target, err := filepath.EvalSymlinks(src)
+	if err != nil {
+		return err
+	}
+
+	if linkErr := link(target, dst); linkErr != nil {
+		if err := copyBinary(target, dst); err != nil {
+			return fmt.Errorf("%w; copy: %w", linkErr, err)
+		}
+	}
+
+	if err := unix.Access(dst, unix.X_OK); err != nil {
+		_ = os.Remove(dst)
+
+		return fmt.Errorf("%s cannot run: %w", dst, err)
+	}
+
+	return nil
+}
+
+// copyBinary copies src to dst through "<dst>-*", a name sweepRunDir removes
+// once the instance is gone.
+func copyBinary(src, dst string) (err error) {
+	in, err := os.Open(src) //nolint:gosec // G304: src is AIM's own executable
+	if err != nil {
+		return err
+	}
+
+	defer func() { _ = in.Close() }()
+
+	f, err := os.CreateTemp(filepath.Dir(dst), filepath.Base(dst)+"-*")
+	if err != nil {
+		return err
+	}
+
+	tmp := f.Name()
+
+	defer func() {
+		if err != nil {
+			_ = os.Remove(tmp)
+		}
+	}()
+
+	if _, err = io.Copy(f, in); err == nil {
+		err = f.Chmod(0o755)
+	}
+
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+
+	if err != nil {
+		return err
+	}
+
+	return os.Rename(tmp, dst)
+}
+
+// sweepRunDir removes the socket, settings file, integration dir, binary and
+// temporary indexes of instances that are gone.
 // Other names, and files of live instances, stay.
 func sweepRunDir(logger *slog.Logger, dir string, alive func(pid int) bool) {
 	entries, err := os.ReadDir(dir)
@@ -288,7 +382,8 @@ func settingsForSock(sock string) (string, bool) {
 	return base + "-claude.json", true
 }
 
-// runFilePid extracts the pid from "<pid>.sock", "<pid>-claude.json" and
+// runFilePid extracts the pid from "<pid>.sock", "<pid>-claude.json",
+// "<pid>-aim" and "<pid>-aim-<anything>" (the binary and its temporary copy),
 // "<pid>-index-<anything>" (a snapshot's temporary index or its lock) and the
 // integration dir "<pid>-shell".
 func runFilePid(name string) (int, bool) {
@@ -302,7 +397,15 @@ func runFilePid(name string) (int, bool) {
 	}
 
 	if !ok {
+		digits, ok = strings.CutSuffix(name, "-aim")
+	}
+
+	if !ok {
 		digits, _, ok = strings.Cut(name, "-index-")
+	}
+
+	if !ok {
+		digits, _, ok = strings.Cut(name, "-aim-")
 	}
 
 	if !ok {
