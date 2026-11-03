@@ -927,7 +927,9 @@ func TestHookBudgetServerClosingMidSnapshot(t *testing.T) {
 
 	base := runtime.NumGoroutine()
 
-	h, err := setupHooks(discardLogger(), shortDir(t), "", testWatches(t), testPlaces(), false, defaultHookTimes())
+	// Long enough that only Stop, not a loaded machine, ends the snapshot.
+	h, err := setupHooks(discardLogger(), shortDir(t), "", testWatches(t), testPlaces(), false,
+		hookTimes{hold: 10 * time.Second, budget: 9 * time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -935,7 +937,7 @@ func TestHookBudgetServerClosingMidSnapshot(t *testing.T) {
 	sent := make(chan error, 1)
 
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), hangGuard)
 		defer cancel()
 
 		sent <- harness.Send(ctx, h.Sock, harness.Event{
@@ -945,11 +947,11 @@ func TestHookBudgetServerClosingMidSnapshot(t *testing.T) {
 
 	select {
 	case <-h.Events:
-	case <-time.After(2 * time.Second):
+	case <-time.After(hangGuard):
 		t.Fatal("event never arrived")
 	}
 
-	for deadline := time.Now().Add(3 * time.Second); !exists(started) && time.Now().Before(deadline); {
+	for deadline := time.Now().Add(hangGuard); !exists(started) && time.Now().Before(deadline); {
 		time.Sleep(10 * time.Millisecond)
 	}
 

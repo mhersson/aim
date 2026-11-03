@@ -99,7 +99,7 @@ func TestRunServesHooks(t *testing.T) {
 		if err != nil {
 			t.Fatalf("run() error = %v", err)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(hangGuard):
 		t.Fatal("run did not return after its context ended")
 	}
 
@@ -715,11 +715,11 @@ func waitFor(t *testing.T, cond func() bool) {
 }
 
 // waitUntil polls cond until it holds and fails the test with failure if it
-// still does not after 10 seconds.
+// still does not within hangGuard.
 func waitUntil(t *testing.T, failure string, cond func() bool) {
 	t.Helper()
 
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(hangGuard)
 	for !cond() {
 		if time.Now().After(deadline) {
 			t.Fatal(failure)

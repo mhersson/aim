@@ -115,6 +115,25 @@ jobs:
       - name: make test
         run: make test
 
+  # Runs only where go-checks is skipped: the doc tests check README.md and the
+  # pages under docs/, which a pull request with no Go code can still change.
+  doc-tests:
+    needs: [changes]
+    if: |
+      !cancelled() &&
+      needs.changes.outputs.go == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: make doc-tests
+        run: make doc-tests
+
   govulncheck:
     needs: [changes]
     if: |

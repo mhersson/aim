@@ -151,13 +151,16 @@ what to do about it. Skim it before your first commit each session.
 - The UI's test apps share one `drawCaches` (`testDrawCaches`), so lexers and
   diff themes are warm from earlier tests; a test that needs a cold highlighter
   or its own themes builds its app with a fresh `&drawCaches{}`.
-- In internal/git, `TestMain` sets `GIT_CONFIG_NOSYSTEM`, a fixed identity and
-  `GIT_CONFIG_GLOBAL` to a config file of its own once for the test binary, so
-  its tests need no `t.Setenv` and can call `t.Parallel()`. Packages without
-  such a `TestMain`, like `cmd/aim`, isolate git per test with `isolateGit`,
-  which uses `t.Setenv`. A helper that builds its own `cmd.Env` keeps that
-  `GIT_CONFIG_GLOBAL`. internal/ui's `TestMain` sets none of it: outside the `bench` tag it puts a
-  failing `git` first on `PATH`, since no test there starts git.
+- In internal/git, `TestMain` sets `GIT_CONFIG_NOSYSTEM`, `GIT_ATTR_NOSYSTEM`,
+  a fixed identity, `GIT_CONFIG_GLOBAL` to a config file of its own and
+  `XDG_CONFIG_HOME` to its own dir (so no `~/.config/git/ignore` or
+  `attributes` is read) once for the test binary, so its tests need no
+  `t.Setenv` and can call `t.Parallel()`. Packages without such a `TestMain`,
+  like `cmd/aim`, isolate git per test with `isolateGit`, which uses
+  `t.Setenv`. A helper that builds its own `cmd.Env` keeps that
+  `GIT_CONFIG_GLOBAL`. internal/ui's `TestMain` sets none of it: outside the
+  `bench` tag it puts a failing `git` first on `PATH`, since no test there
+  starts git.
 - `commit`, `merge`, `fetch` and a push's `receive-pack` start
   `git maintenance run --auto`, which detaches by default
   (`maintenance.autoDetach`) and removes `.git/objects/maintenance.lock` after
@@ -287,10 +290,11 @@ what to do about it. Skim it before your first commit each session.
 ## CI
 
 - A pull request that changes only `README.md`, `AGENTS.md`,
-  `THIRD_PARTY.md`, `LICENSE` or files under `docs/` skips the Go jobs, and
-  `static-checks` still runs the case check and `make scan`. Any other file,
-  or a `.go` file anywhere, brings the Go jobs back. A push to `main` that
-  changes only those files runs no CI at all.
+  `THIRD_PARTY.md`, `LICENSE` or files under `docs/` skips the Go jobs:
+  `doc-tests` runs only the doc tests (`make doc-tests`), and `static-checks`
+  still runs the case check and `make scan`. Any other file, or a `.go` file
+  anywhere, brings the Go jobs back. A push to `main` that changes only those
+  files runs no CI at all.
 - CI pins golangci-lint to v2.15.0. Use the same version locally: another one
   can format or lint differently and fail `fmt-check` or `lint` in CI only.
 - `release.yaml` calls `ci.yaml`, and inside a called workflow the event is the

@@ -108,29 +108,19 @@ func writeBuilt(dir, rel, content string) error {
 	return os.WriteFile(path, []byte(content), 0o644)
 }
 
-// TestMain isolates git from the machine's config once for the binary, so
-// tests that build repositories need no t.Setenv. Its global config turns
-// auto-maintenance off for every git the tests start; it is a file because
-// cleanEnv and git's local transport drop GIT_CONFIG_COUNT.
+// TestMain isolates git from the machine once for the binary, so tests that
+// build repositories need no t.Setenv.
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "git-test-")
 	if err != nil {
 		panic(err)
 	}
 
-	cfg := filepath.Join(dir, "gitconfig")
-	if err := os.WriteFile(cfg, []byte("[maintenance]\n\tauto = false\n"), 0o600); err != nil {
+	env, err := gitTestEnv(dir)
+	if err != nil {
 		panic(err)
 	}
 
-	env := map[string]string{
-		"GIT_CONFIG_NOSYSTEM": "1",
-		"GIT_CONFIG_GLOBAL":   cfg,
-		"GIT_AUTHOR_NAME":     "Test",
-		"GIT_AUTHOR_EMAIL":    "test@example.com",
-		"GIT_COMMITTER_NAME":  "Test",
-		"GIT_COMMITTER_EMAIL": "test@example.com",
-	}
 	for k, v := range env {
 		if err := os.Setenv(k, v); err != nil {
 			panic(err)
@@ -148,6 +138,78 @@ func TestMain(m *testing.M) {
 	_ = os.RemoveAll(dir)
 
 	os.Exit(code)
+}
+
+// gitTestEnv writes the tests' global git config into dir and returns the
+// environment that points every git the tests start at it, with a fixed
+// identity. The config turns auto-maintenance off; it is a file because
+// cleanEnv and git's local transport drop GIT_CONFIG_COUNT. XDG_CONFIG_HOME
+// moves git's default ignore and attributes files into dir, where none exist.
+func gitTestEnv(dir string) (map[string]string, error) {
+	cfg := filepath.Join(dir, "gitconfig")
+	if err := os.WriteFile(cfg, []byte("[maintenance]\n\tauto = false\n"), 0o600); err != nil {
+		return nil, err
+	}
+
+	return map[string]string{
+		"GIT_CONFIG_NOSYSTEM": "1",
+		"GIT_ATTR_NOSYSTEM":   "1",
+		"GIT_CONFIG_GLOBAL":   cfg,
+		"XDG_CONFIG_HOME":     dir,
+		"GIT_AUTHOR_NAME":     "Test",
+		"GIT_AUTHOR_EMAIL":    "test@example.com",
+		"GIT_COMMITTER_NAME":  "Test",
+		"GIT_COMMITTER_EMAIL": "test@example.com",
+	}, nil
+}
+
+// The machine's ignore and attributes files, wherever its HOME and
+// XDG_CONFIG_HOME put them, never reach a git the tests start.
+func TestGitTestEnvReadsNoMachineFiles(t *testing.T) {
+	t.Parallel()
+
+	repo := newRepo(t)
+	writeFile(t, repo, "f.planted", "x\n")
+
+	home, xdg := t.TempDir(), t.TempDir()
+	for _, dir := range []string{filepath.Join(home, ".config", "git"), filepath.Join(xdg, "git")} {
+		writeFile(t, dir, "ignore", "*.planted\n")
+		writeFile(t, dir, "attributes", "* planted\n")
+	}
+
+	env, err := gitTestEnv(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, machine := range [][]string{{"HOME=" + home, "XDG_CONFIG_HOME=" + xdg}, {"HOME=" + home}} {
+		vars := append([]string{"PATH=" + os.Getenv("PATH")}, machine...)
+		for k, v := range env {
+			vars = append(vars, k+"="+v)
+		}
+
+		git := func(args ...string) string {
+			cmd := exec.Command("git", args...)
+			cmd.Dir = repo
+			cmd.Env = vars
+
+			out, _ := cmd.Output()
+
+			return strings.TrimSpace(string(out))
+		}
+
+		if got := git("ls-files", "--others", "--exclude-standard"); got != "f.planted" {
+			t.Errorf("%v: untracked = %q, want f.planted (no machine ignore file)", machine, got)
+		}
+
+		if got := git("check-attr", "planted", "--", "f.planted"); got != "f.planted: planted: unspecified" {
+			t.Errorf("%v: check-attr = %q, want planted unspecified (no machine attributes file)", machine, got)
+		}
+
+		if got := git("var", "GIT_ATTR_SYSTEM"); got != "" {
+			t.Errorf("%v: system attributes file = %q, want none", machine, got)
+		}
+	}
 }
 
 // No git the tests run may start auto-maintenance, the app's own calls
