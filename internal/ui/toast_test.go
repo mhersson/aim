@@ -43,9 +43,9 @@ func TestToastBox(t *testing.T) {
 		w      int // box width
 		mid    string
 	}{
-		{"icon", true, "boom", 10, "│ " + iconAlert + " boom │"},
+		{"icon", true, "boom", 10, "│ " + iconInfo + " boom │"},
 		{"icons off", false, "boom", 8, "│ boom │"},
-		{"control characters", true, "a\nb\x1b[31m", 12, "│ " + iconAlert + " ab[31m │"},
+		{"control characters", true, "a\nb\x1b[31m", 12, "│ " + iconInfo + " ab[31m │"},
 	}
 
 	for _, tt := range tests {
@@ -141,7 +141,7 @@ func TestToastIsCutAtANarrowWidth(t *testing.T) {
 	a.notice = strings.Repeat("n", 40)
 
 	// At most the body width minus 2: 18 cells, one cell from the right edge.
-	want := "│ " + iconAlert + " " + strings.Repeat("n", 11) + "… │"
+	want := "│ " + iconInfo + " " + strings.Repeat("n", 11) + "… │"
 	if got := cells(a, 10, 1, 19); got != want {
 		t.Errorf("toast row = %q, want %q", got, want)
 	}
@@ -518,10 +518,11 @@ func TestToastLevels(t *testing.T) {
 		name   string
 		level  toastLevel
 		colour theme.Hex
+		icon   string
 	}{
-		{"notice", levelNotice, ui.Warning},
-		{"success", levelSuccess, ui.Success},
-		{"error", levelError, ui.Error},
+		{"notice", levelNotice, ui.Warning, iconInfo},
+		{"success", levelSuccess, ui.Success, iconSuccess},
+		{"error", levelError, ui.Error, iconAlert},
 	}
 
 	for _, tt := range tests {
@@ -531,7 +532,7 @@ func TestToastLevels(t *testing.T) {
 
 			vt := lineVT(t, strings.Split(a.View().Content, "\n")[28], 100)
 			assertColours(t, vt, 89, 0, "│", tt.colour, ui.Panel, false)
-			assertColours(t, vt, 91, 0, iconAlert, tt.colour, ui.Panel, false)
+			assertColours(t, vt, 91, 0, tt.icon, tt.colour, ui.Panel, false)
 			assertColours(t, vt, 93, 0, "b", ui.Fg, ui.Panel, false)
 			assertColours(t, vt, 98, 0, "│", tt.colour, ui.Panel, false)
 

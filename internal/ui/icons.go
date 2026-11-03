@@ -11,6 +11,8 @@ const (
 	iconAlert   = "\U000F002A" // nf-md-alert_outline
 	iconBlocked = "\U000F0026" // nf-md-alert
 	iconIdle    = "\U000F05E1" // nf-md-check_circle_outline
+	iconSuccess = "\U000F05E0" // nf-md-check_circle
+	iconInfo    = "\U000F02FD" // nf-md-information_outline
 	iconRename  = "\U000F0455" // nf-md-rename_box
 	iconClock   = "\U000F0954" // nf-md-clock_outline
 	iconGit     = "\uE725"     // nf-dev-git_branch
