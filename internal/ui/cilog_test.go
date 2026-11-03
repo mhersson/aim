@@ -567,7 +567,8 @@ func TestAnsiColor(t *testing.T) {
 
 	p := mustTheme(t, "catppuccin-mocha").Palette
 	want := map[int8]string{
-		0: string(p.Surface1), 1: string(p.Red), 7: string(p.Subtext1), 8: string(p.Surface2),
+		0: string(p.Surface1), 1: string(p.Red), 2: string(p.Green), 3: string(p.Yellow),
+		4: string(p.Blue), 5: string(p.Pink), 6: string(p.Teal), 7: string(p.Subtext1), 8: string(p.Surface2),
 		9: string(p.Red), 15: string(p.Subtext0), -1: "",
 	}
 

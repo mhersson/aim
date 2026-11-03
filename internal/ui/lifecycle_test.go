@@ -191,7 +191,13 @@ func collectFor(cmd tea.Cmd, want func(tea.Msg) bool) []tea.Msg {
 
 	var msgs []tea.Msg
 
-	timeout := time.After(300 * time.Millisecond)
+	// A nil want is a settle, expected to expire; a want is an event wait.
+	limit := 300 * time.Millisecond
+	if want != nil {
+		limit = hangGuard
+	}
+
+	timeout := time.After(limit)
 
 	for range cmds {
 		select {
@@ -1137,7 +1143,7 @@ func (p *pump) step(ctx context.Context, a *App) bool {
 }
 
 func TestFloodingPaneQuits(t *testing.T) {
-	t.Parallel()
+	// Serial: it runs a busy real shell loop.
 
 	// The sleep ignores SIGHUP, so only Close's last SIGKILL reaches it, just
 	// before Close returns.

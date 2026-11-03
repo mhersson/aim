@@ -131,10 +131,10 @@ func TestBenchKitConfigErrors(t *testing.T) {
 	tests := []struct {
 		name string
 		cfg  benchConfig
-		want string // a value the error names; any error when empty
+		want string // a value the error names
 	}{
-		{"no recordings", benchConfig{Panes: 1, Width: 40, Height: 10, Length: ms(100), FPS: 60}, ""},
-		{"too many panes", benchConfig{Panes: 7, Recordings: [][]rec.Record{short}, Width: 40, Height: 10, Length: ms(100), FPS: 60}, ""},
+		{"no recordings", benchConfig{Panes: 1, Width: 40, Height: 10, Length: ms(100), FPS: 60}, "got 0 recordings"},
+		{"too many panes", benchConfig{Panes: 7, Recordings: [][]rec.Record{short}, Width: 40, Height: 10, Length: ms(100), FPS: 60}, "got 7"},
 		{"too short", benchConfig{
 			Panes: 2, Recordings: [][]rec.Record{short}, Width: 40, Height: 10, Length: ms(400), Stagger: ms(200), FPS: 60,
 		}, "pane 1"},

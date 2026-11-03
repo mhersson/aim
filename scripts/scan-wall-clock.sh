@@ -17,7 +17,7 @@ bench='^//go:build(.*[^!A-Za-z0-9_])?bench([^A-Za-z0-9_]|$)'
 for s in 'if d := time.Since(start); d > time.Second {' 'd := time.Until(r)' 'gap := time.Now().Sub(at)'; do
 	printf '%s\n' "$s" | grep -Eq "$bound" || { echo "scan-wall-clock: grep cannot match a bound in '$s'"; exit 1; }
 done
-for s in 'deadline := time.Now().Add(time.Second)' 'case <-time.After(watchWait):' 'w := v.flashUntil.Sub(clk.Now())'; do
+for s in 'deadline := time.Now().Add(time.Second)' 'case <-time.After(hangGuard):' 'w := v.flashUntil.Sub(clk.Now())'; do
 	printf '%s\n' "$s" | grep -Eq "$bound" && { echo "scan-wall-clock: '$s' matched as a bound"; exit 1; }
 done
 printf '%s\n' 'd := time.Since(t) // wall-clock: measured' | grep -Eq "$reason" || { echo "scan-wall-clock: grep cannot match a reason"; exit 1; }

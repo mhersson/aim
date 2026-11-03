@@ -34,9 +34,11 @@ func TestSysLoadMemory(t *testing.T) {
 		t.Errorf("readVMPages = %+v, want free and file-backed pages", pages)
 	}
 
-	s, ok := newSysLoad(slog.New(slog.DiscardHandler)).(*sysLoad)
+	load := newSysLoad(slog.New(slog.DiscardHandler))
+
+	s, ok := load.(*sysLoad)
 	if !ok {
-		t.Fatalf("newSysLoad returned %T, want *sysLoad", newSysLoad(slog.New(slog.DiscardHandler)))
+		t.Fatalf("newSysLoad returned %T, want *sysLoad", load)
 	}
 
 	s.warm = noWarm

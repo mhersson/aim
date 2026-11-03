@@ -313,7 +313,7 @@ func TestWorkspaceBarPlanActiveStays(t *testing.T) {
 
 	for _, icons := range []bool{true, false} {
 		for active := range 3 {
-			for _, w := range planEdges(planTabs(), active, testModules(), icons, 14) {
+			for _, w := range planEdges(planTabs(), active, testModules(), icons, 160) {
 				p := planBar(planTabs(), active, testModules(), w, icons)
 
 				found := false

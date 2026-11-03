@@ -168,8 +168,9 @@ what to do about it. Skim it before your first commit each session.
 - internal/ui's test apps record their ticks and never fire them (`ticked`), so
   a helper that runs returned commands never sleeps. A test that needs a tick's
   message sends it itself, as with `whichKeyMsg{seq: a.seq}`; a new real
-  `tea.Tick` in internal/ui goes through `a.tick`. A `teatest` flow, whose
-  runtime runs commands in goroutines, sets `a.tick = tea.Tick`.
+  `tea.Tick` in internal/ui goes through `a.tick`. A `teatest` flow that needs
+  its ticks delivered, whose runtime runs commands in goroutines, sets
+  `a.tick = tea.Tick`.
 - `t.Setenv` and `t.Chdir` panic in a parallel test. That is why tests that
   use them, and tests that count or scan the process's goroutines or open
   descriptors, skip `t.Parallel()`.
@@ -190,7 +191,10 @@ what to do about it. Skim it before your first commit each session.
   pane's processes are gone after `Close` waits for them to go, as the `gone`
   checks in internal/ui do, rather than checking at once.
 - A flaky test, or one that fails only on macOS, has a cause to find. Never
-  give it a longer timeout, skip it or re-run it until it passes.
+  give it a longer timeout, skip it or re-run it until it passes. A hang guard
+  on an event wait is `hangGuard`, 30 s (internal/ui's `pane_test.go`, cmd/aim's
+  `statusline_test.go`): it expires only when the test is already failing, so
+  no pass waits it out. A wait the pass depends on still gets no longer timeout.
 - The nightly workflow runs the race suite at `-count=2`, so every test must
   pass when run twice in one test binary: leave nothing behind in package
   variables, files or the environment.

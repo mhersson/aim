@@ -128,6 +128,15 @@ func TestMergeWarning(t *testing.T) {
 		}
 	})
 
+	t.Run("two failed checks are both named with no count", func(t *testing.T) {
+		t.Parallel()
+
+		got := mergeWarning(failing(2), checks("alpha", "beta"), 0)
+		if !strings.Contains(got, "alpha") || !strings.Contains(got, "beta") || strings.Contains(got, "more") {
+			t.Errorf("mergeWarning = %q, want alpha and beta and no count left out", got)
+		}
+	})
+
 	t.Run("failed and running checks are counted", func(t *testing.T) {
 		t.Parallel()
 
