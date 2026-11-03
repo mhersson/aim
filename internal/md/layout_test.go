@@ -731,6 +731,8 @@ func TestPreBlocks(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			l := layoutOf(tt.src, 24, "")
 			goldenText(t, "pre_"+strings.ReplaceAll(tt.name, " ", "_"), l.debug())
 		})
