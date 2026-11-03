@@ -38,7 +38,7 @@ The compose box has four fields: title, base, draft and body. `tab` and `shift+t
 
 The box's top row names the repository, the branch, the base and the number of commits. The body's top border says where it started: ` from <template path> ` or ` from the commits `. The templates AIM looks for are `pull_request_template.md` in the repository root, `.github` or `docs`, and the `.md` files of a `pull_request_template` directory there.
 
-- `ctrl+e` edits the body in `$VISUAL`, else `$EDITOR`, else `vi`, in a pane beside the focused one. The box hides until the editor exits; then the file replaces the body. Without agent hooks the notice is `the editor needs the run directory, which is off with agent hooks`.
+- `ctrl+e` edits the body in `$VISUAL`, else `$EDITOR`, else `vi`, in a pane beside the focused one. The box hides until the editor exits; then the file replaces the body. If another overlay is open by then, the box comes back once it closes. Without agent hooks the notice is `the editor needs the run directory, which is off with agent hooks`.
 - `ctrl+p` switches the body between Write and Preview. In Preview `up`, `down`, `pgup` and `pgdown` scroll, and other body keys do nothing.
 - `ctrl+s` creates the pull request. An empty title says `enter a title`. When the remote lacks commits, the box says `↑<n> not pushed yet: creating the PR pushes <branch> to <remote> first`, and creating pushes first, without force. The status row reads `pushing <branch> to <remote>…`, then `opening the pull request…`. On success the toast is `opened #<n>`.
 - `esc` cancels. A failure stays in the box with its reason; while it runs only the leader keys work.

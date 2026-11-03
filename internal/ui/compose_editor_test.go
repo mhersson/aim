@@ -279,3 +279,59 @@ func TestComposeEditorSaysWhyThereIsNoPane(t *testing.T) {
 		t.Errorf("shown = %v, status = %q (error %v), want the reason", r.composeShown(), r.compose.status, r.compose.statusErr)
 	}
 }
+
+// openPlan opens a plan overlay with enough text to scroll.
+func (r *editorRig) openPlan(t *testing.T) *planView {
+	t.Helper()
+
+	r.plan = &planView{pane: "p1", view: mdView{doc: parseMarkdown([]byte(longPlan(t)), "", nil)}}
+	r.sizePlan()
+
+	return r.plan
+}
+
+func TestComposeEditorBackUnderOverlay(t *testing.T) {
+	t.Parallel()
+
+	r := newEditorRig(t)
+	r.ctrlE(t)
+	pv := r.openPlan(t)
+	r.edit(t, "new body")
+	r.exit(t)
+
+	if r.composeShown() {
+		t.Fatal("the box shows over an open overlay")
+	}
+
+	if r.compose.body.Value() != "new body" {
+		t.Errorf("body = %q, want the edited text read in", r.compose.body.Value())
+	}
+
+	r.Update(tea.MouseWheelMsg{X: 60, Y: 10, Button: tea.MouseWheelDown})
+
+	if pv.view.top == 0 {
+		t.Error("the wheel did not scroll the overlay")
+	}
+
+	r.closePlan()
+	r.step(nil)
+
+	if !r.composeShown() || r.compose.body.Value() != "new body" || r.compose.field != composeBody {
+		t.Errorf("shown = %v, body = %q, field = %v after the overlay closed", r.composeShown(), r.compose.body.Value(), r.compose.field)
+	}
+}
+
+func TestComposeEditorBoxStaysUnderItsOwnModal(t *testing.T) {
+	t.Parallel()
+
+	r := newEditorRig(t)
+	r.ctrlE(t)
+	r.exit(t)
+
+	r.openPlan(t)
+	r.step(nil)
+
+	if !r.composeShown() {
+		t.Error("an overlay opened over a shown box hid it")
+	}
+}

@@ -476,6 +476,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	check := a.keyboardCheck(msg)
 	m, cmd := a.update(msg)
 
+	a.releaseComposeHold()
 	check()
 	a.syncPaneColors()
 	a.railAfterUpdate()

@@ -96,6 +96,7 @@ type composeView struct {
 	busy      bool
 	editing   core.PaneID // the pane editing the body; the box is hidden meanwhile
 	bodyRev   int         // bumped by every change of the body text
+	held      bool        // the editor came back under another modal; hidden until it closes
 	preview   composePreview
 }
 
@@ -247,8 +248,18 @@ type bodyEdit struct {
 }
 
 // composeShown reports whether the compose box is open and not hidden behind
-// its editor.
-func (a *App) composeShown() bool { return a.compose != nil && a.compose.editing == "" }
+// its editor or, once that came back, another modal.
+func (a *App) composeShown() bool {
+	return a.compose != nil && a.compose.editing == "" && !a.compose.held
+}
+
+// releaseComposeHold ends the hold on a box whose editor came back under a
+// modal once no other modal is open, whatever closed it.
+func (a *App) releaseComposeHold() {
+	if a.compose != nil && a.compose.held && !a.otherModalOpen() {
+		a.compose.held = false
+	}
+}
 
 // composeResolvedMsg answers reading what a pull request of one pane's branch
 // would be.
@@ -1071,6 +1082,7 @@ func (a *App) onBodyRead(msg bodyReadMsg) tea.Cmd {
 	}
 
 	v.editing = ""
+	v.held = a.otherModalOpen()
 	v.focus(composeBody)
 
 	if msg.err != nil {
