@@ -376,7 +376,7 @@ func (r *shimRig) screen() string {
 func (r *shimRig) waitFile(t *testing.T, name string) []byte {
 	t.Helper()
 
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(hangGuard)
 
 	for {
 		b, err := os.ReadFile(filepath.Join(r.out, name))
@@ -395,7 +395,7 @@ func (r *shimRig) waitFile(t *testing.T, name string) []byte {
 func (r *shimRig) waitScreen(t *testing.T, want string) {
 	t.Helper()
 
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(hangGuard)
 
 	for !strings.Contains(r.screen(), want) {
 		if time.Now().After(deadline) {
@@ -493,7 +493,7 @@ func TestShimKeepsTheProbeName(t *testing.T) {
 
 	r.typeLine(t, "claude")
 
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(hangGuard)
 
 	for {
 		got, err := r.p.Foreground()
