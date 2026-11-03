@@ -333,14 +333,22 @@ func TestScrollLive(t *testing.T) {
 	t.Parallel()
 	p, _ := scrollPane(t, 5, 20)
 
-	if p.scrollLive() {
-		t.Error("scrollLive reported a scrolled view on a live pane")
+	p.scrollLive()
+
+	if got := p.linesAbove(); got != 0 {
+		t.Errorf("linesAbove on a live pane = %d, want 0", got)
 	}
 
 	p.scrollBy(4)
 
-	if !p.scrollLive() || p.linesAbove() != 0 {
-		t.Errorf("scrollLive did not return to live (linesAbove = %d)", p.linesAbove())
+	if p.linesAbove() == 0 {
+		t.Fatal("scrollBy did not scroll the view")
+	}
+
+	p.scrollLive()
+
+	if got := p.linesAbove(); got != 0 {
+		t.Errorf("scrollLive did not return to live (linesAbove = %d)", got)
 	}
 }
 
