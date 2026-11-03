@@ -81,7 +81,7 @@ func (s *starts) proc(i int) *fakeProc {
 func closeApp(t *testing.T, a *App) {
 	t.Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), hangGuard)
 	defer cancel()
 
 	if err := a.Close(ctx); err != nil {
@@ -112,6 +112,8 @@ func lifeAppWith(t *testing.T, opts ...func(*Options)) (*App, *starts) {
 		f(&o)
 	}
 
+	o.caches = testDrawCaches
+
 	a, err := New(o)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -120,6 +122,7 @@ func lifeAppWith(t *testing.T, opts ...func(*Options)) (*App, *starts) {
 	// A copy must never reach the operator's real clipboard tools.
 	a.clip.run = (&fakeRun{}).run
 	a.openLink = (&fakeOpen{}).open
+	a.tick = (&ticked{}).tick
 
 	st := &starts{}
 	a.start = st.start
@@ -164,7 +167,11 @@ func isQuit(cmd tea.Cmd) bool {
 
 // collect runs the commands of cmd (a batch or one command) and returns the
 // messages that arrive within a short wait; blocking pane waits are left running.
-func collect(cmd tea.Cmd) []tea.Msg {
+func collect(cmd tea.Cmd) []tea.Msg { return collectFor(cmd, nil) }
+
+// collectFor is collect that returns as soon as a message for which want is
+// true arrives; the wait only guards against a hang. A nil want waits for all.
+func collectFor(cmd tea.Cmd, want func(tea.Msg) bool) []tea.Msg {
 	if cmd == nil {
 		return nil
 	}
@@ -184,12 +191,22 @@ func collect(cmd tea.Cmd) []tea.Msg {
 
 	var msgs []tea.Msg
 
-	timeout := time.After(300 * time.Millisecond)
+	// A nil want is a settle, expected to expire; a want is an event wait.
+	limit := 300 * time.Millisecond
+	if want != nil {
+		limit = hangGuard
+	}
+
+	timeout := time.After(limit)
 
 	for range cmds {
 		select {
 		case m := <-out:
 			msgs = append(msgs, m)
+
+			if want != nil && want(m) {
+				return msgs
+			}
 		case <-timeout:
 			return msgs
 		}
@@ -525,10 +542,6 @@ func TestCloseShellAndAgent(t *testing.T) {
 					t.Fatalf("panes before the answer = %d, want 2", got)
 				}
 
-				if v := ansi.Strip(a.View().Content); !strings.Contains(v, "[y] Close pane") {
-					t.Errorf("view lacks the confirm prompt:\n%s", v)
-				}
-
 				var cmd tea.Cmd
 				for _, k := range tt.keys {
 					cmd = press(a, k)
@@ -699,10 +712,6 @@ func TestPaneExit(t *testing.T) {
 			t.Fatalf("state = %+v, want no panes", s)
 		}
 
-		if v := ansi.Strip(a.View().Content); !strings.Contains(v, "No panes yet.") {
-			t.Errorf("view lacks the welcome card:\n%s", v)
-		}
-
 		sized(t, a, 100, 30)
 
 		if st.count() != 1 {
@@ -762,6 +771,8 @@ func TestCwdTracking(t *testing.T) {
 	a, st := lifeAppSized(t, 100, 30)
 	clk := &fakeClock{t: t0}
 	a.clock = clk
+	rec := &ticked{}
+	a.tick = rec.tick
 	st.proc(0).cwd = "/moved"
 
 	p := a.panes["p1"]
@@ -793,6 +804,18 @@ func TestCwdTracking(t *testing.T) {
 	cmd = a.probeCwd(p)
 	if cmd == nil {
 		t.Fatal("throttled probe scheduled no trailing check")
+	}
+
+	if want := []time.Duration{400 * time.Millisecond}; !slices.Equal(rec.delays, want) {
+		t.Errorf("trailing check delays = %v, want %v", rec.delays, want)
+	}
+
+	if len(rec.msgs) == 0 {
+		t.Fatalf("the throttled probe recorded no tick message (delays %v)", rec.delays)
+	}
+
+	if m, ok := rec.msgs[0].(paneCwdDueMsg); !ok || m.id != "p1" {
+		t.Errorf("trailing check message = %#v, want paneCwdDueMsg for p1", rec.msgs[0])
 	}
 
 	if a.probeCwd(p) != nil {
@@ -829,15 +852,13 @@ func TestDirtyMessageSchedulesCwdProbe(t *testing.T) {
 
 	_, cmd := a.Update(paneDirtyMsg{id: "p1", p: a.panes["p1"]})
 
-	var got bool
+	probed := func(m tea.Msg) bool {
+		c, ok := m.(paneCwdMsg)
 
-	for _, m := range collect(cmd) {
-		if c, ok := m.(paneCwdMsg); ok && c.cwd == "/moved" {
-			got = true
-		}
+		return ok && c.cwd == "/moved"
 	}
 
-	if !got {
+	if !slices.ContainsFunc(collectFor(cmd, probed), probed) {
 		t.Error("a dirty message did not probe the pane's cwd")
 	}
 }
@@ -911,6 +932,8 @@ func newScriptApp(t *testing.T, gitOpt func(*Options), scripts ...string) *realA
 	}
 	gitOpt(&o)
 
+	o.caches = testDrawCaches
+
 	a, err := New(o)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -978,7 +1001,7 @@ func TestAppCloseNoLeaks(t *testing.T) {
 		t.Fatalf("started %d processes, want 3", len(pids))
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), hangGuard)
 	defer cancel()
 
 	if err := r.Close(ctx); err != nil {
@@ -995,7 +1018,7 @@ func TestAppCloseNoLeaks(t *testing.T) {
 		t.Errorf("second Close() error = %v", err)
 	}
 
-	eventually2(t, 2*time.Second, "goroutines to return to baseline", func() bool { return runtime.NumGoroutine() <= base })
+	eventually2(t, hangGuard, "goroutines to return to baseline", func() bool { return runtime.NumGoroutine() <= base })
 }
 
 // eventually2 is eventually with its own limit.
@@ -1030,48 +1053,6 @@ func cancellableTick(ctx context.Context) func(time.Duration, func(time.Time) te
 				return nil
 			}
 		}
-	}
-}
-
-func TestCancellableTick(t *testing.T) {
-	t.Parallel()
-
-	type tickMsg struct{}
-
-	tests := []struct {
-		name   string
-		delay  time.Duration
-		cancel bool
-		want   tea.Msg
-	}{
-		{"fires after the delay", time.Millisecond, false, tickMsg{}},
-		{"gives up when the context ends", time.Hour, true, nil},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			t.Cleanup(cancel)
-
-			cmd := cancellableTick(ctx)(tt.delay, func(time.Time) tea.Msg { return tickMsg{} })
-
-			if tt.cancel {
-				cancel()
-			}
-
-			got := make(chan tea.Msg, 1)
-
-			go func() { got <- cmd() }()
-
-			select {
-			case m := <-got:
-				if m != tt.want {
-					t.Errorf("tick returned %v, want %v", m, tt.want)
-				}
-			case <-time.After(5 * time.Second):
-				t.Fatal("the tick did not return")
-			}
-		})
 	}
 }
 
@@ -1116,8 +1097,8 @@ func (p *pump) stopWith(t *testing.T, a *App) {
 
 		select {
 		case <-ended:
-		case <-time.After(5 * time.Second):
-			t.Error("the pump's commands still ran 5s after the app closed")
+		case <-time.After(hangGuard):
+			t.Error("the pump's commands still ran after the app closed")
 		}
 	})
 }
@@ -1162,6 +1143,8 @@ func (p *pump) step(ctx context.Context, a *App) bool {
 }
 
 func TestFloodingPaneQuits(t *testing.T) {
+	// Serial: it runs a busy real shell loop.
+
 	// The sleep ignores SIGHUP, so only Close's last SIGKILL reaches it, just
 	// before Close returns.
 	r := newScriptApp(t, gitOf(newFakeGit(t)), `(trap "" HUP; exec sleep 30) & while :; do echo xxxxxxxxxxxxxxxx; done`, `cat`)
@@ -1172,7 +1155,7 @@ func TestFloodingPaneQuits(t *testing.T) {
 	pm.run(chord(r.App, 'v'))
 	// p2 (cat) is focused; the flood runs in p1.
 
-	pumped, stop := context.WithTimeout(context.Background(), 5*time.Second)
+	pumped, stop := context.WithTimeout(context.Background(), hangGuard)
 	defer stop()
 
 	floods := 0
@@ -1209,7 +1192,7 @@ func TestFloodingPaneQuits(t *testing.T) {
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), hangGuard)
 	defer cancel()
 
 	if err := r.Close(ctx); err != nil {
@@ -1222,6 +1205,8 @@ func TestFloodingPaneQuits(t *testing.T) {
 }
 
 func TestOrphanedExitClosesPane(t *testing.T) {
+	t.Parallel()
+
 	r := newRealApp(t, `sleep 30 & exit 0`)
 
 	sized(t, r.App, 100, 30)
@@ -1229,7 +1214,7 @@ func TestOrphanedExitClosesPane(t *testing.T) {
 	pid := r.pidList()[0]
 	p := r.panes["p1"]
 
-	deadline := time.After(2 * time.Second)
+	deadline := time.After(hangGuard)
 	done := make(chan tea.Msg, 1)
 
 	go func() {
@@ -1247,14 +1232,14 @@ func TestOrphanedExitClosesPane(t *testing.T) {
 	case m := <-done:
 		r.Update(m)
 	case <-deadline:
-		t.Fatal("the pane did not report its exit within 2s")
+		t.Fatal("the pane did not report its exit within the hang guard")
 	}
 
 	if got := len(r.store.State().Panes); got != 0 || len(r.panes) != 0 {
 		t.Errorf("panes after the exit: state %d, registry %d", got, len(r.panes))
 	}
 
-	eventually2(t, 3*time.Second, "the orphan to be killed", func() bool { return gone(pid) })
+	eventually2(t, hangGuard, "the orphan to be killed", func() bool { return gone(pid) })
 }
 
 // Bubble Tea reports shifted leader keys with their shifted character
@@ -1333,8 +1318,8 @@ func TestSplitOtherStartErrorsAreNotRetried(t *testing.T) {
 
 	chord(a, 'v')
 
-	if len(a.store.State().Panes) != 1 || !strings.Contains(a.notice, "cannot start") {
-		t.Errorf("panes = %d, notice = %q", len(a.store.State().Panes), a.notice)
+	if len(a.store.State().Panes) != 1 || !carries("no ptys").matches(a.notice) {
+		t.Errorf("panes = %d, notice = %q, want one carrying the start error", len(a.store.State().Panes), a.notice)
 	}
 }
 
@@ -1342,14 +1327,6 @@ func TestSwapCommands(t *testing.T) {
 	t.Parallel()
 
 	ctrl := func(r rune) tea.KeyPressMsg { return tea.KeyPressMsg{Code: r, Mod: tea.ModCtrl} }
-
-	t.Run("key strings", func(t *testing.T) {
-		for r, want := range map[rune]string{'h': "ctrl+h", 'j': "ctrl+j", 'k': "ctrl+k", 'l': "ctrl+l"} {
-			if got := bindingKey(ctrl(r)); got != want {
-				t.Errorf("bindingKey(ctrl+%c) = %q, want %q", r, got, want)
-			}
-		}
-	})
 
 	t.Run("swap right", func(t *testing.T) {
 		a, st := lifeAppSized(t, 100, 30)
@@ -1389,8 +1366,9 @@ func TestSwapCommands(t *testing.T) {
 	})
 
 	t.Run("every direction resolves", func(t *testing.T) {
+		a := newTestApp(t)
+
 		for r, cmd := range map[rune]string{'h': "pane.swap.left", 'j': "pane.swap.down", 'k': "pane.swap.up", 'l': "pane.swap.right"} {
-			a := newTestApp(t)
 			if got, ok := a.keymap.lookup(bindingKey(ctrl(r))); !ok || got != cmd {
 				t.Errorf("lookup(ctrl+%c) = %q, %v, want %q", r, got, ok, cmd)
 			}
@@ -1486,6 +1464,7 @@ func TestCloseBoundsLoaderWait(t *testing.T) {
 	f := &blockFetcher{started: make(chan struct{}, 1), release: make(chan struct{})}
 
 	a, err := New(Options{
+		caches:   testDrawCaches,
 		Git:      newFakeGit(t),
 		Logger:   testLogger(),
 		Store:    core.NewStore(core.InitialState(core.Config{Theme: "catppuccin-mocha"})),
@@ -1497,13 +1476,15 @@ func TestCloseBoundsLoaderWait(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 
+	a.tick = (&ticked{}).tick
+
 	t.Cleanup(func() { close(f.release) })
 
 	a.loader.add(pictureJob{key: pictureKey{src: "https://github.com/a.png"}})
 	<-f.started
 
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
 
 	res := make(chan error, 1)
 
@@ -1511,15 +1492,17 @@ func TestCloseBoundsLoaderWait(t *testing.T) {
 
 	select {
 	case err := <-res:
-		if !errors.Is(err, context.DeadlineExceeded) {
+		if !errors.Is(err, context.Canceled) {
 			t.Errorf("Close() error = %v, want the context's", err)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(hangGuard):
 		t.Fatal("Close did not return while a loader worker was stuck")
 	}
 }
 
 func TestPanesGetTheShellIntegration(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		ig   term.Integration

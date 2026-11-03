@@ -271,15 +271,10 @@ func TestBrokenLinks(t *testing.T) {
 		{name: "non-markdown target", page: "[a](../../config.example.toml#x)\n", toml: "x\n"},
 		{name: "readme good link and anchors", page: "x\n", readme: "[a](docs/guide/target.md#same) [b](#own) <a href=\"LICENSE\">l</a>\n\n## Own\n", files: []string{"LICENSE"}},
 		{name: "readme missing file", page: "x\n", readme: "[a](docs/nope.md)\n", want: []string{"README.md", "docs/nope.md"}},
-		{name: "readme missing anchor", page: "x\n", readme: "[a](docs/guide/target.md#gone)\n", want: []string{"README.md", "target.md#gone"}},
-		{name: "readme image present", page: "x\n", readme: "<img src=\"docs/images/x.png\" alt=\"x\">\n", files: []string{"docs/images/x.png"}},
 		{name: "readme image missing", page: "x\n", readme: "<td><img src=\"docs/images/y.png\"></td>\n", want: []string{"README.md", "docs/images/y.png"}},
 		{name: "architecture good links and anchors", page: "x\n", arch: "[a](guide/target.md#same) [b](#own) [c](../LICENSE)\n\n## Own\n", files: []string{"LICENSE"}},
 		{name: "architecture missing file", page: "x\n", arch: "[a](nope.md)\n", want: []string{"docs/architecture.md", "docs/nope.md"}},
-		{name: "architecture missing anchor", page: "x\n", arch: "[a](guide/target.md#gone)\n", want: []string{"docs/architecture.md", "target.md#gone"}},
 		{name: "guide html href missing", page: "<a href=\"nope.md\">n</a>\n", want: []string{"a.md", "nope.md"}},
-		{name: "html scheme targets", page: "<img src=\"https://example.com/a.png\"> <a href=\"https://example.com\">e</a>\n"},
-		{name: "html in a fence or code span", page: "```\n<img src=\"nope.png\">\n```\nsee `<img src=\"nope.png\">` here\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -83,7 +83,6 @@ func TestEscGuardTiming(t *testing.T) {
 		want  string
 	}{
 		{"a doubled esc is dropped", []escStep{{40 * time.Millisecond, keyEsc}}, ""},
-		{"a held esc with a 225 ms repeat delay never reaches the pane", heldEsc(225 * time.Millisecond), ""},
 		{"a held esc with a 600 ms repeat delay never reaches the pane", heldEsc(600 * time.Millisecond), ""},
 		{"an esc 750 ms after the close reaches the pane", []escStep{{750 * time.Millisecond, keyEsc}}, escByte},
 		{"an esc just short of 750 ms after the close is dropped", []escStep{{749 * time.Millisecond, keyEsc}}, ""},

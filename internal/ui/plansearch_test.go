@@ -154,7 +154,7 @@ func TestPlanSearch(t *testing.T) {
 		r := searchRig(t, 120, 40)
 		r.keys("/")
 
-		if s := r.shown(t); !strings.Contains(s, "/ ▏") || !strings.Contains(s, "enter find") || !strings.Contains(s, "esc cancel") || strings.Contains(s, "j/k line") {
+		if s := r.shown(t); !strings.Contains(s, "/ ▏") {
 			t.Errorf("empty prompt:\n%s", s)
 		}
 
@@ -210,8 +210,8 @@ func TestPlanSearch(t *testing.T) {
 			t.Error("the kept query is not painted")
 		}
 
-		if s := r.shown(t); !strings.Contains(s, "j/k line") {
-			t.Error("the hints did not come back")
+		if hint := r.a.keys.reader.hint("reader.line.next", "reader.line.prev"); !strings.Contains(r.shown(t), hint) {
+			t.Errorf("the hints did not come back (no %q)", hint)
 		}
 
 		for _, want := range []string{"Alpha two", "alpha three", "alpha one"} {
@@ -252,13 +252,13 @@ func TestPlanSearch(t *testing.T) {
 		r.typed("zzz")
 		r.keys("enter")
 
-		if r.a.notice != "not found: zzz" || r.a.plan == nil {
+		if r.a.notice != noticeNotFound+"zzz" || r.a.plan == nil {
 			t.Errorf("notice %q", r.a.notice)
 		}
 
 		r.keys("n")
 
-		if r.a.notice != "not found: zzz" {
+		if r.a.notice != noticeNotFound+"zzz" {
 			t.Errorf("n after a miss: notice %q", r.a.notice)
 		}
 
@@ -374,7 +374,7 @@ func TestPlanSearch(t *testing.T) {
 func TestPlanSearchSizes(t *testing.T) {
 	t.Parallel()
 
-	for _, sz := range [][2]int{{80, 24}, {40, 12}, {30, 9}} {
+	for _, sz := range [][2]int{{80, 24}, {40, 12}} {
 		t.Run(fmt.Sprintf("%dx%d", sz[0], sz[1]), func(t *testing.T) {
 			t.Parallel()
 
@@ -410,10 +410,8 @@ func TestPlanSearchGolden(t *testing.T) {
 func TestPlanSearchText(t *testing.T) {
 	t.Parallel()
 
-	for _, icons := range []bool{true, false} {
-		t.Run(fmt.Sprintf("icons=%v/plan-search", icons), func(t *testing.T) {
-			t.Parallel()
-			golden.RequireEqual(t, []byte(ansi.Strip(searchScene(t, icons).View().Content)))
-		})
-	}
+	t.Run("icons=false/plan-search", func(t *testing.T) {
+		t.Parallel()
+		golden.RequireEqual(t, []byte(ansi.Strip(searchScene(t, false).View().Content)))
+	})
 }

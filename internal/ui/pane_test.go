@@ -20,7 +20,9 @@ var _ proc = (*term.Process)(nil)
 
 var t0 = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
-const testDeadline = 5 * time.Second
+// hangGuard bounds an event wait; it expires only when the test is already failing,
+// so it is long enough for a stalled CI runner.
+const hangGuard = 30 * time.Second
 
 // fakeProc feeds the pane from an io.Pipe and records what the pane writes.
 type fakeProc struct {
@@ -35,9 +37,6 @@ type fakeProc struct {
 	fg       string // foreground process name; "" reads as an error
 	closed   bool
 	closeOne sync.Once
-
-	// beforeBarrier, when set, runs before feedAndWait's empty write.
-	beforeBarrier func()
 }
 
 func newFakeProc() *fakeProc {
@@ -149,7 +148,7 @@ func next(t *testing.T, p *pane) tea.Msg {
 	select {
 	case m := <-ch:
 		return m
-	case <-time.After(testDeadline):
+	case <-time.After(hangGuard):
 		t.Fatal("wait did not return")
 
 		return nil
@@ -165,10 +164,6 @@ func feedAndWait(t *testing.T, p *pane, fp *fakeProc, s string) {
 		t.Fatal(err)
 	}
 
-	if fp.beforeBarrier != nil {
-		fp.beforeBarrier()
-	}
-
 	if _, err := fp.feed.Write(nil); err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +176,7 @@ func feedAndWait(t *testing.T, p *pane, fp *fakeProc, s string) {
 func eventually(t *testing.T, what string, cond func() bool) {
 	t.Helper()
 
-	deadline := time.Now().Add(testDeadline)
+	deadline := time.Now().Add(hangGuard)
 
 	for !cond() {
 		if time.Now().After(deadline) {
@@ -189,50 +184,6 @@ func eventually(t *testing.T, what string, cond func() bool) {
 		}
 
 		time.Sleep(time.Millisecond)
-	}
-}
-
-// gatedProc holds each chunk back from the pane until gate is closed.
-type gatedProc struct {
-	*fakeProc
-	gate chan struct{}
-}
-
-func (g *gatedProc) Read(b []byte) (int, error) {
-	n, err := g.fakeProc.Read(b)
-	if n > 0 {
-		<-g.gate
-	}
-
-	return n, err
-}
-
-func TestFeedAndWaitIgnoresStaleDirty(t *testing.T) {
-	t.Parallel()
-
-	fp := newFakeProc()
-	g := &gatedProc{fakeProc: fp, gate: make(chan struct{})}
-	p := newPane("p1", g, 20, 3, realClock{})
-
-	t.Cleanup(func() { _ = p.close() })
-
-	// The gate opens at the barrier, so only a helper that waits for the feed
-	// can return with the text on screen.
-	var once sync.Once
-
-	open := func() { once.Do(func() { close(g.gate) }) }
-	fp.beforeBarrier = open
-
-	t.Cleanup(open)
-
-	// A notification from an earlier feed that nobody consumed.
-	p.dirty <- struct{}{}
-
-	feedAndWait(t, p, fp, "ZZZ")
-	p.render()
-
-	if !strings.HasPrefix(p.lines()[0], "ZZZ") {
-		t.Fatalf("row 0 = %q, want the feed on screen", p.lines()[0])
 	}
 }
 

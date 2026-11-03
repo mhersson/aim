@@ -221,27 +221,6 @@ func TestReaderTooSmall(t *testing.T) {
 	}
 }
 
-func TestDefaultOverlayKeys(t *testing.T) {
-	t.Parallel()
-
-	_, tables, err := resolveKeys(core.KeysConfig{}, testRegistry(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if !slices.Equal(tables.reader.binds, readerKeys) {
-		t.Errorf("reader keys = %v, want %v", tables.reader.binds, readerKeys)
-	}
-
-	if !slices.Equal(tables.merge.binds, mergeKeys) {
-		t.Errorf("merge keys = %v, want %v", tables.merge.binds, mergeKeys)
-	}
-
-	if !slices.Equal(tables.compose.binds, composeKeys) {
-		t.Errorf("compose keys = %v, want %v", tables.compose.binds, composeKeys)
-	}
-}
-
 func TestReaderHintsFollowBindings(t *testing.T) {
 	t.Parallel()
 

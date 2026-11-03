@@ -82,6 +82,8 @@ func TestDrawerLayoutFollowsItsInputs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			s := cacheScene()
 			if tt.scene != nil {
 				tt.scene(&s)
@@ -142,7 +144,7 @@ func TestDrawerLayoutIgnoresTheTreeKeyboard(t *testing.T) {
 func TestDrawerScanFollowsTheView(t *testing.T) {
 	t.Parallel()
 
-	res, _ := bigResult(3000)
+	res, _ := bigResult(600)
 	s := reviewScene{theme: "catppuccin-mocha", icons: true, w: 200, h: 52, res: res, turn: 1, turns: 1, focused: true}
 	a := s.build(t)
 	v := a.reviewViewOf(a.store.State().Tab().ID)
@@ -157,7 +159,7 @@ func TestDrawerScanFollowsTheView(t *testing.T) {
 		t.Errorf("%d scans after the cursor moved within the view, want 0", got)
 	}
 
-	v.cursor += 1500
+	v.cursor += hlChunk + 8 // into the second chunk
 
 	a.drawerAfterUpdate()
 

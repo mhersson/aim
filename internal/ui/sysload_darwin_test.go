@@ -2,6 +2,7 @@ package ui
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"log/slog"
@@ -11,6 +12,10 @@ import (
 
 	"golang.org/x/sys/unix"
 )
+
+// noWarm skips the first sample's real wait: the checks here need no gap
+// between the two tick reads.
+func noWarm(context.Context) error { return nil }
 
 func TestSysLoadMemory(t *testing.T) {
 	t.Parallel()
@@ -29,7 +34,16 @@ func TestSysLoadMemory(t *testing.T) {
 		t.Errorf("readVMPages = %+v, want free and file-backed pages", pages)
 	}
 
-	got, err := newSysLoad(slog.New(slog.DiscardHandler)).Sample(t.Context())
+	load := newSysLoad(slog.New(slog.DiscardHandler))
+
+	s, ok := load.(*sysLoad)
+	if !ok {
+		t.Fatalf("newSysLoad returned %T, want *sysLoad", load)
+	}
+
+	s.warm = noWarm
+
+	got, err := s.Sample(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +105,7 @@ func TestHostTicks(t *testing.T) {
 		t.Errorf("ticks = %v, want user, system and idle ticks", first)
 	}
 
-	deadline := time.After(10 * time.Second)
+	deadline := time.After(hangGuard)
 
 	for {
 		cur, err := read()
@@ -117,7 +131,14 @@ func TestSysLoadTicks(t *testing.T) {
 
 	var logged bytes.Buffer
 
-	s := newSysLoad(slog.New(slog.NewTextHandler(&logged, nil)))
+	sampler := newSysLoad(slog.New(slog.NewTextHandler(&logged, nil)))
+
+	s, ok := sampler.(*sysLoad)
+	if !ok {
+		t.Fatalf("newSysLoad returned %T, want *sysLoad", sampler)
+	}
+
+	s.warm = noWarm
 
 	for range 2 {
 		got, err := s.Sample(t.Context())

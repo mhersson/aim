@@ -271,7 +271,7 @@ func TestTurnStartRefreshesTheDrawer(t *testing.T) {
 			if m != nil {
 				t.Errorf("the wait answered %T after the app ended, want nothing", m)
 			}
-		case <-time.After(5 * time.Second):
+		case <-time.After(hangGuard):
 			t.Fatal("the wait outlived the app")
 		}
 	})

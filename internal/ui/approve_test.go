@@ -386,7 +386,7 @@ func TestApproveWithoutActions(t *testing.T) {
 func feedUntil[T tea.Msg](t *testing.T, r *drawerRig) T {
 	t.Helper()
 
-	deadline := time.After(10 * time.Second)
+	deadline := time.After(hangGuard)
 
 	for {
 		select {
@@ -466,18 +466,17 @@ func TestApproveGolden(t *testing.T) {
 	}
 }
 
-// TestApproveText is the same screens without styling, so the layout reads.
+// TestApproveText is the icons=false screens without styling; the colour golden
+// of the icons=true ones holds the same text.
 func TestApproveText(t *testing.T) {
 	t.Parallel()
 
-	for _, icons := range []bool{true, false} {
-		for _, c := range approveScenes() {
-			t.Run(fmt.Sprintf("icons=%v/%s", icons, c.name), func(t *testing.T) {
-				t.Parallel()
+	for _, c := range approveScenes() {
+		t.Run("icons=false/"+c.name, func(t *testing.T) {
+			t.Parallel()
 
-				got := ansi.Strip(approveScene(t, icons, c.w, c.h, c.title).View().Content)
-				golden.RequireEqual(t, []byte(got))
-			})
-		}
+			got := ansi.Strip(approveScene(t, false, c.w, c.h, c.title).View().Content)
+			golden.RequireEqual(t, []byte(got))
+		})
 	}
 }

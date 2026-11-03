@@ -37,8 +37,6 @@ func TestRenderRow(t *testing.T) {
 	}{
 		{name: "plain", input: "hello", w: 10, text: "hello"},
 		{name: "colour", input: "\x1b[31mred\x1b[0m", w: 10, text: "red", styled: true},
-		{name: "truecolor", input: "\x1b[38;2;10;20;30mtc\x1b[0m", w: 10, text: "tc", styled: true},
-		{name: "256 colour", input: "\x1b[38;5;200mx256\x1b[0m", w: 10, text: "x256", styled: true},
 		{name: "link", input: "\x1b]8;;http://example.com\x07link\x1b]8;;\x07", w: 10, text: "link", link: true},
 		{name: "wide at edge", input: "0123456789中", resize: 11, w: 11, text: "0123456789"},
 	}

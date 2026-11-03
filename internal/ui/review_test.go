@@ -1078,7 +1078,7 @@ func TestAppCloseNoLeaksWithADrawer(t *testing.T) {
 		t.Fatal("setup: no load is in flight")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), hangGuard)
 	defer cancel()
 
 	if err := r.Close(ctx); err != nil {
@@ -1089,5 +1089,5 @@ func TestAppCloseNoLeaksWithADrawer(t *testing.T) {
 		t.Errorf("%d watch references still held after Close", n)
 	}
 
-	eventually2(t, 2*time.Second, "goroutines to return to baseline", func() bool { return runtime.NumGoroutine() <= base })
+	eventually2(t, hangGuard, "goroutines to return to baseline", func() bool { return runtime.NumGoroutine() <= base })
 }

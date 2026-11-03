@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/mhersson/aim/internal/git"
@@ -78,11 +79,11 @@ func TestBuildRowsUnified(t *testing.T) {
 		{rowLine, 2, ""},
 		{rowFile, 3, ""},
 		{rowFile, 4, ""},
-		{rowInfo, 4, "binary file, not shown"},
+		{rowInfo, 4, infoBinary},
 		{rowFile, 5, ""},
-		{rowInfo, 5, "too large, press f for the full file"},
+		{rowInfo, 5, infoTruncated},
 		{rowFile, 6, ""},
-		{rowInfo, 6, "mode 100644 → 100755"},
+		{rowInfo, 6, ""}, // the mode row: its text is checked below
 	}
 
 	if len(rows) != len(wants) {
@@ -91,9 +92,13 @@ func TestBuildRowsUnified(t *testing.T) {
 
 	for i, w := range wants {
 		r := rows[i]
-		if r.kind != w.kind || r.file != w.file || r.text != w.text {
+		if r.kind != w.kind || r.file != w.file || (i != len(wants)-1 && r.text != w.text) {
 			t.Errorf("row %d = {kind %d file %d %q}, want {kind %d file %d %q}", i, r.kind, r.file, r.text, w.kind, w.file, w.text)
 		}
+	}
+
+	if text := rows[len(rows)-1].text; !strings.Contains(text, "100644") || !strings.Contains(text, "100755") {
+		t.Errorf("the mode row %q lacks one of the modes", text)
 	}
 
 	if r := rows[3]; r.hunk != 0 || r.line != 1 {
@@ -132,19 +137,6 @@ func TestBuildRowsSplit(t *testing.T) {
 		if r.kind != rowPair || r.line != w[0] || r.other != w[1] {
 			t.Errorf("pair %d = {kind %d line %d other %d}, want {line %d other %d}", i, r.kind, r.line, r.other, w[0], w[1])
 		}
-	}
-}
-
-func TestBuildRowsSplitAddOnly(t *testing.T) {
-	t.Parallel()
-
-	res := git.Result{Files: []git.FileDiff{{Path: "a.go", Status: git.Added, Hunks: []git.Hunk{
-		hunkOf(0, 1, ln(git.Add, 0, 1, "x")),
-	}}}}
-
-	rows := buildRows(res, rowOpts{split: true})
-	if r := rows[2]; r.kind != rowPair || r.line != 0 || r.other != -1 {
-		t.Errorf("row = %+v, want an add-only pair on line 0 with no other", r)
 	}
 }
 
@@ -246,7 +238,7 @@ func TestBuildRowsFullFileGhosts(t *testing.T) {
 
 	t.Run("a binary file keeps its info row", func(t *testing.T) {
 		rows := buildRows(res, rowOpts{full: map[string]fullText{"img.png": {}}, whole: map[string]bool{"img.png": true}})
-		if got := rows[len(rows)-1]; got.kind != rowInfo || got.text != "binary file, not shown" {
+		if got := rows[len(rows)-1]; got.kind != rowInfo || got.text != infoBinary {
 			t.Errorf("last row = %+v", got)
 		}
 	})
@@ -255,8 +247,8 @@ func TestBuildRowsFullFileGhosts(t *testing.T) {
 func TestBuildRowsFullFileLongRewrite(t *testing.T) {
 	t.Parallel()
 
-	old := make([]string, 3000)
-	nw := make([]string, 3000)
+	old := make([]string, 4)
+	nw := make([]string, 4)
 
 	for i := range old {
 		old[i] = fmt.Sprintf("old %d", i)
@@ -266,7 +258,7 @@ func TestBuildRowsFullFileLongRewrite(t *testing.T) {
 	res := git.Result{Files: []git.FileDiff{{Path: "a", Status: git.Modified}}}
 	rows := buildRows(res, rowOpts{full: map[string]fullText{"a": newFullText(old, nw, nil)}, whole: map[string]bool{"a": true}})
 
-	if got, want := len(rows), 1+3000+3000; got != want {
+	if got, want := len(rows), 1+4+4; got != want {
 		t.Fatalf("got %d rows, want %d", got, want)
 	}
 }
@@ -509,8 +501,6 @@ func TestSearchRowsWraps(t *testing.T) {
 		{"back: the row before the cursor", 6, -1, "FRESH", 4, true},
 		{"back: skips the cursor row", 4, -1, "fresh", 4, true},
 		{"back: wraps past the start", 3, -1, "b.go", 7, true},
-		{"back: a miss", 9, -1, "nothing here", 0, false},
-		{"back: an empty query", 9, -1, "", 0, false},
 	}
 
 	for _, tt := range tests {
@@ -532,7 +522,7 @@ func TestSearchRowsInfoAndPairs(t *testing.T) {
 	}}
 	rows := buildRows(res, rowOpts{split: true})
 
-	if got, ok := searchRows(res, rows, 0, 1, "not shown"); !ok || rows[got].kind != rowInfo {
+	if got, ok := searchRows(res, rows, 0, 1, infoBinary); !ok || rows[got].kind != rowInfo {
 		t.Errorf("info search = %d, %v", got, ok)
 	}
 

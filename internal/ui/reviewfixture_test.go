@@ -185,6 +185,12 @@ func kilobyteLines() longLines {
 	return longLines{strings.Repeat("x", 1<<10), strings.Repeat("a\x1b", 1<<9)}
 }
 
+// pastBudgetLines are lines just past lineBudget, the smallest that prove the cut:
+// one plain, one of tags.
+func pastBudgetLines() longLines {
+	return longLines{strings.Repeat("x", lineBudget+16), strings.Repeat("a\x1b", lineBudget/2+8)}
+}
+
 // hostileResult holds every kind of text that must never reach the terminal
 // raw, in lines and in paths, and, in a hunk of their own, two pairs of 1 MiB
 // lines. The highlighter draws a whole chunk plain once a line of it is past its
@@ -389,7 +395,7 @@ func runHighlight(t *testing.T, a *App) bool {
 		return false
 	}
 
-	msg, ok := j.run(context.Background(), &a.drawer.hl).(drawerSpansMsg)
+	msg, ok := j.run(context.Background(), a.drawer.hl).(drawerSpansMsg)
 	if !ok {
 		t.Fatal("the batch gave no answer")
 	}

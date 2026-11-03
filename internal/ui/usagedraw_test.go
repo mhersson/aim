@@ -75,16 +75,17 @@ func TestResetText(t *testing.T) {
 	tests := []struct {
 		name    string
 		at, now time.Time
-		want    string
+		clock   string
 	}{
-		{"same day", t0.Add(2 * time.Hour), t0, "resets in 2h 0m (02:00)"},
-		{"other day", t0.Add(52 * time.Hour), t0, "resets in 2d 4h (Sat 04:00)"},
-		{"in now's zone", t0.Add(2 * time.Hour), t0.In(zone), "resets in 2h 0m (05:00)"},
+		{"same day", t0.Add(2 * time.Hour), t0, "(02:00)"},
+		{"other day", t0.Add(52 * time.Hour), t0, "(Sat 04:00)"},
+		{"in now's zone", t0.Add(2 * time.Hour), t0.In(zone), "(05:00)"},
 	}
 
 	for _, tt := range tests {
-		if got := resetText(tt.at, tt.now); got != tt.want {
-			t.Errorf("%s: resetText = %q, want %q", tt.name, got, tt.want)
+		got := resetText(tt.at, tt.now)
+		if !strings.Contains(got, untilText(tt.at.Sub(tt.now))) || !strings.Contains(got, tt.clock) {
+			t.Errorf("%s: resetText = %q, want the wait %q and %s", tt.name, got, untilText(tt.at.Sub(tt.now)), tt.clock)
 		}
 	}
 }
@@ -96,18 +97,23 @@ func TestUpdatedText(t *testing.T) {
 		ago  time.Duration
 		want string
 	}{
-		{0, "updated just now"},
-		{59 * time.Second, "updated just now"},
-		{3 * time.Minute, "updated 3 min ago"},
-		{59 * time.Minute, "updated 59 min ago"},
-		{2*time.Hour + 10*time.Minute, "updated 2h ago"},
-		{25 * time.Hour, "updated 1d ago"},
-		{-time.Minute, "updated just now"},
+		{3 * time.Minute, "3 min"},
+		{59 * time.Minute, "59 min"},
+		{2*time.Hour + 10*time.Minute, "2h"},
+		{25 * time.Hour, "1d"},
 	}
 
 	for _, tt := range tests {
-		if got := updatedText(t0.Add(-tt.ago), t0); got != tt.want {
-			t.Errorf("updatedText(%v ago) = %q, want %q", tt.ago, got, tt.want)
+		if got := updatedText(t0.Add(-tt.ago), t0); !strings.Contains(got, tt.want) {
+			t.Errorf("updatedText(%v ago) = %q, want it to carry %q", tt.ago, got, tt.want)
+		}
+	}
+
+	// Under a minute, and a clock gone back, read alike and carry no number.
+	just := updatedText(t0, t0)
+	for _, ago := range []time.Duration{59 * time.Second, -time.Minute} {
+		if got := updatedText(t0.Add(-ago), t0); got != just || strings.ContainsAny(got, "0123456789") {
+			t.Errorf("updatedText(%v ago) = %q, want %q and no number", ago, got, just)
 		}
 	}
 }

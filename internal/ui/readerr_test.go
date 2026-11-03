@@ -2,6 +2,7 @@ package ui
 
 import (
 	"errors"
+	"fmt"
 	"regexp"
 	"slices"
 	"strings"
@@ -128,7 +129,7 @@ func TestReadErrorKeepsWhatFits(t *testing.T) {
 	ciDeliver(a, press(a, keyRune('i')))
 
 	text := shownText(a)
-	if !strings.Contains(text, "could not read the conversation: HTTP 502") || strings.Contains(text, "zzEND") {
+	if !strings.Contains(text, fmt.Sprintf(convReadFailed, "HTTP 502")) || strings.Contains(text, "zzEND") {
 		t.Errorf("the error is not cut to the room:\n%s", text)
 	}
 
@@ -140,20 +141,21 @@ func TestReadErrorKeepsWhatFits(t *testing.T) {
 func TestPageHintsWaitForTheContent(t *testing.T) {
 	t.Parallel()
 
-	const full, short = "j/k line", "O browser    esc checks"
-
-	hintRow := func(t *testing.T, a *App) string {
+	// The hint row is the row holding the browser and the close keys.
+	hintRow := func(t *testing.T, a *App) (row string, kt keyTable) {
 		t.Helper()
 
+		kt = a.keys.checks
+
 		for l := range strings.SplitSeq(shownText(a), "\n") {
-			if strings.Contains(l, "esc checks") {
-				return l
+			if strings.Contains(l, kt.hint("checks.browser")) && strings.Contains(l, kt.hint("checks.close")) {
+				return l, kt
 			}
 		}
 
 		t.Fatalf("no hint row:\n%s", shownText(a))
 
-		return ""
+		return "", kt
 	}
 
 	tests := []struct {
@@ -161,13 +163,13 @@ func TestPageHintsWaitForTheContent(t *testing.T) {
 		page func(t *testing.T) *App
 	}{
 		{"log loading", func(t *testing.T) *App {
-			a, _, _ := ciApp(t, true, 160, 48)
+			a, _, _ := ciApp(t, true, 100, 30)
 			press(a, keyRune('l'))
 
 			return a
 		}},
 		{"log failed", func(t *testing.T) *App {
-			a, reads, _ := ciApp(t, true, 160, 48)
+			a, reads, _ := ciApp(t, true, 100, 30)
 			reads.logErr = errors.New("boom")
 
 			ciDeliver(a, press(a, keyRune('l')))
@@ -175,13 +177,13 @@ func TestPageHintsWaitForTheContent(t *testing.T) {
 			return a
 		}},
 		{"summary loading", func(t *testing.T) *App {
-			a, _, _ := sumApp(t, true, 160, 48, codeqlSummary)
+			a, _, _ := sumApp(t, true, 100, 30, codeqlSummary)
 			press(a, keyRune('l'))
 
 			return a
 		}},
 		{"summary failed", func(t *testing.T) *App {
-			a, reads, _ := sumApp(t, true, 160, 48, codeqlSummary)
+			a, reads, _ := sumApp(t, true, 100, 30, codeqlSummary)
 			reads.runErr = errors.New("boom")
 
 			ciDeliver(a, press(a, keyRune('l')))
@@ -194,9 +196,9 @@ func TestPageHintsWaitForTheContent(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			row := hintRow(t, tc.page(t))
-			if strings.Contains(row, full) || !strings.Contains(row, short) {
-				t.Errorf("hint row = %q, want only %q", row, short)
+			row, kt := hintRow(t, tc.page(t))
+			if line := kt.hint("checks.next", "checks.prev"); strings.Contains(row, line) {
+				t.Errorf("hint row = %q, holds %q before the content loaded", row, line)
 			}
 		})
 	}
@@ -204,18 +206,20 @@ func TestPageHintsWaitForTheContent(t *testing.T) {
 	t.Run("loaded pages offer their keys", func(t *testing.T) {
 		t.Parallel()
 
-		a, _, _ := ciApp(t, true, 160, 48)
+		a, _, _ := ciApp(t, true, 100, 30)
 		ciPage(t, a)
 
-		if row := hintRow(t, a); !strings.Contains(row, full) || !strings.Contains(row, "enter group") {
-			t.Errorf("log hint row = %q", row)
+		row, kt := hintRow(t, a)
+		if line, fold := kt.hint("checks.next", "checks.prev"), kt.hint("checks.fold"); !strings.Contains(row, line) || !strings.Contains(row, fold) {
+			t.Errorf("log hint row = %q, want %q and %q", row, line, fold)
 		}
 
-		b, _, _ := sumApp(t, true, 160, 48, codeqlSummary)
+		b, _, _ := sumApp(t, true, 100, 30, codeqlSummary)
 		sumPage(t, b)
 
-		if row := hintRow(t, b); !strings.Contains(row, full) {
-			t.Errorf("summary hint row = %q", row)
+		row, kt = hintRow(t, b)
+		if line := kt.hint("checks.next", "checks.prev"); !strings.Contains(row, line) {
+			t.Errorf("summary hint row = %q, want %q", row, line)
 		}
 	})
 }

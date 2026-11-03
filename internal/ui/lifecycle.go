@@ -454,7 +454,7 @@ func (a *App) probeCwd(p *pane) tea.Cmd {
 	if since := a.clock.Now().Sub(p.cwdAt); !p.cwdAt.IsZero() && since < cwdProbeEvery {
 		p.cwdWait = true
 
-		return tea.Tick(cwdProbeEvery-since, func(time.Time) tea.Msg { return paneCwdDueMsg{id: p.id, p: p} })
+		return a.tick(cwdProbeEvery-since, func(time.Time) tea.Msg { return paneCwdDueMsg{id: p.id, p: p} })
 	}
 
 	return a.runProbe(p)

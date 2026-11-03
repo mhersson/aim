@@ -722,8 +722,6 @@ func prHeaderLines(t *testing.T, a *App) []string {
 func TestPRHeader(t *testing.T) {
 	t.Parallel()
 
-	const moved = "the PR moved to bbbbbbb since this diff; r fetches it"
-
 	tests := []struct {
 		name     string
 		tune     func(*core.PRInfo)
@@ -732,11 +730,14 @@ func TestPRHeader(t *testing.T) {
 		want     []string
 		absent   []string
 		rows     int
+		decision bool // the review words of prMetaRunsOf show, and not another state's
+		fetch    bool // the row names the moved head and the key that fetches it
+		push     bool // the row names the unpushed commits and the key that pushes
 	}{
 		{
-			name: "passed and approved", icons: true, rows: 3,
-			want:   []string{"#7 Show the pull request over its diff", iconGit + " feat/review-pane → main", iconPassed + " 4/4", "approved", "@mhersson", "3h"},
-			absent: []string{"not pushed", "moved", "no review yet"},
+			name: "passed and approved", icons: true, rows: 3, decision: true,
+			want:   []string{"#7 Show the pull request over its diff", iconGit + " feat/review-pane → main", iconPassed + " 4/4", "@mhersson", "3h"},
+			absent: []string{"↑", "bbbbbbb"},
 		},
 		{
 			name: "running", icons: true, rows: 3,
@@ -749,15 +750,12 @@ func TestPRHeader(t *testing.T) {
 			want: []string{iconFailed + " 2 failed"},
 		},
 		{
-			name: "changes requested", icons: true, rows: 3,
+			name: "changes requested", icons: true, rows: 3, decision: true,
 			tune: func(p *core.PRInfo) { p.ReviewDecision = "CHANGES_REQUESTED" },
-			want: []string{"changes requested"},
 		},
 		{
-			name: "no review yet", icons: true, rows: 3,
-			tune:   func(p *core.PRInfo) { p.ReviewDecision = "" },
-			want:   []string{"no review yet"},
-			absent: []string{"approved"},
+			name: "no review yet", icons: true, rows: 3, decision: true,
+			tune: func(p *core.PRInfo) { p.ReviewDecision = "" },
 		},
 		{
 			name: "no checks", icons: true, rows: 3,
@@ -765,19 +763,18 @@ func TestPRHeader(t *testing.T) {
 			absent: []string{iconPassed, "0/0"},
 		},
 		{
-			name: "unpushed commits", icons: true, rows: 4, unpushed: 2,
-			want: []string{"↑2 not pushed: the PR shows the pushed head; ctrl+space g P pushes"},
+			name: "unpushed commits", icons: true, rows: 4, unpushed: 2, push: true,
 		},
 		{
-			name: "the poll's head differs", icons: true, rows: 4, unpushed: 2,
+			name: "the poll's head differs", icons: true, rows: 4, unpushed: 2, fetch: true,
 			tune:   func(p *core.PRInfo) { p.HeadOID = "bbbbbbb0000000000000000000000000000000bb" },
-			want:   []string{moved},
-			absent: []string{"not pushed"},
+			absent: []string{"↑2"},
 		},
 		{
 			name: "no icons", rows: 3,
-			want:   []string{"feat/review-pane → main", "ci 4/4", "approved"},
-			absent: []string{iconGit, iconPassed},
+			decision: true,
+			want:     []string{"feat/review-pane → main", "ci 4/4"},
+			absent:   []string{iconGit, iconPassed},
 		},
 	}
 
@@ -806,6 +803,28 @@ func TestPRHeader(t *testing.T) {
 
 			v := a.drawer.views[a.store.State().Tab().ID]
 			info, _ := prInfoByNumber(a.store.State(), prRepoKey, 7)
+			ui := a.current().theme.UI
+
+			d, _, _ := a.drawCtxFor(a.store.State())
+
+			if tc.decision {
+				words := prReviewWords(info, ui).text
+				if !strings.Contains(text, words) {
+					t.Errorf("drawer lacks the review words %q:\n%s", words, text)
+				}
+
+				if approved := prReviewWords(core.PRInfo{ReviewDecision: "APPROVED"}, ui).text; info.ReviewDecision != "APPROVED" && strings.Contains(text, approved) {
+					t.Errorf("drawer holds %q for a review that is not approved", approved)
+				}
+			}
+
+			if key, _ := d.bind.first("review.refresh"); tc.fetch && (key == "" || !strings.Contains(text, "bbbbbbb") || !strings.Contains(text, key)) {
+				t.Errorf("drawer lacks the moved head bbbbbbb and the fetch key %q:\n%s", key, text)
+			}
+
+			if tc.push && (d.pushKey == "" || !strings.Contains(text, "↑2") || !strings.Contains(text, d.pushKey)) {
+				t.Errorf("drawer lacks ↑2 and the push key %q:\n%s", d.pushKey, text)
+			}
 
 			if got := prHeaderRows(v, info); got != tc.rows {
 				t.Errorf("prHeaderRows = %d, want %d", got, tc.rows)

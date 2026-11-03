@@ -131,10 +131,10 @@ func TestBenchKitConfigErrors(t *testing.T) {
 	tests := []struct {
 		name string
 		cfg  benchConfig
-		want string
+		want string // a value the error names
 	}{
-		{"no recordings", benchConfig{Panes: 1, Width: 40, Height: 10, Length: ms(100), FPS: 60}, "recording"},
-		{"too many panes", benchConfig{Panes: 7, Recordings: [][]rec.Record{short}, Width: 40, Height: 10, Length: ms(100), FPS: 60}, "panes"},
+		{"no recordings", benchConfig{Panes: 1, Width: 40, Height: 10, Length: ms(100), FPS: 60}, "got 0 recordings"},
+		{"too many panes", benchConfig{Panes: 7, Recordings: [][]rec.Record{short}, Width: 40, Height: 10, Length: ms(100), FPS: 60}, "got 7"},
 		{"too short", benchConfig{
 			Panes: 2, Recordings: [][]rec.Record{short}, Width: 40, Height: 10, Length: ms(400), Stagger: ms(200), FPS: 60,
 		}, "pane 1"},
@@ -143,7 +143,7 @@ func TestBenchKitConfigErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if _, err := runBench(tt.cfg); err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("err = %v, want one containing %q", err, tt.want)
+				t.Fatalf("err = %v, want one naming %q", err, tt.want)
 			}
 		})
 	}
@@ -497,7 +497,7 @@ func TestBenchKitServesReviewAnswers(t *testing.T) {
 	)
 	run := func(review bool) benchResult {
 		res, err := runBench(benchConfig{
-			Panes: 1, Recordings: [][]rec.Record{quiet}, Width: 240, Height: 64, Length: 3100 * time.Millisecond, FPS: 60, Review: review,
+			Panes: 1, Recordings: [][]rec.Record{quiet}, Width: 120, Height: 30, Length: 1100 * time.Millisecond, FPS: 60, Review: review,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -512,8 +512,8 @@ func TestBenchKitServesReviewAnswers(t *testing.T) {
 		t.Errorf("without the drawer: %d answers and %d frames, want 0 and 1", off.Reviews, off.Frames.Count)
 	}
 
-	if on.Reviews != 6 {
-		t.Errorf("answers = %d, want 6 (at 0.5 s to 3 s)", on.Reviews)
+	if on.Reviews != 2 {
+		t.Errorf("answers = %d, want 2 (at 0.5 s and 1 s)", on.Reviews)
 	}
 
 	if on.Frames.Count < 1+on.Reviews {
@@ -543,7 +543,6 @@ func TestBenchKitPlacesThePictureInEveryFrame(t *testing.T) {
 		pictures, review, rail bool
 	}{
 		{name: "off"},
-		{name: "alone", pictures: true},
 		{name: "with the drawer's results", pictures: true, review: true},
 		{name: "with the rail", pictures: true, rail: true},
 	}
@@ -554,7 +553,7 @@ func TestBenchKitPlacesThePictureInEveryFrame(t *testing.T) {
 
 			cfg := benchConfig{
 				Panes: 2, Recordings: [][]rec.Record{rec.Synth(40, 16, 5*time.Second, 1)},
-				Width: 240, Height: 64, Stagger: ms(500), Length: time.Second, FPS: 60,
+				Width: 120, Height: 30, Stagger: ms(500), Length: ms(600), FPS: 60,
 				Agents: true, Review: tt.review, Rail: tt.rail,
 			}
 			if tt.pictures {
@@ -756,7 +755,7 @@ func TestHLRunnerStartsOneBatchAndStopsWithTheApp(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(5 * time.Second):
+	case <-time.After(hangGuard):
 		t.Fatal("the runner blocked after the app ended")
 	}
 

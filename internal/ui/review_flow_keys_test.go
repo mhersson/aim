@@ -28,7 +28,7 @@ type keysProbe struct {
 func (p *keysProbe) wait(t *testing.T, what string, cond func(keysSnap) bool) {
 	t.Helper()
 
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(hangGuard)
 
 	for {
 		p.mu.Lock()
@@ -77,6 +77,9 @@ func TestLeaderDOpensFocusesClosesAndRetargets(t *testing.T) {
 	dir := editedRepo(t, f).Root()
 	a, _, clk := kindApp(t, gitOf(f), func(o *Options) { o.Cwd, o.GitTempDir = dir, t.TempDir() })
 
+	// The runtime runs the slide's ticks in goroutines, so this flow keeps the real tick.
+	a.tick = tea.Tick
+
 	probe := &keysProbe{}
 
 	// The slide frames come from the runtime's ticks; each poll moves the clock past the slide, so a frame ends it.
@@ -118,7 +121,7 @@ func TestLeaderDOpensFocusesClosesAndRetargets(t *testing.T) {
 		t.Fatalf("Quit() error = %v", err)
 	}
 
-	tm.FinalModel(t, teatest.WithFinalTimeout(5*time.Second))
+	tm.FinalModel(t, teatest.WithFinalTimeout(hangGuard))
 }
 
 func TestFocusSkipsCoveredPanes(t *testing.T) {

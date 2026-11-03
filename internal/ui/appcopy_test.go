@@ -194,11 +194,9 @@ func TestCopyModeKeysDoNotReachTheProgram(t *testing.T) {
 	enterCopy(a)
 	keys(a, "j", "k", "q")
 
-	fp.mu.Lock()
-	defer fp.mu.Unlock()
-
-	if fp.written.Len() != 0 {
-		t.Errorf("program received %q from copy mode keys", fp.written.String())
+	// The marker's own bytes are the only thing the program may have received.
+	if got := sentAfterMark(t, a.panes["p1"], fp); got != markOf(a.panes["p1"]) {
+		t.Errorf("program received %q from copy mode keys, want only the marker", got)
 	}
 }
 
@@ -284,8 +282,8 @@ func TestCopyModeSearchNotFoundSetsNotice(t *testing.T) {
 		t.Errorf("cursor moved to %v on a miss", a.copy.m.cursor)
 	}
 
-	if a.notice != "not found: zzz" {
-		t.Errorf("notice = %q, want %q", a.notice, "not found: zzz")
+	if !strings.Contains(a.notice, "zzz") || a.noticeLevel() != levelNotice {
+		t.Errorf("notice = %q at level %v, want one carrying the query at the notice level", a.notice, a.noticeLevel())
 	}
 }
 
@@ -298,19 +296,6 @@ func TestCopyModeSearchEscKeepsCopyMode(t *testing.T) {
 
 	if a.prompt != nil || a.copy == nil {
 		t.Errorf("prompt = %v, copy = %v, want a closed prompt and copy mode", a.prompt, a.copy)
-	}
-}
-
-func TestCopyModeSearchPromptStopsAtLimit(t *testing.T) {
-	t.Parallel()
-	a, _, _ := copyApp(t)
-
-	enterCopy(a)
-	keys(a, "/")
-	typeText(a, strings.Repeat("x", 40))
-
-	if got := len(a.prompt.input.Value()); got != maxPromptChars {
-		t.Errorf("search input has %d characters, want %d", got, maxPromptChars)
 	}
 }
 
@@ -342,33 +327,6 @@ func TestCopyModeIgnoresMouse(t *testing.T) {
 
 	if a.copy == nil || a.copy.m.cursor != before.cursor {
 		t.Error("the mouse moved the copy mode cursor or ended it")
-	}
-}
-
-func TestCopyModePinsTextWhileOutputArrives(t *testing.T) {
-	t.Parallel()
-	a, fp, _ := copyApp(t)
-
-	enterCopy(a)
-	keys(a, "k", "k", "k", "k", "k", "k", "k", "k", "k", "k", "k", "k")
-
-	if a.panes["p1"].linesAbove() == 0 {
-		t.Fatal("setup: the view did not scroll")
-	}
-
-	_, y, _ := cursorOf(a)
-	before := screenText(a, y)
-
-	feedAndWait(t, a.panes["p1"], fp, "\r\nmore one\r\nmore two\r\nmore three")
-	a.Update(paneDirtyMsg{id: "p1", p: a.panes["p1"]})
-
-	_, y2, ok := cursorOf(a)
-	if !ok {
-		t.Fatal("cursor vanished after output")
-	}
-
-	if after := screenText(a, y2); after != before {
-		t.Errorf("text under the cursor changed from %q to %q", before, after)
 	}
 }
 
@@ -419,24 +377,6 @@ func TestCopyModeWithoutPaneDoesNothing(t *testing.T) {
 
 	if a.copy != nil {
 		t.Error("copy mode entered with no pane")
-	}
-}
-
-func TestCopyModeEntryClearsMouseSelection(t *testing.T) {
-	t.Parallel()
-	a, _, _ := copyApp(t)
-	c := contentRect(a.layoutRects()["p1"])
-
-	drag(a, c.X, c.Y, c.X+3, c.Y, 0)
-
-	if a.sel == nil {
-		t.Fatal("setup: no mouse selection")
-	}
-
-	enterCopy(a)
-
-	if a.sel != nil {
-		t.Error("entering copy mode kept the mouse selection")
 	}
 }
 
@@ -563,7 +503,14 @@ func TestCopyModeTrimmedSelectionStartTakesColumnZero(t *testing.T) {
 
 func TestCopyModeCursorFollowsDrawnRowsDuringSyncHold(t *testing.T) {
 	t.Parallel()
-	a, fp, _ := copyApp(t)
+	// A fake clock fixed at the hold's start keeps the hold open.
+	a := newTestApp(t)
+	a.clock = &fakeClock{t: t0}
+
+	a, procs := framedAppOn(t, a, 60, 14, shellSpec("/w/a", manyLines(30)+"abcdef"))
+	fp := procs["p1"]
+
+	fakeClip(a)
 
 	enterCopy(a)
 
@@ -575,6 +522,7 @@ func TestCopyModeCursorFollowsDrawnRowsDuringSyncHold(t *testing.T) {
 	before := screenText(a, y)
 
 	feedAndWait(t, a.panes["p1"], fp, "\x1b[?2026h"+strings.Repeat("\r\nheld", 5))
+	a.renderPane(a.panes["p1"])
 
 	_, y2, ok := cursorOf(a)
 	if !ok {
@@ -583,5 +531,9 @@ func TestCopyModeCursorFollowsDrawnRowsDuringSyncHold(t *testing.T) {
 
 	if got := screenText(a, y2); got != before {
 		t.Errorf("cursor row shows %q during the hold, want %q", got, before)
+	}
+
+	if strings.Contains(ansi.Strip(a.View().Content), "held") {
+		t.Error("the held output was drawn before the hold ended")
 	}
 }

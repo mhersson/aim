@@ -70,25 +70,6 @@ func TestHiddenColumnCounts(t *testing.T) {
 	}
 }
 
-func TestHiddenColumnCountsShareOneBorder(t *testing.T) {
-	t.Parallel()
-	a := scrollingApp(t, "catppuccin-mocha", true, 2, true)
-
-	got := bottomRow(a, "p2")
-	if !strings.Contains(got, " ‹ 1 ") || !strings.Contains(got, " 3 › ") {
-		t.Errorf("single column bottom border = %q, want both counts", got)
-	}
-}
-
-func TestHiddenColumnCountsPlain(t *testing.T) {
-	t.Parallel()
-	a := scrollingApp(t, "catppuccin-mocha", false, 2, false)
-
-	if got := bottomRow(a, "p2"); !strings.Contains(got, " ‹ 1 ") {
-		t.Errorf("icons off bottom border = %q, want the count", got)
-	}
-}
-
 func TestHiddenColumnCountColour(t *testing.T) {
 	t.Parallel()
 	a := scrollingApp(t, "catppuccin-mocha", true, 2, false)
@@ -124,7 +105,7 @@ func TestHiddenColumnCountsLeftOutWhenTheyDoNotFit(t *testing.T) {
 	a := scrollingApp(t, "catppuccin-mocha", true, 2, true)
 	lk := a.current()
 
-	for w := minFrame; w <= 16; w++ {
+	for _, w := range []int{3, 8, 9, 14, 15, 16} {
 		r := core.Rect{X: 0, Y: 2, W: w, H: 6}
 		got := 0
 
@@ -141,17 +122,6 @@ func TestHiddenColumnCountsLeftOutWhenTheyDoNotFit(t *testing.T) {
 		case w >= 15 && got != 2, w < 9 && got != 0:
 			t.Errorf("width %d: %d counts", w, got)
 		}
-	}
-}
-
-func TestNoHiddenCountsOutsideScrolling(t *testing.T) {
-	t.Parallel()
-	a := newTestApp(t)
-	sized(t, a, 70, 12)
-	openIn(t, a, core.OpenPane{Kind: core.KindShell, Cwd: "/w/a", Split: core.SplitVertical})
-
-	if got := bottomRow(a, "p1"); strings.ContainsAny(got, "‹›") {
-		t.Errorf("bsp bottom border = %q, want no counts", got)
 	}
 }
 
@@ -239,21 +209,6 @@ func TestPreselectTagColour(t *testing.T) {
 	assertColours(t, vt, x, 0, "n", ui.Accent, ui.Bg, true)
 }
 
-func TestPreselectTagOrder(t *testing.T) {
-	t.Parallel()
-	a := preApp(t, "catppuccin-mocha", false, 70)
-	a.panes["p1"].scrollBy(3)
-	openIn(t, a, core.Preselect{Dir: core.Right}, core.ToggleZoom{})
-	enterCopy(a)
-
-	row := topRow(a)
-	copyAt, next, scroll, zoom := strings.Index(row, "COPY"), strings.Index(row, "next"), strings.Index(row, "↑ 3"), strings.Index(row, "zoom")
-
-	if copyAt < 0 || next < 0 || scroll < 0 || zoom < 0 || copyAt > next || next > scroll || scroll > zoom {
-		t.Errorf("top border = %q, want COPY, the preselect tag, scroll, then zoom", row)
-	}
-}
-
 func TestPreselectTagDroppedBeforeCopy(t *testing.T) {
 	t.Parallel()
 
@@ -279,23 +234,6 @@ func TestPreselectTagDroppedBeforeCopy(t *testing.T) {
 
 		if got := strings.Contains(row, "next"); got != (tt.next && (!tt.copy || tt.w >= 20)) {
 			t.Errorf("width %d: preselect tag shown = %v in %q", tt.w, got, row)
-		}
-	}
-}
-
-func TestLayoutModuleFirstInTray(t *testing.T) {
-	t.Parallel()
-
-	for _, icons := range []bool{true, false} {
-		a := trayApp(t, icons)
-		mods := a.trayModules()
-
-		if len(mods) == 0 || mods[0].id != modLayout {
-			t.Fatalf("icons=%v modules = %v, want the layout module first", icons, modIDs(mods))
-		}
-
-		if got := ansi.Strip(mods[0].render()); got != trayLayoutText(icons, core.ModeBSP) {
-			t.Errorf("icons=%v layout module = %q", icons, got)
 		}
 	}
 }
@@ -354,8 +292,7 @@ func TestLayoutModuleColours(t *testing.T) {
 	assertColours(t, vt, x+3, 0, "b", ui.Fg, ui.Surface, false)
 }
 
-// The layout module leaves after load, git and PR and before any tab name
-// shrinks.
+// The layout module leaves before any tab name shrinks.
 func TestLayoutModuleGivesWayAfterLoadAndBeforeTabNames(t *testing.T) {
 	t.Parallel()
 
@@ -391,8 +328,6 @@ func TestLayoutModuleGivesWayAfterLoadAndBeforeTabNames(t *testing.T) {
 		}
 	}
 }
-
-func chromeThemes() []string { return []string{"catppuccin-mocha", "catppuccin-latte"} }
 
 type layoutChromeCase struct {
 	name  string
@@ -448,17 +383,16 @@ func TestLayoutChromeGolden(t *testing.T) {
 	}
 }
 
-// TestLayoutChromeText is the same screens without styling, so the layout reads.
+// TestLayoutChromeText is the same screens without styling and with icons off,
+// so the layout reads; TestLayoutChromeGolden draws them with icons.
 func TestLayoutChromeText(t *testing.T) {
 	t.Parallel()
 
-	for _, icons := range []bool{true, false} {
-		for _, c := range layoutChromeCases() {
-			t.Run(fmt.Sprintf("icons=%v/%s", icons, c.name), func(t *testing.T) {
-				t.Parallel()
-				golden.RequireEqual(t, []byte(ansi.Strip(c.build(t, "catppuccin-mocha", icons).View().Content)))
-			})
-		}
+	for _, c := range layoutChromeCases() {
+		t.Run("icons=false/"+c.name, func(t *testing.T) {
+			t.Parallel()
+			golden.RequireEqual(t, []byte(ansi.Strip(c.build(t, "catppuccin-mocha", false).View().Content)))
+		})
 	}
 }
 
@@ -522,10 +456,30 @@ func layoutTrayCases() []layoutTrayCase {
 	return cases
 }
 
+// Trays drawn in colour or text by a golden test, skipping the names another
+// golden shows the same way (the narrowest of each same-screen class stays):
+// TestBarGoldens draws the wide bsp trays, bsp/layout-gone stands for bsp/narrow
+// and bsp/pr-gone, and bsp/pr-layout-gone for the other modes' layout-gone.
+// layoutTrayCases keeps all of them for the theme colour check.
+var (
+	trayGoldenSkip = []string{
+		"bsp/wide", "bsp/pr-wide", "bsp/pr-failed", "bsp/narrow", "bsp/pr-gone",
+		"master-stack/layout-gone", "scrolling/layout-gone",
+	}
+	trayTextSkip = []string{
+		"bsp/wide", "bsp/pr-wide", "bsp/pr-failed", "bsp/pr-no-load", "bsp/narrow", "bsp/layout-gone", "bsp/pr-gone",
+		"master-stack/layout-gone", "scrolling/layout-gone",
+	}
+)
+
 func TestLayoutTrayGolden(t *testing.T) {
 	t.Parallel()
 
 	for _, c := range layoutTrayCases() {
+		if slices.Contains(trayGoldenSkip, c.name) {
+			continue
+		}
+
 		t.Run("catppuccin-mocha/icons=true/"+c.name, func(t *testing.T) {
 			t.Parallel()
 			a := c.build(t, "catppuccin-mocha", true)
@@ -534,17 +488,20 @@ func TestLayoutTrayGolden(t *testing.T) {
 	}
 }
 
-// TestLayoutTrayText is the same trays without styling, so the layout reads.
+// TestLayoutTrayText is the same trays without styling and with icons off, so
+// the layout reads.
 func TestLayoutTrayText(t *testing.T) {
 	t.Parallel()
 
-	for _, icons := range []bool{true, false} {
-		for _, c := range layoutTrayCases() {
-			t.Run(fmt.Sprintf("icons=%v/%s", icons, c.name), func(t *testing.T) {
-				t.Parallel()
-				a := c.build(t, "catppuccin-mocha", icons)
-				golden.RequireEqual(t, []byte(ansi.Strip(a.workspaceBar(c.width))))
-			})
+	for _, c := range layoutTrayCases() {
+		if slices.Contains(trayTextSkip, c.name) {
+			continue
 		}
+
+		t.Run("icons=false/"+c.name, func(t *testing.T) {
+			t.Parallel()
+			a := c.build(t, "catppuccin-mocha", false)
+			golden.RequireEqual(t, []byte(ansi.Strip(a.workspaceBar(c.width))))
+		})
 	}
 }

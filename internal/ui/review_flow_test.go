@@ -4,7 +4,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -34,7 +33,7 @@ func waitForText(t *testing.T, tm *teatest.TestModel, want string) {
 	t.Helper()
 
 	teatest.WaitFor(t, tm.Output(), func(out []byte) bool { return strings.Contains(ansi.Strip(string(out)), want) },
-		teatest.WithDuration(10*time.Second))
+		teatest.WithDuration(hangGuard))
 }
 
 // A drawer opened in a running program shows the worktree's diff, and a file
@@ -64,7 +63,7 @@ func TestReviewDrawerFlow(t *testing.T) {
 		t.Fatalf("Quit() error = %v", err)
 	}
 
-	final := tm.FinalModel(t, teatest.WithFinalTimeout(5*time.Second)).(drawerFlow)
+	final := tm.FinalModel(t, teatest.WithFinalTimeout(hangGuard)).(drawerFlow)
 	v := final.shown()
 
 	if v == nil || len(v.res.Files) != 1 || !v.loaded {

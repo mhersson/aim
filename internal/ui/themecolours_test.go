@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 
@@ -124,13 +125,57 @@ func sharedColours(a, b term.VT, w, h int) []string {
 	return shared
 }
 
+// colourScreens are the screens the colour check draws: icons on, every style
+// source of each area; icons off, one per area, since a no-icons fallback could
+// pick its own colour. Cases that draw the same styles at another size, pin or
+// width are left out.
+func colourScreens(icons bool) []string {
+	if !icons {
+		return []string{
+			"rail/cards", "review/unified", "chrome/scrolling-both-sides", "tray/bsp/pr-wide",
+			"picker/list", "frame-model/agent-model-hot", "shell",
+		}
+	}
+
+	var names []string
+
+	for _, n := range []string{
+		"cards", "focused-blocked-selected", "pulse-dim", "search-typing", "search-no-match", "toast-over-rail",
+		"no-hooks-selected", "palette", "overflow-70", "no-agents", "named", "metered", "prs", "ahead", "place", "plan",
+	} {
+		names = append(names, "rail/"+n)
+	}
+
+	for _, n := range []string{
+		"unified", "split", "full-file", "hidden-characters", "binary-and-truncated", "no-snapshot", "turn-past",
+		"empty", "sticky-header", "search-prompt", "pinned", "worktree-removed", "worktree-list", "pr", "pr-unpushed",
+		"pr-tree", "rendered", "md-page", "links", "reviewed", "wrapped", "unfocused", "narrow-tree-open",
+	} {
+		names = append(names, "review/"+n)
+	}
+
+	return append(names,
+		"chrome/scrolling-both-sides", "chrome/scrolling-search-prompt", "chrome/preselect-all-tags",
+		"tray/bsp/wide", "tray/bsp/pr-wide", "tray/bsp/pr-failed",
+		"picker/list", "picker/new-page", "frame-model/agent-model", "frame-model/agent-model-hot", "shell")
+}
+
 // TestScreensTakeTheirColoursFromTheTheme: a colour that does not change with
 // the theme does not come from it, and this check is why the goldens draw one theme.
 func TestScreensTakeTheirColoursFromTheTheme(t *testing.T) {
 	t.Parallel()
 
+	all := themedScreens()
+
 	for _, icons := range []bool{true, false} {
-		for _, s := range themedScreens() {
+		for _, name := range colourScreens(icons) {
+			i := slices.IndexFunc(all, func(s themedScreen) bool { return s.name == name })
+			if i < 0 {
+				t.Fatalf("no screen %q", name)
+			}
+
+			s := all[i]
+
 			t.Run(fmt.Sprintf("icons=%v/%s", icons, s.name), func(t *testing.T) {
 				t.Parallel()
 

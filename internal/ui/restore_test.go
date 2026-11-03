@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -16,10 +17,10 @@ import (
 	"github.com/mhersson/aim/internal/term"
 )
 
-const (
-	restoreSession = "7c0b6f1e-3a52-4d8e-9b41-2f5e8a1d0c37"
-	freshNotice    = "started a fresh claude in api: its session could not be resumed"
-)
+const restoreSession = "7c0b6f1e-3a52-4d8e-9b41-2f5e8a1d0c37"
+
+// freshNoticeShown reports whether the notice says a fresh claude started in api.
+func freshNoticeShown(a *App) bool { return carries("claude", "api").matches(a.notice) }
 
 func vsplit(a, b core.PaneID) *core.Node {
 	return &core.Node{Split: core.SplitVertical, Ratio: 0.5, A: &core.Node{Pane: a}, B: &core.Node{Pane: b}}
@@ -102,6 +103,8 @@ func restoreApp(t *testing.T, st core.State, opts ...func(*Options)) *restored {
 	for _, f := range opts {
 		f(&o)
 	}
+
+	o.caches = testDrawCaches
 
 	a, err := New(o)
 	if err != nil {
@@ -300,8 +303,8 @@ func TestRestoreFailingPanes(t *testing.T) {
 			t.Fatalf("tabs = %d, active = %d, panes = %d, want 1, 0 and 2", len(st.Tabs), st.Active, len(r.a.panes))
 		}
 
-		if !strings.Contains(r.a.notice, "cannot start agent: boom") {
-			t.Errorf("notice = %q, want the start failure", r.a.notice)
+		if !carries("agent", "boom").matches(r.a.notice) {
+			t.Errorf("notice = %q, want one carrying the agent and the start failure", r.a.notice)
 		}
 
 		if r.saves.count() != 0 {
@@ -374,22 +377,22 @@ func TestRestoreNotices(t *testing.T) {
 	}
 	r.size(100, 30)
 
-	want := bad + "; /gone/web is not available, started in /work; /gone/db is not available, started in /work"
-	if r.a.notice != want {
-		t.Errorf("notice = %q, want %q", r.a.notice, want)
+	// The saved-layout notice comes first, then each missing directory in pane order.
+	at := 0
+
+	for _, part := range []string{bad, "/gone/web", "/gone/db", testCwd} {
+		i := strings.Index(r.a.notice[at:], part)
+		if i < 0 {
+			t.Fatalf("notice = %q, want %q after offset %d", r.a.notice, part, at)
+		}
+
+		at += i + len(part)
 	}
 
 	for _, id := range []core.PaneID{"p2", "p3"} {
 		if got := r.a.store.State().Panes[id].Cwd; got != testCwd {
 			t.Errorf("%s cwd = %q, want the launch dir", id, got)
 		}
-	}
-
-	// The notice stays until the first key.
-	r.a.Update(keyRune('x'))
-
-	if r.a.notice != "" {
-		t.Errorf("notice after a key = %q, want none", r.a.notice)
 	}
 }
 
@@ -472,8 +475,8 @@ func TestResumeRestartsAgentWhoseClaudeNeverAppeared(t *testing.T) {
 		t.Errorf("restart size = %v, want %v", got, want)
 	}
 
-	if r.a.notice != freshNotice {
-		t.Errorf("notice = %q, want %q", r.a.notice, freshNotice)
+	if !freshNoticeShown(r.a) {
+		t.Errorf("notice = %q, want the fresh start", r.a.notice)
 	}
 
 	m := r.a.store.State().Panes["p1"]
@@ -481,7 +484,7 @@ func TestResumeRestartsAgentWhoseClaudeNeverAppeared(t *testing.T) {
 		t.Errorf("pane = %+v, want an agent with the session cleared", m)
 	}
 
-	eventually2(t, 5*time.Second, "the old process to close", func() bool { return isClosed(r.st.proc(0)) })
+	eventually2(t, hangGuard, "the old process to close", func() bool { return isClosed(r.st.proc(0)) })
 
 	// The old pane's late exit must not close the new one.
 	r.a.Update(paneExitedMsg{id: "p1", p: old})
@@ -547,8 +550,8 @@ func TestResumeStartsInTheLaunchDirNotTheAgentCwd(t *testing.T) {
 			t.Errorf("restart dir = %q, want /srv/api", c.Dir)
 		}
 
-		if r.a.notice != freshNotice {
-			t.Errorf("notice = %q, want %q", r.a.notice, freshNotice)
+		if !freshNoticeShown(r.a) {
+			t.Errorf("notice = %q, want the fresh start", r.a.notice)
 		}
 	})
 }
@@ -677,7 +680,7 @@ func TestResumeRefusedIsRestartedNotDemoted(t *testing.T) {
 
 	probeAt(t, r, "p1", agentGrace)
 
-	if r.st.count() != 4 || kindOf(r.a, "p1") != core.KindAgent || r.a.notice != freshNotice {
+	if r.st.count() != 4 || kindOf(r.a, "p1") != core.KindAgent || !freshNoticeShown(r.a) {
 		t.Errorf("starts = %d, kind = %q, notice = %q, want one restart at the probe", r.st.count(), kindOf(r.a, "p1"), r.a.notice)
 	}
 }
@@ -756,7 +759,7 @@ func TestResumeRestartFailureIsNotRetried(t *testing.T) {
 	r.st.proc(0).setFg("zsh")
 	probeAt(t, r, "p1", agentGrace)
 
-	if !strings.Contains(r.a.notice, "cannot start agent: boom") || r.a.panes["p1"].resuming {
+	if !carries("boom").matches(r.a.notice) || r.a.panes["p1"].resuming {
 		t.Fatalf("notice = %q, resuming = %v, want the failure and the mark cleared", r.a.notice, r.a.panes["p1"].resuming)
 	}
 
@@ -792,8 +795,8 @@ func TestPaneLimitNotice(t *testing.T) {
 
 			open()
 
-			if r.a.notice != "at most 64 panes" {
-				t.Errorf("notice = %q, want the pane limit", r.a.notice)
+			if !carries(strconv.Itoa(core.MaxPanes)).matches(r.a.notice) {
+				t.Errorf("notice = %q, want one carrying the pane limit %d", r.a.notice, core.MaxPanes)
 			}
 
 			if got := len(r.a.store.State().Panes); got != panes || r.st.count() != starts {

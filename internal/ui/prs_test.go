@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -404,8 +405,8 @@ func TestPollErrorIsShownOnce(t *testing.T) {
 
 	p.step(errSnapshot(boom))
 
-	if want := "pull requests for github.com/o/r: boom"; p.notice != want {
-		t.Fatalf("notice = %q, want %q", p.notice, want)
+	if !carries(prRepoKey, "boom").matches(p.notice) || p.noticeLevel() != levelNotice {
+		t.Fatalf("notice = %q at level %v, want one carrying %s and boom", p.notice, p.noticeLevel(), prRepoKey)
 	}
 
 	got := p.store.State().PRs[prRepoKey]
@@ -424,8 +425,8 @@ func TestPollErrorIsShownOnce(t *testing.T) {
 	// Another error is.
 	p.step(errSnapshot(errors.New("bang")))
 
-	if want := "pull requests for github.com/o/r: bang"; p.notice != want {
-		t.Errorf("notice = %q, want %q", p.notice, want)
+	if !carries(prRepoKey, "bang").matches(p.notice) {
+		t.Errorf("notice = %q, want one carrying %s and bang", p.notice, prRepoKey)
 	}
 
 	// A recovery clears the error, and a later failure is shown again.
@@ -453,8 +454,13 @@ func TestMissingTokenShowsTheBackendsReason(t *testing.T) {
 
 	p.step(errSnapshot(noToken))
 
-	if want := "pull requests for github.com/o/r: run gh auth login --hostname github.com"; p.notice != want {
-		t.Errorf("notice = %q, want %q", p.notice, want)
+	reason := prReason(noToken)
+	if got := p.store.State().PRs[prRepoKey].Err; got != reason || !strings.Contains(reason, "gh auth login") {
+		t.Errorf("Err = %q, want the backend's reason %q", got, reason)
+	}
+
+	if !carries(prRepoKey, reason).matches(p.notice) {
+		t.Errorf("notice = %q, want one carrying %s and %q", p.notice, prRepoKey, reason)
 	}
 }
 
@@ -465,8 +471,14 @@ func TestPollErrorReasonIsOneCleanLine(t *testing.T) {
 
 	p.step(errSnapshot(errors.New("bad\x1b[31m\nreply")))
 
-	if want := "pull requests for github.com/o/r: bad[31mreply"; p.notice != want {
-		t.Errorf("notice = %q, want %q", p.notice, want)
+	const reason = "bad[31mreply"
+
+	if got := p.store.State().PRs[prRepoKey].Err; got != reason {
+		t.Errorf("Err = %q, want %q", got, reason)
+	}
+
+	if !carries(prRepoKey, reason).matches(p.notice) || strings.ContainsAny(p.notice, "\x1b\n") {
+		t.Errorf("notice = %q, want one carrying %s and %q with no ESC or newline", p.notice, prRepoKey, reason)
 	}
 }
 
@@ -887,7 +899,7 @@ func TestPollerAndResolverEndWithTheApp(t *testing.T) {
 			if m != nil {
 				t.Errorf("waitPRs returned %v after the app closed, want nothing", m)
 			}
-		case <-time.After(5 * time.Second):
+		case <-time.After(hangGuard):
 			t.Fatal("waitPRs still waits after the app closed")
 		}
 	})
@@ -943,7 +955,7 @@ func TestPollerAndResolverEndWithTheApp(t *testing.T) {
 			if got, ok := m.(prResolvedMsg); !ok || !errors.Is(got.err, context.Canceled) {
 				t.Errorf("the resolution returned %+v, want a cancelled one", m)
 			}
-		case <-time.After(5 * time.Second):
+		case <-time.After(hangGuard):
 			t.Fatal("the resolution outlived the app's context")
 		}
 	})
@@ -970,7 +982,7 @@ func TestPollerAndResolverEndWithTheApp(t *testing.T) {
 			if got, ok := m.(prBranchMsg); !ok || !errors.Is(got.err, context.Canceled) {
 				t.Errorf("the lookup returned %+v, want a cancelled one", m)
 			}
-		case <-time.After(5 * time.Second):
+		case <-time.After(hangGuard):
 			t.Fatal("the lookup outlived the app's context")
 		}
 	})

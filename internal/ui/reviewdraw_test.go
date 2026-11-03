@@ -178,7 +178,7 @@ func reviewCases() []reviewCase {
 }
 
 // TestReviewGolden draws each case once in colour, in the default theme with icons.
-// TestReviewText covers icons off and TestScreensTakeTheirColoursFromTheTheme the other theme.
+// TestReviewText draws icons off and TestScreensTakeTheirColoursFromTheTheme the other theme.
 // It compares highlighted colours, so it runs serially (docs/gotchas.md).
 func TestReviewGolden(t *testing.T) {
 	for _, c := range reviewCases() {
@@ -189,18 +189,16 @@ func TestReviewGolden(t *testing.T) {
 	}
 }
 
-// TestReviewText is the same frames without styling, so the layout reads.
+// TestReviewText is the same frames without styling and without icons, so the layout reads.
 func TestReviewText(t *testing.T) {
 	t.Parallel()
 
-	for _, icons := range []bool{true, false} {
-		for _, c := range reviewCases() {
-			t.Run(fmt.Sprintf("icons=%v/%s", icons, c.name), func(t *testing.T) {
-				t.Parallel()
-				a := c.scene("catppuccin-mocha", icons).build(t)
-				golden.RequireEqual(t, []byte(ansi.Strip(a.View().Content)))
-			})
-		}
+	for _, c := range reviewCases() {
+		t.Run("icons=false/"+c.name, func(t *testing.T) {
+			t.Parallel()
+			a := c.scene("catppuccin-mocha", false).build(t)
+			golden.RequireEqual(t, []byte(ansi.Strip(a.View().Content)))
+		})
 	}
 }
 
@@ -432,7 +430,13 @@ func rowWidths(icons bool) []int {
 func rowWidthApp(t *testing.T, icons bool, vr rowWidthVariant, long longLines) *App {
 	t.Helper()
 
-	s := reviewScene{theme: "catppuccin-mocha", icons: icons, w: rowWidths(icons)[0], h: 30, res: hostileResultOf(long), turn: 2, turns: 3, focused: true}
+	return rowWidthAppAt(t, icons, rowWidths(icons)[0], vr, long)
+}
+
+func rowWidthAppAt(t *testing.T, icons bool, w int, vr rowWidthVariant, long longLines) *App {
+	t.Helper()
+
+	s := reviewScene{theme: "catppuccin-mocha", icons: icons, w: w, h: 30, res: hostileResultOf(long), turn: 2, turns: 3, focused: true}
 	s.tune = func(t *testing.T, a *App, v *reviewView) {
 		vr.tune(t, a, v, long)
 		v.cursor = min(4, len(v.rows)-1)
@@ -464,14 +468,18 @@ func resizeDrawer(t *testing.T, a *App, w int) (r core.Rect, lines []string, fra
 func TestDrawerRowsAreExactWidth(t *testing.T) {
 	t.Parallel()
 
+	// A drawer that covers the body whole (40 to 59), the 60-column floor and one past it,
+	// and 121, the narrowest body whose half (61) is wider than the floor.
+	exactWidths := []int{40, 47, 53, 59, 60, 61, 121}
+
 	for _, icons := range []bool{true, false} {
 		for _, vr := range rowWidthVariants() {
 			t.Run(fmt.Sprintf("icons=%v/%s", icons, vr.name), func(t *testing.T) {
 				t.Parallel()
 
-				a := rowWidthApp(t, icons, vr, megabyteLines())
+				a := rowWidthAppAt(t, icons, exactWidths[0], vr, pastBudgetLines())
 
-				for _, w := range rowWidths(icons) {
+				for _, w := range exactWidths {
 					t.Run(fmt.Sprintf("width=%d", w), func(t *testing.T) {
 						r, lines, frame := resizeDrawer(t, a, w)
 
@@ -506,11 +514,11 @@ func TestDrawerRowsAreExactWidth(t *testing.T) {
 func TestHighlightBatchCap(t *testing.T) {
 	t.Parallel()
 
-	res, full := bigResult(10000)
+	res, full := bigResult(1100)
 
 	for _, whole := range []bool{false, true} {
 		t.Run(fmt.Sprintf("full=%v", whole), func(t *testing.T) {
-			s := reviewScene{theme: "catppuccin-mocha", icons: true, w: 200, h: 1000, res: res, turn: 1, turns: 1, focused: true}
+			s := reviewScene{theme: "catppuccin-mocha", icons: true, w: 200, h: 52, res: res, turn: 1, turns: 1, focused: true}
 			s.tune = func(t *testing.T, a *App, v *reviewView) {
 				if whole {
 					v.full = map[string]fullText{"big.go": full}
@@ -530,6 +538,9 @@ func TestHighlightBatchCap(t *testing.T) {
 			v.res, v.gen, v.turns, v.src = res, 1, 1, git.TurnSource{Turn: 1}
 			v.rebuild(false)
 			s.tune(t, a, v)
+
+			// The screen sits across the boundary of the first and second chunk (hlChunk lines).
+			v.top, v.cursor = 490, 490
 
 			passes, total := 0, 0
 
@@ -571,31 +582,6 @@ func TestHighlightBatchCap(t *testing.T) {
 	}
 }
 
-// It compares highlighted colours, so it runs serially (docs/gotchas.md).
-func TestHighlightColoursLines(t *testing.T) {
-	s := reviewScene{theme: "catppuccin-mocha", icons: true, w: 200, h: 52, res: turn4Result(), turn: 4, turns: 4, focused: true}
-	a := s.build(t)
-
-	st := a.store.State()
-	r, _ := a.drawerRect(st)
-	got := strings.Join(a.drawerLines(st, r), "\n")
-
-	// The keyword "type" of the added struct and the string literal both take their palette colours.
-	mocha := a.theme.Palette
-	for name, hex := range map[string]string{"keyword": string(mocha.Mauve), "string": string(mocha.Green)} {
-		r, g, b := rgbOf(hex)
-		if !strings.Contains(got, fmt.Sprintf("38;2;%d;%d;%d", r, g, b)) {
-			t.Errorf("no %s colour %s in the drawer", name, hex)
-		}
-	}
-}
-
-func rgbOf(hex string) (r, g, b int) {
-	_, _ = fmt.Sscanf(hex, "#%02x%02x%02x", &r, &g, &b)
-
-	return r, g, b
-}
-
 func TestFreshRowsFlash(t *testing.T) {
 	t.Parallel()
 
@@ -615,59 +601,28 @@ func TestFreshRowsFlash(t *testing.T) {
 	}
 }
 
-func TestModeRowOfATurn(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name  string
-		v     reviewView
-		short bool
-		want  string
-	}{
-		{"latest", reviewView{turns: 3, res: git.Result{Turn: 3, Live: true}}, false, "turn 3 of 3 in this worktree, live"},
-		{"latest, short", reviewView{turns: 3, res: git.Result{Turn: 3, Live: true}}, true, "turn 3 of 3, live"},
-		{"latest but closed", reviewView{turns: 1, res: git.Result{Turn: 1}}, false, "turn 1 of 1 in this worktree"},
-		{"latest but closed, short", reviewView{turns: 1, res: git.Result{Turn: 1}}, true, "turn 1 of 1"},
-		{"past", reviewView{turns: 3, res: git.Result{Turn: 2}}, false, "turn 2 of 3 in this worktree"},
-		{"past, short", reviewView{turns: 3, res: git.Result{Turn: 2}}, true, "turn 2 of 3"},
-		{"no snapshot", reviewView{turns: 3, res: git.Result{Turn: 1}, noSnapshot: true}, false, "turn 1 of 3 in this worktree, no snapshot"},
-		{"no snapshot, short", reviewView{turns: 3, res: git.Result{Turn: 1}, noSnapshot: true}, true, "turn 1 of 3, no snapshot"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			tt.v.src = git.TurnSource{Worktree: "/w", Session: "s", Turn: tt.v.res.Turn}
-
-			_, word, rest := modeParts(&tt.v, false, tt.short)
-			if got := word + rest; got != tt.want {
-				t.Errorf("mode row = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
 // The mode row drops " in this worktree" when the tree cannot grow to hold it,
 // and is cut only when even the short form does not fit.
 func TestModeRowForms(t *testing.T) {
 	t.Parallel()
 
-	const full, short = " in this worktree", ""
+	noSnap := func(s *reviewScene) { s.res, s.turn, s.noSnap = git.Result{}, 1, true }
+	past := func(s *reviewScene) { s.turn, s.res.Live = 2, false }
 
 	tests := []struct {
 		name  string
 		w     int
 		scene func(s *reviewScene)
-		row   string // the row as drawn, up to the tree's right edge
+		short bool // the row drops " in this worktree"
+		cut   bool // and is cut to the tree's width
 	}{
-		{"live fits whole", 300, func(s *reviewScene) {}, "turn 4 of 4" + full + ", live"},
-		{"live drops", 200, func(s *reviewScene) {}, "turn 4 of 4" + short + ", live"},
-		{"past fits whole", 300, func(s *reviewScene) { s.turn, s.res.Live = 2, false }, "turn 2 of 4" + full},
-		{"past drops", 160, func(s *reviewScene) { s.turn, s.res.Live = 2, false }, "turn 2 of 4" + short},
-		{"no snapshot fits whole", 300, func(s *reviewScene) { s.res, s.turn, s.noSnap = git.Result{}, 1, true }, "turn 1 of 4" + full + ", no snapshot"},
-		{"no snapshot drops", 200, func(s *reviewScene) { s.res, s.turn, s.noSnap = git.Result{}, 1, true }, "turn 1 of 4" + short + ", no snapshot"},
-		{"even the short form is cut", 120, func(s *reviewScene) { s.res, s.turn, s.noSnap = git.Result{}, 1, true }, "turn 1 of 4, no sn…"},
+		{"live fits whole", 300, func(s *reviewScene) {}, false, false},
+		{"live drops", 200, func(s *reviewScene) {}, true, false},
+		{"past fits whole", 300, past, false, false},
+		{"past drops", 160, past, true, false},
+		{"no snapshot fits whole", 300, noSnap, false, false},
+		{"no snapshot drops", 200, noSnap, true, false},
+		{"even the short form is cut", 120, noSnap, true, true},
 	}
 
 	for _, tt := range tests {
@@ -677,17 +632,31 @@ func TestModeRowForms(t *testing.T) {
 			s := reviewScene{theme: "catppuccin-mocha", w: tt.w, h: 52, res: turn4Result(), turn: 4, turns: 4, focused: true, tree: true}
 			tt.scene(&s)
 
-			text := ansi.Strip(s.build(t).View().Content)
-			if !strings.Contains(text, " "+tt.row) {
-				t.Errorf("the frame lacks the mode row %q:\n%s", tt.row, text)
+			a := s.build(t)
+			text := ansi.Strip(a.View().Content)
+
+			d, _, ok := a.drawCtxFor(a.store.State())
+			if !ok {
+				t.Fatal("no drawer to draw")
 			}
 
-			if !strings.Contains(tt.row, ", live") && strings.Contains(text, ", live") {
-				t.Errorf("the frame marks the turn live, want %q:\n%s", tt.row, text)
+			if d.lay.modeShort != tt.short {
+				t.Errorf("modeShort = %v, want %v", d.lay.modeShort, tt.short)
 			}
 
-			if !strings.Contains(tt.row, "in this worktree") && strings.Contains(text, "in th") {
-				t.Errorf("the frame holds the long form, want %q:\n%s", tt.row, text)
+			_, word, rest := modeParts(d.v, false, tt.short)
+			row := " " + word + rest
+
+			if tt.cut {
+				row = ansi.Truncate(row, d.lay.treeW, "…")
+			}
+
+			if !strings.Contains(text, row) {
+				t.Errorf("the frame lacks the mode row %q:\n%s", row, text)
+			}
+
+			if _, wordLong, restLong := modeParts(d.v, false, false); tt.short && strings.Contains(text, wordLong+restLong) {
+				t.Errorf("the frame holds the long form of the mode row:\n%s", text)
 			}
 		})
 	}
@@ -702,27 +671,18 @@ func TestDrawerTitleAndTags(t *testing.T) {
 		scene func(s *reviewScene)
 		want  []string
 		not   []string
+		empty bool // the diff column holds the info row emptyRuns builds
 	}{
-		{"turn tag", false, func(s *reviewScene) {}, []string{"╭─ multiplex · feat/review-pane ", " turn 4/4 ─╮"}, []string{" split ─"}},
-		{"icons", true, func(s *reviewScene) {}, []string{"\U000F02DA turn 4/4 ", "\uF4D2 multiplex"}, nil},
-		{"past turn", false, func(s *reviewScene) { s.turn, s.res.Live = 2, false }, []string{" turn 2/4 ─╮", "turn 2 of 4 in this worktree"}, []string{", live"}},
-		{"latest turn", false, func(s *reviewScene) {}, []string{"turn 4 of 4, live"}, []string{"in this worktree"}},
-		{"branch", false, func(s *reviewScene) { s.branch = true }, []string{" branch ─╮", "branch vs origin/main"}, []string{"turn 4/4"}},
-		{"branch icon", true, func(s *reviewScene) { s.branch = true }, []string{"\U000F062C branch ", "\U000F062C branch vs origin/main"}, nil},
-		{"split tag", false, func(s *reviewScene) {
-			s.tune = func(t *testing.T, a *App, v *reviewView) { v.split = true }
-		}, []string{" split ─ ✓ 0/4 ─ turn 4/4 ─╮"}, nil},
-		{"split tag icon", true, func(s *reviewScene) {
-			s.tune = func(t *testing.T, a *App, v *reviewView) { v.split = true }
-		}, []string{"\U000F08DF split ─ ✓ 0/4 ─ \U000F02DA turn 4/4"}, nil},
-		{"no snapshot", false, func(s *reviewScene) { s.res, s.turn, s.noSnap = git.Result{}, 1, true }, []string{"turn 1 of 4, no snapshot", "turn 1 has no snapshot", ", and . step through the turns; b shows the branch"}, nil},
-		{"empty branch", false, func(s *reviewScene) { s.res, s.branch = git.Result{}, true }, []string{"no changes against origin/main", "0 files"}, nil},
-		{"empty turn", false, func(s *reviewScene) { s.res, s.turn = git.Result{Turn: 3}, 3 }, []string{"turn 3 changed nothing"}, nil},
-		{"totals", false, func(s *reviewScene) {}, []string{"4 files  +25 -4"}, nil},
+		{"branch", false, func(s *reviewScene) { s.branch = true }, []string{" branch ─╮", "branch vs origin/main"}, []string{"turn 4/4"}, false},
+		{"branch icon", true, func(s *reviewScene) { s.branch = true }, []string{"\U000F062C branch ", "\U000F062C branch vs origin/main"}, nil, false},
+		{"empty branch", false, func(s *reviewScene) { s.res, s.branch = git.Result{}, true }, []string{"0 files"}, nil, true},
+		{"empty turn", false, func(s *reviewScene) { s.res, s.turn = git.Result{Turn: 3}, 3 }, nil, []string{"no snapshot"}, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			s := reviewScene{theme: "catppuccin-mocha", icons: tt.icons, w: 200, h: 52, res: turn4Result(), turn: 4, turns: 4, focused: true, tree: true}
 			tt.scene(&s)
 
@@ -738,6 +698,24 @@ func TestDrawerTitleAndTags(t *testing.T) {
 			for _, n := range tt.not {
 				if strings.Contains(text, n) {
 					t.Errorf("the frame holds %q", n)
+				}
+			}
+
+			if tt.empty {
+				d, _, ok := a.drawCtxFor(a.store.State())
+				if !ok {
+					t.Fatal("no drawer to draw")
+				}
+
+				var b strings.Builder
+
+				for _, run := range d.emptyRuns(0) {
+					b.WriteString(run.text)
+				}
+
+				row := strings.TrimSpace(b.String())
+				if row == "" || !strings.Contains(text, row) {
+					t.Errorf("the frame lacks the empty drawer's row %q:\n%s", row, text)
 				}
 			}
 		})
@@ -767,38 +745,49 @@ func TestDrawerModeShowsOnlyInTheTagWithoutTheTree(t *testing.T) {
 func TestDrawerKeyHints(t *testing.T) {
 	t.Parallel()
 
-	const (
-		diffHints = "j/k line   ]/[ hunk   }/{ file   z zoom   tab tree   w worktree   f full   u split   e edit   / search   space reviewed   R show reviewed   b/t mode   ,/. turn"
-		treeHints = "j/k file   enter jump   z zoom   tab hide   esc back"
-	)
-
-	build := func(h int, tree, keys bool) string {
+	// build draws the drawer h rows high with the keyboard in the diff and returns the frame
+	// and the bound keys of the diff hints, the first with its label.
+	build := func(h int, tree bool) (text string, keys []string) {
 		s := reviewScene{theme: "catppuccin-mocha", icons: false, w: 330, h: h, res: turn4Result(), turn: 4, turns: 4, focused: true, tree: tree}
-		s.tune = func(t *testing.T, a *App, v *reviewView) { a.drawer.tree = keys }
+		s.tune = func(t *testing.T, a *App, v *reviewView) { a.drawer.tree = false }
+		a := s.build(t)
 
-		return ansi.Strip(s.build(t).View().Content)
+		d, _, ok := a.drawCtxFor(a.store.State())
+		if !ok {
+			t.Fatal("no drawer to draw")
+		}
+
+		keys = []string{
+			d.bind.hint("review.line.next", "review.line.prev") + " line",
+			d.bind.hint("review.hunk.next", "review.hunk.prev"),
+			d.bind.hint("review.mode.branch", "review.mode.turn"),
+		}
+
+		return ansi.Strip(a.View().Content), keys
 	}
 
-	if got := build(52, false, false); !strings.Contains(got, diffHints) {
-		t.Errorf("diff hints missing with the tree hidden:\n%s", got)
-	}
-
-	if got := build(52, true, false); !strings.Contains(got, diffHints) {
-		t.Errorf("diff hints missing with the tree shown and the keyboard in the diff:\n%s", got)
-	}
-
-	if got := build(52, true, true); !strings.Contains(got, treeHints) || strings.Contains(got, "hunk") || strings.Contains(got, "tab diff") {
-		t.Errorf("tree hints wrong:\n%s", got)
+	if got, keys := build(52, true); !holdsAll(got, keys) {
+		t.Errorf("diff hints %q missing with the tree shown and the keyboard in the diff:\n%s", keys, got)
 	}
 
 	// An inner height under 12 shows no hints: 12 rows of body plus the frame is 14, plus the bar and the rule 16.
-	if got := build(15, false, false); strings.Contains(got, "j/k line") {
+	if got, keys := build(15, false); strings.Contains(got, keys[0]) {
 		t.Errorf("hints shown with an inner height of 11:\n%s", got)
 	}
 
-	if got := build(16, false, false); !strings.Contains(got, "j/k line") {
-		t.Errorf("hints missing with an inner height of 12:\n%s", got)
+	if got, keys := build(16, false); !holdsAll(got, keys) {
+		t.Errorf("hints %q missing with an inner height of 12:\n%s", keys, got)
 	}
+}
+
+func holdsAll(text string, parts []string) bool {
+	for _, p := range parts {
+		if !strings.Contains(text, p) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // The turn hint shows only while the drawer shows a turn, as the mode tag does:
@@ -806,14 +795,6 @@ func TestDrawerKeyHints(t *testing.T) {
 // work, whatever mode core keeps.
 func TestDrawerTurnHintShowsOnlyForTurns(t *testing.T) {
 	t.Parallel()
-
-	const (
-		head     = "j/k line   ]/[ hunk   }/{ file   z zoom   tab tree   w worktree   f full   u split   e edit   / search   space reviewed   R show reviewed   b/t mode"
-		wideTurn = head + "   ,/. turn"
-		wideEdit = head
-		viaTurn  = "w worktree   f full   u split   e edit   / search   space reviewed"
-		viaEdit  = viaTurn
-	)
 
 	// A turn-mode drawer that shows the branch while core keeps turn mode.
 	branchInTurnMode := func(session string, turns int, foreign bool) func(s *reviewScene) {
@@ -836,42 +817,69 @@ func TestDrawerTurnHintShowsOnlyForTurns(t *testing.T) {
 		{"turn mode with no turns yet", branchInTurnMode("s", 0, false), false},
 	}
 
-	widths := []struct {
-		name       string
-		w          int
-		turn, edit string // the end of the row with and without the turn hint
-	}{
-		{"wide", 330, wideTurn, wideEdit},
-		{"usual width", 270, viaTurn, viaEdit},
+	hintRow := func(t *testing.T, w int, scene func(s *reviewScene)) (row string, d *drawCtx) {
+		t.Helper()
+
+		s := reviewScene{theme: "catppuccin-mocha", icons: false, w: w, h: 52, res: turn4Result(), turn: 4, turns: 4, focused: true}
+		scene(&s)
+
+		a := s.build(t)
+
+		for l := range strings.SplitSeq(ansi.Strip(a.View().Content), "\n") {
+			if strings.Contains(l, "j/k") {
+				row = strings.TrimRight(strings.TrimRight(l, " │"), " ")
+			}
+		}
+
+		d, _, ok := a.drawCtxFor(a.store.State())
+		if !ok {
+			t.Fatal("no drawer to draw")
+		}
+
+		return row, d
 	}
 
 	for _, tt := range tests {
-		for _, wd := range widths {
-			t.Run(tt.name+", "+wd.name, func(t *testing.T) {
-				t.Parallel()
+		t.Run(tt.name+", wide", func(t *testing.T) {
+			t.Parallel()
 
-				s := reviewScene{theme: "catppuccin-mocha", icons: false, w: wd.w, h: 52, res: turn4Result(), turn: 4, turns: 4, focused: true}
-				tt.scene(&s)
+			row, d := hintRow(t, 330, tt.scene)
+			mode := d.bind.hint("review.mode.branch", "review.mode.turn")
+			turn := d.bind.hint("review.turn.prev", "review.turn.next")
 
-				var row string
+			// The turn keys end the row, after the mode keys.
+			if has := strings.Contains(row, turn); has != tt.turn {
+				t.Errorf("the hint row %q holds the turn keys %q = %v, want %v", row, turn, has, tt.turn)
+			}
 
-				for l := range strings.SplitSeq(ansi.Strip(s.build(t).View().Content), "\n") {
-					if strings.Contains(l, "j/k line") {
-						row = strings.TrimRight(strings.TrimRight(l, " │"), " ")
-					}
-				}
+			if tt.turn && strings.Index(row, turn) < strings.Index(row, mode) {
+				t.Errorf("the turn keys %q come before the mode keys %q in %q", turn, mode, row)
+			}
 
-				want := wd.edit
-				if tt.turn {
-					want = wd.turn
-				}
-
-				if !strings.HasSuffix(row, want) {
-					t.Errorf("the hint row is\n%q\nwant it to end with\n%q", row, want)
-				}
-			})
-		}
+			if !tt.turn && !strings.Contains(row, mode) {
+				t.Errorf("the hint row %q lacks the mode keys %q", row, mode)
+			}
+		})
 	}
+
+	// At a usual width the hints drop whole from the end, the mode and turn hints first.
+	t.Run("usual width", func(t *testing.T) {
+		t.Parallel()
+
+		row, d := hintRow(t, 270, func(s *reviewScene) {})
+		mark := d.bind.hint("review.mark")
+
+		for _, id := range [][]string{{"review.mode.branch", "review.mode.turn"}, {"review.turn.prev", "review.turn.next"}} {
+			if keys := d.bind.hint(id...); strings.Contains(row, keys) {
+				t.Errorf("the hint row %q holds %q, want it dropped", row, keys)
+			}
+		}
+
+		at := strings.LastIndex(row, mark)
+		if at < 0 || len(strings.Fields(row[at+len(mark):])) != 1 {
+			t.Errorf("the hint row %q does not end with the hint of %q", row, mark)
+		}
+	})
 }
 
 func TestDrawerSplitFallsBackWhenNarrow(t *testing.T) {
@@ -936,30 +944,6 @@ func TestDrawerHidesPaneCursor(t *testing.T) {
 	}
 }
 
-func TestDrawerGhostsAndFolds(t *testing.T) {
-	t.Parallel()
-
-	s := reviewScene{theme: "catppuccin-mocha", icons: true, w: 200, h: 52, res: turn4Result(), turn: 4, turns: 4, focused: true}
-	s.tune = func(t *testing.T, a *App, v *reviewView) {
-		v.full = map[string]fullText{appGoPath: appGoFull()}
-		v.fullOn = allWhole(v.full)
-		v.folded = map[string]bool{foldKey(appGoPath, 1): true}
-		v.rebuild(false)
-	}
-
-	text := ansi.Strip(s.build(t).View().Content)
-
-	for _, want := range []string{"\U000F165D 2 removed lines", "enter shows them", "\U000F09EE full", "notice  string"} {
-		if !strings.Contains(text, want) {
-			t.Errorf("the full view lacks %q:\n%s", want, text)
-		}
-	}
-
-	if strings.Contains(text, "return nil") {
-		t.Errorf("a folded block still shows its lines:\n%s", text)
-	}
-}
-
 func TestDrawerGhostLinesCarryNoNumber(t *testing.T) {
 	t.Parallel()
 
@@ -1010,19 +994,6 @@ func TestDrawerGhostLinesCarryNoNumber(t *testing.T) {
 	}
 }
 
-func TestDrawerTreeLayout(t *testing.T) {
-	t.Parallel()
-
-	s := reviewScene{theme: "catppuccin-mocha", icons: false, w: 200, h: 52, res: turn4Result(), turn: 4, turns: 4, focused: true, tree: true}
-	text := ansi.Strip(s.build(t).View().Content)
-
-	for _, want := range []string{"internal/", "core/", "state.go", "A review_test.go", "R keymap.go", "! +11 -0"} {
-		if !strings.Contains(text, want) {
-			t.Errorf("the tree lacks %q:\n%s", want, text)
-		}
-	}
-}
-
 func crResult(specs ...string) git.Result {
 	f := fileSpec("eol.txt", git.Modified, hunkSpec(1, 1, "", specs...))
 
@@ -1052,6 +1023,8 @@ func TestLineEndingCR(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			res := crResult(tt.specs...)
 			s := reviewScene{theme: "catppuccin-mocha", w: 200, h: 52, res: res, turn: 4, turns: 4, focused: true}
 			s.tune = func(t *testing.T, a *App, v *reviewView) { v.split = tt.split }

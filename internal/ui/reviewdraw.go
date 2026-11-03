@@ -250,10 +250,7 @@ func (d *drawCtx) glyph(icon string) string {
 // building them once per theme.
 func (a *App) diffThemes(lk look) (*diffview.Theme, *diffview.Theme) {
 	if a.drawer.dv == nil || a.drawer.dvName != lk.theme.Name {
-		pal := reviewPalette(lk.theme)
-		a.drawer.dv = diffview.NewTheme(pal)
-		pal.Ground = diffview.MixColors(pal.Ground, lk.theme.UI.Match, tintFlash)
-		a.drawer.dvFlash = diffview.NewTheme(pal)
+		a.drawer.dv, a.drawer.dvFlash = a.drawer.caches.diffThemes(lk)
 		a.drawer.dvName = lk.theme.Name
 	}
 

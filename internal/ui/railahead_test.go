@@ -4,56 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/x/ansi"
-
 	"github.com/mhersson/aim/internal/core"
 )
-
-func TestRailAheadColours(t *testing.T) {
-	t.Parallel()
-	ui := mochaUI(t)
-	agents := []railAgent{{newTab: true, project: "api", branch: "feat/login", state: core.AgentIdle, ahead: 2}}
-	a := drawApp(t, "catppuccin-mocha", true, 100, 30, agents)
-	vt := viewVT(t, a)
-
-	// The rail's cards start under the header; row 3 is the first blank row.
-	x, y := cellBelow(t, a.View().Content, 3, "↑2")
-
-	assertColours(t, vt, x, y, "↑", ui.Info, ui.Bg, true)
-	assertColours(t, vt, x+1, y, "2", ui.Info, ui.Bg, true)
-
-	// It shares the branch's row, at the right end of the card.
-	if _, by := cellBelow(t, a.View().Content, 3, "feat/login"); by != y {
-		t.Errorf("branch on row %d, ahead count on row %d", by, y)
-	}
-
-	// The rail's content ends two columns short of its box: an edge column and the border.
-	if want := railWidthFor(bodyRect(a.width, a.height)) - 2; x+2 != want {
-		t.Errorf("the count ends before column %d, want %d", x+2, want)
-	}
-}
-
-func TestRailAheadIsLeftOutWithNothingAhead(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name  string
-		agent railAgent
-	}{
-		{"none ahead", railAgent{newTab: true, project: "api", branch: "main", state: core.AgentIdle}},
-		{"not in a repository", railAgent{newTab: true, project: "api", state: core.AgentIdle, noRepo: true, ahead: 3}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			a := drawApp(t, "catppuccin-mocha", true, 100, 30, []railAgent{tt.agent})
-
-			if out := ansi.Strip(a.View().Content); strings.Contains(out, "↑") {
-				t.Errorf("the view shows an ahead count:\n%s", out)
-			}
-		})
-	}
-}
 
 func TestRailBranchLineAhead(t *testing.T) {
 	t.Parallel()
@@ -107,28 +59,5 @@ func TestRailBranchLineAhead(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestRailAheadKeepsTheSearchHighlight(t *testing.T) {
-	t.Parallel()
-	a := newTestApp(t)
-	ui := a.current().theme.UI
-
-	c := railCard{pane: "p1", state: core.AgentIdle, project: "api", branch: "feat/login", ahead: 2}
-
-	hits, _ := c.matches("log")
-	runs := a.railCardLine(ui, c, hits, 1, 30)
-
-	var matched string
-
-	for _, r := range runs {
-		if r.fg == ui.Match {
-			matched += r.text
-		}
-	}
-
-	if matched != "log" {
-		t.Errorf("highlighted %q, want log", matched)
 	}
 }

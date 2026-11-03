@@ -115,14 +115,16 @@ func TestNewSourceTokenisesAfresh(t *testing.T) {
 func TestScrollTokenisesEachChunkOnce(t *testing.T) {
 	t.Parallel()
 
-	res, _ := bigResult(5000)
+	// Four chunks, the last a short one.
+	res, _ := bigResult(1600)
 	s := reviewScene{theme: "catppuccin-mocha", icons: true, w: 200, h: 52, res: res, turn: 1, turns: 1, focused: true}
 	a := s.build(t)
 	v := a.reviewViewOf(a.store.State().Tab().ID)
 
 	total := 0
+	screen := max(a.reviewBodyH(v), 1)
 
-	for i := 0; i < len(v.rows); i += 20 {
+	for i := 0; i < len(v.rows); i += screen {
 		v.cursor = i
 		total += settleCounting(t, a)
 	}
@@ -136,7 +138,7 @@ func TestScrollTokenisesEachChunkOnce(t *testing.T) {
 		t.Errorf("paging down tokenised %d lines for %d lines of chunks: some were tokenised twice", total, held)
 	}
 
-	for i := len(v.rows) - 1; i >= 0; i -= 20 {
+	for i := len(v.rows) - 1; i >= 0; i -= screen {
 		v.cursor = i
 		if got := settleCounting(t, a); got != 0 {
 			t.Fatalf("paging back to row %d tokenised %d lines, want 0", i, got)

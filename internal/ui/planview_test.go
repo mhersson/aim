@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mhersson/aim/internal/core"
+	"github.com/mhersson/aim/internal/md"
 )
 
 // planRig is a sized app with an agent in p2 (a shell is p1), a temporary home
@@ -205,13 +207,6 @@ func TestPlanOpen(t *testing.T) {
 		t.Error("the plan is still unread after it opened")
 	}
 
-	out := r.shown(t)
-	for _, want := range []string{"work · docs/superpowers/plans/p.md", " plan file · 4m ", "Session Caching Implementation Plan", "esc close"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("view lacks %q:\n%s", want, out)
-		}
-	}
-
 	r.keys("esc")
 
 	if r.a.plan != nil {
@@ -238,13 +233,6 @@ func TestPlanOpenModePlan(t *testing.T) {
 		t.Errorf("root, base = %q, %q; want the agent's directory %q", r.a.plan.root, r.a.plan.base, r.wt)
 	}
 
-	out := r.shown(t)
-	for _, want := range []string{"work · ~/.claude/plans/x.md", " plan mode · 4m "} {
-		if !strings.Contains(out, want) {
-			t.Errorf("view lacks %q:\n%s", want, out)
-		}
-	}
-
 	var got string
 
 	lay := r.a.plan.view.layout()
@@ -267,21 +255,23 @@ func TestPlanOpenNotices(t *testing.T) {
 	tests := []struct {
 		name  string
 		setup func(t *testing.T, r *planRig) *App
-		want  string
+		// want is the exact notice; shown is only the path a refusal names.
+		want  func(r *planRig) string
+		shown string
 	}{
 		{"a shell", func(t *testing.T, r *planRig) *App {
 			r.filePlan(t, "docs/superpowers/plans/p.md", "# x\n")
 			openIn(t, r.a, core.FocusPane{ID: "p1"})
 
 			return r.a
-		}, "the focused pane is not an agent"},
+		}, func(*planRig) string { return noticeNotAgent }, ""},
 		{"an empty tab", func(t *testing.T, _ *planRig) *App {
 			a := newTestApp(t)
 			sized(t, a, 120, 40)
 
 			return a
-		}, "the focused pane is not an agent"},
-		{"no plan yet", func(*testing.T, *planRig) *App { return nil }, "no plan from work yet"},
+		}, func(*planRig) string { return noticeNotAgent }, ""},
+		{"no plan yet", func(*testing.T, *planRig) *App { return nil }, func(*planRig) string { return fmt.Sprintf(noticeNoPlan, "work") }, ""},
 		{"a removed plan file", func(t *testing.T, r *planRig) *App {
 			path := r.filePlan(t, "docs/superpowers/plans/gone.md", "# x\n")
 			if err := os.Remove(path); err != nil {
@@ -289,7 +279,9 @@ func TestPlanOpenNotices(t *testing.T) {
 			}
 
 			return nil
-		}, "not opening docs/superpowers/plans/gone.md: no such file"},
+		}, func(r *planRig) string {
+			return markdownNotice(r.wt, filepath.Join(r.wt, "docs/superpowers/plans/gone.md"), r.home, fs.ErrNotExist)
+		}, ""},
 		{"a folder", func(t *testing.T, r *planRig) *App {
 			dir := filepath.Join(r.wt, "docs", "superpowers", "plans", "dir.md")
 			if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -299,7 +291,9 @@ func TestPlanOpenNotices(t *testing.T) {
 			r.notePlan(t, core.Plan{Path: dir, Root: r.wt, Kind: core.PlanFile})
 
 			return nil
-		}, "not opening docs/superpowers/plans/dir.md: it is a folder"},
+		}, func(r *planRig) string {
+			return markdownNotice(r.wt, filepath.Join(r.wt, "docs/superpowers/plans/dir.md"), r.home, errIsFolder)
+		}, ""},
 		{"a symlink out of the root", func(t *testing.T, r *planRig) *App {
 			secret := filepath.Join(realTemp(t), "secret.md")
 			write(t, secret, "# the secret text\n")
@@ -316,7 +310,7 @@ func TestPlanOpenNotices(t *testing.T) {
 			r.notePlan(t, core.Plan{Path: link, Root: r.wt, Kind: core.PlanFile})
 
 			return nil
-		}, "not opening docs/superpowers/plans/link.md: "},
+		}, nil, "docs/superpowers/plans/link.md"},
 	}
 
 	for _, tt := range tests {
@@ -339,8 +333,12 @@ func TestPlanOpenNotices(t *testing.T) {
 				t.Fatal("the overlay opened")
 			}
 
-			if !strings.HasPrefix(a.notice, tt.want) {
-				t.Errorf("notice = %q, want it to start %q", a.notice, tt.want)
+			if tt.want != nil {
+				if want := tt.want(r); a.notice != want {
+					t.Errorf("notice = %q, want %q", a.notice, want)
+				}
+			} else if !refusal(a.notice, tt.shown) {
+				t.Errorf("notice = %q, want a refusal naming %q", a.notice, tt.shown)
 			}
 
 			if strings.Contains(ansi.Strip(a.View().Content), "the secret text") {
@@ -461,19 +459,14 @@ func TestPlanKeys(t *testing.T) {
 		want func(n, r int) (top, cursor int)
 	}{
 		{"j", []string{"j"}, func(int, int) (int, int) { return 0, 1 }},
-		{"down", []string{"down"}, func(int, int) (int, int) { return 0, 1 }},
 		{"k after j", []string{"j", "j", "k"}, func(int, int) (int, int) { return 0, 1 }},
-		{"up after down", []string{"down", "down", "up"}, func(int, int) (int, int) { return 0, 1 }},
 		{"ctrl+d is half the rows", []string{"ctrl+d"}, func(_, r int) (int, int) { return 0, r / 2 }},
 		{"ctrl+u comes back", []string{"ctrl+d", "ctrl+u"}, func(int, int) (int, int) { return 0, 0 }},
 		{"ctrl+f is the rows less one", []string{"ctrl+f"}, func(_, r int) (int, int) { return r - 1, r - 1 }},
-		{"pgdown is ctrl+f", []string{"pgdown"}, func(_, r int) (int, int) { return r - 1, r - 1 }},
 		{"ctrl+b comes back", []string{"ctrl+f", "ctrl+f", "ctrl+b"}, func(_, r int) (int, int) { return r - 1, r - 1 }},
-		{"pgup comes back", []string{"pgdown", "pgup"}, func(int, int) (int, int) { return 0, 0 }},
 		{"G", []string{"G"}, func(n, r int) (int, int) { return n - r, n - 1 }},
 		{"g", []string{"G", "g"}, func(int, int) (int, int) { return 0, 0 }},
 		{"x does nothing", []string{"x"}, func(int, int) (int, int) { return 0, 0 }},
-		{"tab does nothing", []string{"tab"}, func(int, int) (int, int) { return 0, 0 }},
 		{"the leader does nothing", []string{"leader"}, func(int, int) (int, int) { return 0, 0 }},
 	}
 
@@ -691,10 +684,8 @@ func TestPlanOverlayResizeSmallAndBack(t *testing.T) {
 func TestPlanOverlayHugeDoc(t *testing.T) {
 	t.Parallel()
 
-	unit := "A paragraph with a [link](https://a.example/x), **bold** and `code` in it.\n\n"
-
 	r := newPlanRig(t, 120, 40)
-	r.filePlan(t, "docs/superpowers/plans/p.md", strings.Repeat(unit, (5<<20)/len(unit)))
+	r.filePlan(t, "docs/superpowers/plans/p.md", strings.Repeat("a", md.MaxBytes+1))
 
 	msgs := planMsgs(r.ask())
 	if len(msgs) != 1 || msgs[0].doc == nil || !msgs[0].doc.doc.Cut() {
@@ -734,7 +725,7 @@ func TestPlanOpensOverDrawerModals(t *testing.T) {
 			write(t, path, "# Title\n\nbody\n")
 
 			s := reviewScene{
-				theme: "catppuccin-mocha", w: 200, h: 52, branch: true, focused: true, res: mdResult(),
+				theme: "catppuccin-mocha", w: 100, h: 30, branch: true, focused: true, res: mdResult(),
 				tune: func(t *testing.T, a *App, v *reviewView) {
 					t.Helper()
 

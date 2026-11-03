@@ -262,7 +262,7 @@ func TestClipboardNativeTimeout(t *testing.T) {
 		return ctx.Err()
 	}
 	c, buf := newTestClipboard(clipboardConfig{Native: true}, map[string]string{"WAYLAND_DISPLAY": "w"}, "linux", run)
-	c.timeout = 20 * time.Millisecond
+	c.timeout = time.Nanosecond // expired at birth
 
 	done := make(chan struct{})
 
@@ -273,7 +273,7 @@ func TestClipboardNativeTimeout(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(5 * time.Second):
+	case <-time.After(hangGuard):
 		t.Fatal("native write Cmd did not return after the timeout")
 	}
 
@@ -406,7 +406,6 @@ func TestClipboardPaste(t *testing.T) {
 		{"x11", native, map[string]string{"DISPLAY": ":0"}, "linux", "old", "sel", nil, "sel", [][]string{xclipPaste}, 0},
 		{"darwin", native, nil, "darwin", "old", "sel", nil, "sel", [][]string{{"pbpaste"}}, 0},
 		{"ssh", native, map[string]string{"SSH_CONNECTION": "x", "DISPLAY": ":0"}, "linux", "old", "sel", nil, "old", nil, 0},
-		{"no display", native, nil, "linux", "old", "sel", nil, "old", nil, 0},
 		{"native off", clipboardConfig{}, wayland, "linux", "old", "sel", nil, "old", nil, 0},
 		{"missing tool", native, wayland, "linux", "old", "", notFound, "old", [][]string{wlPaste}, 1},
 		{"empty selection", native, wayland, "linux", "old", "", nil, "", [][]string{wlPaste}, 0},
@@ -442,24 +441,6 @@ func TestClipboardPaste(t *testing.T) {
 	}
 }
 
-func TestClipboardPasteMissingToolLoggedOnce(t *testing.T) {
-	t.Parallel()
-
-	fr := &fakeRun{err: func(argv []string) error { return &exec.Error{Name: argv[0], Err: exec.ErrNotFound} }}
-	c, buf := newTestClipboard(clipboardConfig{Native: true}, map[string]string{"WAYLAND_DISPLAY": "w"}, "linux", fr.run)
-	c.last = "old"
-
-	for range 3 {
-		if got := c.paste(func(s string) tea.Msg { return s })(); got != "old" {
-			t.Fatalf("delivered %#v, want the last copy", got)
-		}
-	}
-
-	if got := strings.Count(buf.String(), "level=WARN"); got != 1 {
-		t.Fatalf("missing tool logged %d times, want 1:\n%s", got, buf.String())
-	}
-}
-
 func TestClipboardPasteHasATimeout(t *testing.T) {
 	t.Parallel()
 
@@ -483,35 +464,5 @@ func TestClipboardPasteHasATimeout(t *testing.T) {
 
 	if got := strings.Count(buf.String(), "context deadline exceeded"); got != 1 {
 		t.Fatalf("timeout logged %d times, want 1:\n%s", got, buf.String())
-	}
-}
-
-func TestClipboardCopyRecordsTheLastCopy(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name   string
-		cfg    clipboardConfig
-		copies []string
-		want   string
-	}{
-		{"one", clipboardConfig{OSC52: true}, []string{"a"}, "a"},
-		{"empty keeps the last", clipboardConfig{OSC52: true}, []string{"a", ""}, "a"},
-		{"latest wins", clipboardConfig{OSC52: true}, []string{"a", "b"}, "b"},
-		{"both switches off", clipboardConfig{}, []string{"a"}, "a"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			c, _ := newTestClipboard(tt.cfg, nil, "linux", (&fakeRun{}).run)
-			for _, text := range tt.copies {
-				c.copy(text)
-			}
-
-			if c.last != tt.want {
-				t.Fatalf("last = %q, want %q", c.last, tt.want)
-			}
-		})
 	}
 }

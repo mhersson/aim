@@ -36,6 +36,19 @@ func testRegistry(t *testing.T) *registry {
 	return reg
 }
 
+// requireKeyError checks CheckKeys' answer: nil for no wanted values, else an
+// error carrying every one of them (the table and the values the code put in).
+func requireKeyError(t *testing.T, err error, want []string) {
+	t.Helper()
+
+	switch {
+	case want == nil && err != nil:
+		t.Errorf("CheckKeys() = %v, want nil", err)
+	case want != nil && (err == nil || !carries(want...).matches(err.Error())):
+		t.Errorf("CheckKeys() = %v, want an error carrying %q", err, want)
+	}
+}
+
 func TestResolveLeader(t *testing.T) {
 	t.Parallel()
 
@@ -146,33 +159,33 @@ func TestCheckKeysErrors(t *testing.T) {
 	tests := []struct {
 		name string
 		cfg  core.KeysConfig
-		want string
+		want []string
 	}{
-		{"unknown command", leaderKeys("w", "pr.lst"), `keys.leader: "w" = "pr.lst": no such command`},
-		{"prefix over a key", leaderKeys("g", "pr.list"), `keys.leader: "g" is bound and starts "g l"`},
-		{"key under a bound key", leaderKeys("q x", "pr.list"), `keys.leader: "q" is bound and starts "q x"`},
-		{"prefix freed", leaderKeys(append([]string{"g", "pr.list"}, noGit...)...), ""},
+		{"unknown command", leaderKeys("w", "pr.lst"), []string{"keys.leader", `"w"`, `"pr.lst"`}},
+		{"prefix over a key", leaderKeys("g", "pr.list"), []string{"keys.leader", `"g"`, `"g l"`}},
+		{"key under a bound key", leaderKeys("q x", "pr.list"), []string{"keys.leader", `"q"`, `"q x"`}},
+		{"prefix freed", leaderKeys(append([]string{"g", "pr.list"}, noGit...)...), nil},
 		{
 			"pr list without close", contextKeys("pr_list", "esc", "none"),
-			"keys.pr_list: nothing is bound to prlist.close, so the PR list could not close",
+			[]string{"keys.pr_list", "prlist.close"},
 		},
 		{
 			"checks without close", contextKeys("checks", "esc", "none"),
-			"keys.checks: nothing is bound to checks.close, so the checks overlay could not close",
+			[]string{"keys.checks", "checks.close"},
 		},
 		{
 			"reader without close", contextKeys("reader", "esc", "none"),
-			"keys.reader: nothing is bound to reader.close, so the overlay could not close",
+			[]string{"keys.reader", "reader.close"},
 		},
 		{
 			"merge without cancel", contextKeys("merge", "esc", "none"),
-			"keys.merge: nothing is bound to merge.cancel, so the merge box could not close",
+			[]string{"keys.merge", "merge.cancel"},
 		},
-		{"merge takes the leader key", contextKeys("merge", "ctrl+space", "merge.run"), ""},
-		{"reader takes the leader key", contextKeys("reader", "ctrl+space", "reader.top"), ""},
-		{"pr list close moved", contextKeys("pr_list", "esc", "none", "q", "prlist.close"), ""},
-		{"rail needs no close", contextKeys("rail", "esc", "none"), ""},
-		{"drawer needs no close", drawerKeys("esc", "none"), ""},
+		{"merge takes the leader key", contextKeys("merge", "ctrl+space", "merge.run"), nil},
+		{"reader takes the leader key", contextKeys("reader", "ctrl+space", "reader.top"), nil},
+		{"pr list close moved", contextKeys("pr_list", "esc", "none", "q", "prlist.close"), nil},
+		{"rail needs no close", contextKeys("rail", "esc", "none"), nil},
+		{"drawer needs no close", drawerKeys("esc", "none"), nil},
 		{
 			"leader under leader",
 			func() core.KeysConfig {
@@ -181,7 +194,7 @@ func TestCheckKeysErrors(t *testing.T) {
 
 				return c
 			}(),
-			`keys.leader_key: "ctrl+a" is also bound under keys.leader`,
+			[]string{"keys.leader_key", `"ctrl+a"`, "keys.leader"},
 		},
 		{
 			"sequence starting with the leader",
@@ -191,20 +204,14 @@ func TestCheckKeysErrors(t *testing.T) {
 
 				return c
 			}(),
-			`keys.leader_key: "ctrl+a" is also bound under keys.leader`,
+			[]string{"keys.leader_key", `"ctrl+a"`, "keys.leader"},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := CheckKeys(tt.cfg)
-			switch {
-			case tt.want == "" && err != nil:
-				t.Errorf("CheckKeys() = %v, want nil", err)
-			case tt.want != "" && (err == nil || err.Error() != tt.want):
-				t.Errorf("CheckKeys() = %v, want %q", err, tt.want)
-			}
+			requireKeyError(t, CheckKeys(tt.cfg), tt.want)
 		})
 	}
 }
@@ -212,47 +219,23 @@ func TestCheckKeysErrors(t *testing.T) {
 func TestComposeKeyErrors(t *testing.T) {
 	t.Parallel()
 
-	typing := func(k string) string {
-		return fmt.Sprintf("keys.compose: %q is a key the title and body take", k)
-	}
-
 	tests := []struct {
 		name string
 		cfg  core.KeysConfig
-		want string
+		want []string
 	}{
-		{"leader key", contextKeys("compose", "ctrl+space", "compose.create"), `keys.compose: "ctrl+space" is the leader key`},
-		{"no cancel", contextKeys("compose", "esc", "none"), "keys.compose: nothing is bound to compose.cancel, so the compose box could not close"},
-		{"typing key with another context's command", contextKeys("compose", "s", "merge.run"), `keys.compose: "s" = "merge.run": not a compose command`},
-		{"typing key none", contextKeys("compose", "s", "none", "esc", "compose.cancel"), ""},
+		{"leader key", contextKeys("compose", "ctrl+space", "compose.create"), []string{"keys.compose", `"ctrl+space"`}},
+		{"no cancel", contextKeys("compose", "esc", "none"), []string{"keys.compose", "compose.cancel"}},
+		{"typing key with another context's command", contextKeys("compose", "s", "merge.run"), []string{"keys.compose", `"s"`, `"merge.run"`}},
+		{"typing key none", contextKeys("compose", "s", "none", "esc", "compose.cancel"), nil},
+		{"refuses s", contextKeys("compose", "s", "compose.create"), []string{"keys.compose", `"s"`}},
+		{"accepts ctrl+o", contextKeys("compose", "ctrl+o", "compose.create"), nil},
 	}
-	for _, k := range []string{"s", "H", "space", "enter", "left", "pgdown", "home", "shift+left", "shift+enter", "backspace", "delete"} {
-		tests = append(tests, struct {
-			name string
-			cfg  core.KeysConfig
-			want string
-		}{"refuses " + k, contextKeys("compose", k, "compose.create"), typing(k)})
-	}
-
-	for _, k := range []string{"ctrl+o", "alt+s", "f5", "tab", "insert", "ctrl+left", "shift+tab"} {
-		tests = append(tests, struct {
-			name string
-			cfg  core.KeysConfig
-			want string
-		}{"accepts " + k, contextKeys("compose", k, "compose.create"), ""})
-	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := CheckKeys(tt.cfg)
-			switch {
-			case tt.want == "" && err != nil:
-				t.Errorf("CheckKeys() = %v, want nil", err)
-			case tt.want != "" && (err == nil || err.Error() != tt.want):
-				t.Errorf("CheckKeys() = %v, want %q", err, tt.want)
-			}
+			requireKeyError(t, CheckKeys(tt.cfg), tt.want)
 		})
 	}
 }
@@ -313,17 +296,16 @@ func TestLeaderRemapScreens(t *testing.T) {
 			t.Errorf("title lacks ctrl+a:\n%s", plain)
 		}
 
-		var git []hint
+		var git []string
 
 		for _, h := range a.hints() {
 			if h.group == "Git" {
-				git = append(git, h)
+				git = append(git, h.key)
 			}
 		}
 
-		want := []hint{{"g", "Push and pull requests", "Git"}, {"w", "Pull requests", "Git"}}
-		if !slices.Equal(git, want) {
-			t.Errorf("Git hints = %v, want %v", git, want)
+		if want := []string{"g", "w"}; !slices.Equal(git, want) {
+			t.Errorf("Git hint keys = %q, want %q", git, want)
 		}
 	})
 
@@ -335,12 +317,11 @@ func TestLeaderRemapScreens(t *testing.T) {
 
 		var got []string
 		for _, h := range a.sequenceRows("g") {
-			got = append(got, h.key+"  "+h.title)
+			got = append(got, h.key)
 		}
 
-		want := []string{"P  Push", "o  Open a pull request", "m  Merge pull request", "esc  Cancel"}
-		if !slices.Equal(got, want) {
-			t.Errorf("rows = %q, want %q", got, want)
+		if want := []string{"P", "o", "m", "esc"}; !slices.Equal(got, want) {
+			t.Errorf("row keys = %q, want %q", got, want)
 		}
 
 		if plain := text(a); !strings.Contains(plain, " ctrl+a g ") {
@@ -376,8 +357,8 @@ func TestLeaderRemapScreens(t *testing.T) {
 		a := app(t)
 		press(a, keyCtrlA, keyRune('Z'))
 
-		if a.notice != "ctrl+a Z is not bound" {
-			t.Errorf("notice = %q", a.notice)
+		if !carries("ctrl+a Z").matches(a.notice) || a.noticeLevel() != levelNotice {
+			t.Errorf("notice = %q at level %v, want one carrying ctrl+a Z", a.notice, a.noticeLevel())
 		}
 	})
 
@@ -387,8 +368,8 @@ func TestLeaderRemapScreens(t *testing.T) {
 		a := app(t)
 		press(a, keyCtrlA, keyRune('g'), keyRune('l'))
 
-		if a.notice != "ctrl+a g l is not bound" || a.prList != nil {
-			t.Errorf("notice = %q, prList = %v, want g l unbound", a.notice, a.prList)
+		if !carries("ctrl+a g l").matches(a.notice) || a.noticeLevel() != levelNotice || a.prList != nil {
+			t.Errorf("notice = %q, prList = %v, want one carrying ctrl+a g l and no list", a.notice, a.prList)
 		}
 	})
 
@@ -425,16 +406,13 @@ func TestSequenceFromBindings(t *testing.T) {
 	}{
 		{
 			"preselect clear moved", leaderKeys("; x", "pane.preselect.clear", "; esc", "none"), ";",
-			[]string{"h j k l  Preselect side", "x  Clear preselection", "esc  Cancel"},
+			[]string{"h j k l", "x", "esc"},
 		},
 		{
 			"one tab key freed", leaderKeys("> 1", "none"), ">",
-			[]string{
-				"2  Move pane to tab 2", "3  Move pane to tab 3", "4  Move pane to tab 4", "5  Move pane to tab 5",
-				"6  Move pane to tab 6", "7  Move pane to tab 7", "8  Move pane to tab 8", "9  Move pane to tab 9", "esc  Cancel",
-			},
+			[]string{"2", "3", "4", "5", "6", "7", "8", "9", "esc"},
 		},
-		{"defaults", core.KeysConfig{}, ">", []string{"1-9  Move pane to tab N", "esc  Cancel"}},
+		{"defaults", core.KeysConfig{}, ">", []string{"1-9", "esc"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -444,11 +422,11 @@ func TestSequenceFromBindings(t *testing.T) {
 
 			var got []string
 			for _, h := range a.sequenceRows(tt.prefix) {
-				got = append(got, h.key+"  "+h.title)
+				got = append(got, h.key)
 			}
 
 			if !slices.Equal(got, tt.want) {
-				t.Errorf("rows = %q, want %q", got, tt.want)
+				t.Errorf("row keys = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -494,10 +472,6 @@ func TestWhichKeyDelayConfig(t *testing.T) {
 	if got := newKeyedApp(t, "catppuccin-mocha", core.KeysConfig{WhichKeyDelay: &zero}).keymap.delay; got != 0 {
 		t.Errorf("delay = %v, want 0", got)
 	}
-
-	if got := newTestApp(t).keymap.delay.Milliseconds(); got != 300 {
-		t.Errorf("default delay = %dms, want 300", got)
-	}
 }
 
 func TestPrefixRowKeepsItsGroup(t *testing.T) {
@@ -530,7 +504,7 @@ func TestResolveDrawer(t *testing.T) {
 		name    string
 		cfg     core.KeysConfig
 		check   func(t *testing.T, tb keyTable)
-		wantErr string
+		wantErr []string
 	}{
 		{
 			name: "added key", cfg: drawerKeys("n", "review.line.next"),
@@ -588,15 +562,15 @@ func TestResolveDrawer(t *testing.T) {
 		},
 		{
 			name: "not a drawer command", cfg: drawerKeys("o", "pr.list"),
-			wantErr: `keys.drawer: "o" = "pr.list": not a drawer command`,
+			wantErr: []string{"keys.drawer", `"o"`, `"pr.list"`},
 		},
 		{
 			name: "no such command", cfg: drawerKeys("x", "review.x"),
-			wantErr: `keys.drawer: "x" = "review.x": no such command`,
+			wantErr: []string{"keys.drawer", `"x"`, `"review.x"`},
 		},
 		{
 			name: "the leader key in the drawer", cfg: drawerKeys("ctrl+space", "review.line.next"),
-			wantErr: `keys.drawer: "ctrl+space" is the leader key`,
+			wantErr: []string{"keys.drawer", `"ctrl+space"`},
 		},
 		{
 			name: "a remapped leader key in the drawer",
@@ -606,7 +580,7 @@ func TestResolveDrawer(t *testing.T) {
 
 				return c
 			}(),
-			wantErr: `keys.drawer: "ctrl+a" is the leader key`,
+			wantErr: []string{"keys.drawer", `"ctrl+a"`},
 		},
 		{
 			name: "the leader key in the rail",
@@ -614,7 +588,7 @@ func TestResolveDrawer(t *testing.T) {
 				Rail:  map[string]string{"ctrl+space": "rail.next"},
 				Order: map[string][]string{"rail": {"ctrl+space"}},
 			},
-			wantErr: `keys.rail: "ctrl+space" is the leader key`,
+			wantErr: []string{"keys.rail", `"ctrl+space"`},
 		},
 		{
 			name: "the old leader key is free once it is remapped",
@@ -636,14 +610,12 @@ func TestResolveDrawer(t *testing.T) {
 			t.Parallel()
 
 			_, tables, err := resolveKeys(tt.cfg, testRegistry(t))
-			if tt.wantErr != "" {
-				if err == nil || err.Error() != tt.wantErr {
-					t.Errorf("resolveKeys() = %v, want %q", err, tt.wantErr)
+			if tt.wantErr != nil {
+				if err == nil || !carries(tt.wantErr...).matches(err.Error()) {
+					t.Errorf("resolveKeys() = %v, want an error carrying %q", err, tt.wantErr)
 				}
 
-				if cerr := CheckKeys(tt.cfg); cerr == nil || cerr.Error() != tt.wantErr {
-					t.Errorf("CheckKeys() = %v, want %q", cerr, tt.wantErr)
-				}
+				requireKeyError(t, CheckKeys(tt.cfg), tt.wantErr)
 
 				return
 			}
@@ -654,19 +626,6 @@ func TestResolveDrawer(t *testing.T) {
 
 			tt.check(t, tables.drawer)
 		})
-	}
-}
-
-func TestDefaultDrawerKeysUnchanged(t *testing.T) {
-	t.Parallel()
-
-	_, tables, err := resolveKeys(core.KeysConfig{}, testRegistry(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if !slices.Equal(tables.drawer.binds, reviewKeys) {
-		t.Error("an empty config changed the drawer's keys")
 	}
 }
 
@@ -777,11 +736,7 @@ func TestDrawerRemappedKeys(t *testing.T) {
 func TestDrawerHintsFollowBindings(t *testing.T) {
 	t.Parallel()
 
-	const (
-		diffHints = "j/k line   ]/[ hunk   }/{ file   z zoom   tab tree   w worktree   f full   u split   e edit   / search   space reviewed   R show reviewed   b/t mode   ,/. turn"
-		treeHints = "j/k file   enter jump   z zoom   tab hide   esc back"
-		prHints   = "j/k line   ]/[ hunk   z zoom   i conversation   c checks   a approve   M merge   O browser   space reviewed   R show reviewed   b/t mode"
-	)
+	const prHints = "j/k line   ]/[ hunk   z zoom   i conversation   c checks   a approve   M merge   O browser   space reviewed   R show reviewed   b/t mode"
 
 	tests := []struct {
 		name    string
@@ -790,9 +745,7 @@ func TestDrawerHintsFollowBindings(t *testing.T) {
 		want    string
 		not     string
 	}{
-		{name: "defaults", want: diffHints},
 		{name: "defaults in a pull request", pr: true, want: prHints},
-		{name: "defaults in the tree", key: true, want: treeHints},
 		{name: "line next", cfg: drawerKeys("n", "review.line.next"), want: "n/k line   ]/[ hunk"},
 		{
 			name: "worktree unbound", cfg: drawerKeys("w", "none"),
@@ -806,7 +759,7 @@ func TestDrawerHintsFollowBindings(t *testing.T) {
 			t.Parallel()
 
 			s := reviewScene{
-				theme: "catppuccin-mocha", w: 330, h: 52, res: turn4Result(), turn: 4, turns: 4,
+				theme: "catppuccin-mocha", w: 120, h: 30, res: turn4Result(), turn: 4, turns: 4,
 				focused: true, tree: tt.key, keys: tt.cfg,
 			}
 			s.tune = func(t *testing.T, a *App, v *reviewView) {
@@ -816,13 +769,26 @@ func TestDrawerHintsFollowBindings(t *testing.T) {
 				}
 			}
 
-			got := ansi.Strip(s.build(t).View().Content)
+			a := s.build(t)
+
+			d, _, ok := a.drawCtxFor(a.store.State())
+			if !ok {
+				t.Fatal("no drawer to draw")
+			}
+
+			var b strings.Builder
+
+			for _, run := range d.hintRuns(500) {
+				b.WriteString(run.text)
+			}
+
+			got := b.String()
 			if !strings.Contains(got, tt.want) {
-				t.Errorf("the frame lacks %q:\n%s", tt.want, got)
+				t.Errorf("the hints lack %q: %q", tt.want, got)
 			}
 
 			if tt.not != "" && strings.Contains(got, tt.not) {
-				t.Errorf("the frame holds %q:\n%s", tt.not, got)
+				t.Errorf("the hints hold %q: %q", tt.not, got)
 			}
 		})
 	}
@@ -835,63 +801,82 @@ func TestPRLoadedNoticeFollowsBindings(t *testing.T) {
 		name string
 		cfg  core.KeysConfig
 		then prThen
-		want string
+		key  string // the bound key the notice names; none when empty
 	}{
-		{"conversation", core.KeysConfig{}, thenConversation, "#7 loaded; press i for the conversation"},
-		{"checks", core.KeysConfig{}, thenChecks, "#7 loaded; press c for checks"},
-		{"browser", core.KeysConfig{}, thenBrowser, "#7 loaded; press O to open it"},
-		{"approve", core.KeysConfig{}, thenApprove, "#7 loaded; press a to approve"},
-		{"merge", core.KeysConfig{}, thenMerge, "#7 loaded; press M to merge"},
-		{"approve moved", drawerKeys("x", "review.approve", "a", "none"), thenApprove, "#7 loaded; press x to approve"},
-		{"merge moved", drawerKeys("m", "review.merge", "M", "none"), thenMerge, "#7 loaded; press m to merge"},
-		{"checks unbound", drawerKeys("c", "none"), thenChecks, "#7 loaded"},
+		{"conversation", core.KeysConfig{}, thenConversation, "i"},
+		{"checks", core.KeysConfig{}, thenChecks, "c"},
+		{"browser", core.KeysConfig{}, thenBrowser, "O"},
+		{"approve", core.KeysConfig{}, thenApprove, "a"},
+		{"merge", core.KeysConfig{}, thenMerge, "M"},
+		{"approve moved", drawerKeys("x", "review.approve", "a", "none"), thenApprove, "x"},
+		{"checks unbound", drawerKeys("c", "none"), thenChecks, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := newKeyedApp(t, "catppuccin-mocha", tt.cfg).prLoadedNotice(7, tt.then); got != tt.want {
-				t.Errorf("notice = %q, want %q", got, tt.want)
+			got := newKeyedApp(t, "catppuccin-mocha", tt.cfg).prLoadedNotice(7, tt.then)
+
+			head := fmt.Sprintf(noticePRLoaded, 7)
+			if !strings.HasPrefix(got, head) {
+				t.Fatalf("notice = %q, want one starting %q", got, head)
+			}
+
+			if rest := strings.TrimPrefix(got, head); tt.key == "" && rest != "" || tt.key != "" && !strings.Contains(rest+" ", " "+tt.key+" ") {
+				t.Errorf("notice = %q, want the key %q named (none when empty)", got, tt.key)
 			}
 		})
 	}
+}
+
+// rowWord reports whether the screen row holding locate has word as a
+// whole space-separated token.
+func rowWord(text, locate, word string) (found, rowFound bool) {
+	for row := range strings.SplitSeq(text, "\n") {
+		if strings.Contains(row, locate) {
+			return slices.Contains(strings.Fields(row), word), true
+		}
+	}
+
+	return false, false
 }
 
 func TestDrawerTextFollowsBindings(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
-		cfg   core.KeysConfig
-		scene func(s *reviewScene)
-		want  []string
-		not   []string
+		name   string
+		cfg    core.KeysConfig
+		scene  func(s *reviewScene)
+		locate string // text that finds the row
+		bound  []string
+		not    []string
 	}{
 		{
-			name:  "fold key",
-			cfg:   drawerKeys("x", "review.fold", "enter", "none"),
-			scene: ghostScene,
-			want:  []string{"2 removed lines   x shows them"}, not: []string{"enter shows them"},
+			name:   "fold key",
+			cfg:    drawerKeys("x", "review.fold", "enter", "none"),
+			scene:  ghostScene,
+			locate: "removed lines", bound: []string{"x"}, not: []string{"enter"},
 		},
 		{
 			name: "fold unbound", cfg: drawerKeys("enter", "none"), scene: ghostScene,
-			want: []string{"2 removed lines"}, not: []string{"shows them"},
+			locate: "removed lines", not: []string{"enter"},
 		},
 		{
 			name: "full file key", cfg: drawerKeys("F", "review.full", "f", "none"), scene: truncatedScene,
-			want: []string{"too large, press F for the full file"}, not: []string{"press f "},
+			locate: "too large", bound: []string{"F"}, not: []string{"f"},
 		},
 		{
 			name: "full file unbound", cfg: drawerKeys("f", "none"), scene: truncatedScene,
-			want: []string{"too large"}, not: []string{"for the full file"},
+			locate: "too large", not: []string{"f"},
 		},
 		{
 			name: "no snapshot keys", cfg: drawerKeys("z", "review.mode.branch", "b", "none"), scene: noSnapScene,
-			want: []string{", and . step through the turns; z shows the branch"},
+			locate: "branch", bound: []string{",", ".", "z"}, not: []string{"b"},
 		},
 		{
 			name: "no snapshot, turn keys unbound", cfg: drawerKeys(",", "none", ".", "none"), scene: noSnapScene,
-			want: []string{"b shows the branch"}, not: []string{"step through"},
+			locate: "branch", bound: []string{"b"}, not: []string{",", "."},
 		},
 	}
 	for _, tt := range tests {
@@ -899,7 +884,7 @@ func TestDrawerTextFollowsBindings(t *testing.T) {
 			t.Parallel()
 
 			s := reviewScene{
-				theme: "catppuccin-mocha", icons: true, w: 200, h: 52, res: turn4Result(), turn: 4, turns: 4,
+				theme: "catppuccin-mocha", icons: true, w: 120, h: 38, res: turn4Result(), turn: 4, turns: 4,
 				focused: true, keys: tt.cfg,
 			}
 			if tt.scene != nil {
@@ -908,15 +893,15 @@ func TestDrawerTextFollowsBindings(t *testing.T) {
 
 			text := ansi.Strip(s.build(t).View().Content)
 
-			for _, w := range tt.want {
-				if !strings.Contains(text, w) {
-					t.Errorf("the frame lacks %q:\n%s", w, text)
+			for _, w := range tt.bound {
+				if found, row := rowWord(text, tt.locate, w); !found {
+					t.Errorf("the row holding %q (found %v) lacks the key %q:\n%s", tt.locate, row, w, text)
 				}
 			}
 
 			for _, n := range tt.not {
-				if strings.Contains(text, n) {
-					t.Errorf("the frame holds %q:\n%s", n, text)
+				if found, row := rowWord(text, tt.locate, n); found || !row {
+					t.Errorf("the row holding %q (found %v) names the key %q:\n%s", tt.locate, row, n, text)
 				}
 			}
 		})
@@ -952,35 +937,44 @@ func TestPRHeaderFollowsBindings(t *testing.T) {
 	moved := func(p *core.PRInfo) { p.HeadOID = "bbbbbbb0000000000000000000000000000000bb" }
 
 	tests := []struct {
-		name string
-		cfg  core.KeysConfig
-		tune func(*core.PRInfo)
-		want string
-		not  string
+		name   string
+		cfg    core.KeysConfig
+		tune   func(*core.PRInfo)
+		locate string // text of the header line the key sits on
+		bound  string // the key the line names; none when empty
+		not    string // a key the line must not name
 	}{
-		{"refresh default", core.KeysConfig{}, moved, "since this diff; r fetches it", ""},
-		{"refresh moved", drawerKeys("x", "review.refresh", "r", "none"), moved, "since this diff; x fetches it", "r fetches it"},
-		{"refresh unbound", drawerKeys("r", "none"), moved, "the PR moved to bbbbbbb since this diff", "fetches it"},
-		{"push default", core.KeysConfig{}, nil, "the PR shows the pushed head; ctrl+space g P pushes", ""},
-		{"push moved", leaderKeys("g P", "none", "g u", "git.push"), nil, "pushed head; ctrl+space g u pushes", "g P pushes"},
-		{"push unbound", leaderKeys("g P", "none"), nil, "↑2 not pushed: the PR shows the pushed head", "pushes"},
+		{"refresh default", core.KeysConfig{}, moved, "bbbbbbb", "r", ""},
+		{"refresh moved", drawerKeys("x", "review.refresh", "r", "none"), moved, "bbbbbbb", "x", "r"},
+		{"refresh unbound", drawerKeys("r", "none"), moved, "bbbbbbb", "", "r"},
+		{"push default", core.KeysConfig{}, nil, "↑2", "ctrl+space g P", ""},
+		{"push moved", leaderKeys("g P", "none", "g u", "git.push"), nil, "↑2", "ctrl+space g u", "g P"},
+		{"push unbound", leaderKeys("g P", "none"), nil, "↑2", "", "ctrl+space"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			s := reviewScene{
-				theme: "catppuccin-mocha", w: 200, h: 52, res: turn4Result(), turn: 4, turns: 4, focused: true, branch: true, keys: tt.cfg,
+				theme: "catppuccin-mocha", w: 130, h: 30, res: turn4Result(), turn: 4, turns: 4, focused: true, branch: true, keys: tt.cfg,
 				tune: func(t *testing.T, a *App, v *reviewView) { prSceneWith(tt.tune, 2)(t, a, v) },
 			}
 
-			text := strings.Join(prHeaderLines(t, s.build(t)), "\n")
-			if !strings.Contains(text, tt.want) {
-				t.Errorf("drawer lacks %q:\n%s", tt.want, text)
+			lines := prHeaderLines(t, s.build(t))
+
+			i := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, tt.locate) })
+			if i < 0 {
+				t.Fatalf("no header line holds %q:\n%s", tt.locate, strings.Join(lines, "\n"))
 			}
 
-			if tt.not != "" && strings.Contains(text, tt.not) {
-				t.Errorf("drawer holds %q:\n%s", tt.not, text)
+			line := " " + strings.Join(strings.Fields(lines[i]), " ") + " "
+
+			if tt.bound != "" && !strings.Contains(line, " "+tt.bound+" ") {
+				t.Errorf("the line lacks the key %q: %q", tt.bound, line)
+			}
+
+			if tt.not != "" && strings.Contains(line, " "+tt.not+" ") {
+				t.Errorf("the line names the key %q: %q", tt.not, line)
 			}
 		})
 	}

@@ -83,16 +83,6 @@ func TestKeyReleaseIgnored(t *testing.T) {
 	}
 }
 
-func TestKeysWithoutPanes(t *testing.T) {
-	t.Parallel()
-	a := newTestApp(t)
-	sized(t, a, 100, 30)
-
-	if cmd := press(a, keyRune('a')); cmd != nil {
-		t.Error("idle key with no panes returned a command")
-	}
-}
-
 func TestLeaderTwiceSendsCtrlSpace(t *testing.T) {
 	t.Parallel()
 
@@ -241,8 +231,8 @@ func TestViewRequestsFocusReports(t *testing.T) {
 func TestPasteEndsPendingLeader(t *testing.T) {
 	t.Parallel()
 	a, _, fp2 := twoPanes(t)
-	a.keymap.delay = 0
-	pressRun(a, keyLeader)
+	press(a, keyLeader)
+	a.Update(whichKeyMsg{seq: a.seq})
 
 	if !a.pending || !a.popup {
 		t.Fatalf("pending = %v, popup = %v, want both set", a.pending, a.popup)

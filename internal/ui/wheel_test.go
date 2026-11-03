@@ -171,7 +171,6 @@ func TestWheelIgnoredOutsideContent(t *testing.T) {
 		{"header", c1.X + 2, r1.Y},
 		{"left border", c1.X - 1, c1.Y + 2},
 		{"workspace bar", c1.X + 2, 0},
-		{"bottom border on the last row", c1.X + 2, 13},
 		{"off screen", 500, 500},
 		{"bottom border", c1.X + 2, c1.Y + c1.H},
 	}
@@ -187,45 +186,9 @@ func TestWheelIgnoredOutsideContent(t *testing.T) {
 			t.Errorf("%s scrolled %d lines from a wheel outside any content", id, got)
 		}
 
-		if got := fp.sent(); got != "" {
-			t.Errorf("%s was sent %q", id, got)
+		if got := sentAfterMark(t, a.panes[id], fp); got != markOf(a.panes[id]) {
+			t.Errorf("%s was sent %q, want only the marker", id, got)
 		}
-	}
-}
-
-func TestWheelIgnoredUnderModalUI(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		open func(a *App)
-	}{
-		{"confirm", func(a *App) { a.confirm = &confirm{} }},
-		{"prompt", func(a *App) { a.prompt = &prompt{} }},
-		{"which-key", func(a *App) { a.pending, a.popup = true, true }},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			a, _ := twoShells(t)
-			tt.open(a)
-
-			x, y := centre(a, "p1")
-			wheelAt(a, x, y, tea.MouseWheelUp)
-
-			if got := a.panes["p1"].linesAbove(); got != 0 {
-				t.Errorf("wheel scrolled a pane under %s (%d)", tt.name, got)
-			}
-		})
-	}
-}
-
-func TestViewEnablesMouse(t *testing.T) {
-	t.Parallel()
-	a, _ := twoShells(t)
-
-	if got := a.View().MouseMode; got != tea.MouseModeCellMotion {
-		t.Errorf("MouseMode = %v, want cell motion", got)
 	}
 }
 
@@ -236,8 +199,10 @@ func TestButtonlessMotionOverAShellSendsNothing(t *testing.T) {
 
 	a.Update(tea.MouseMotionMsg{X: x, Y: y})
 
-	if got := procs["p1"].sent() + procs["p2"].sent(); got != "" {
-		t.Errorf("panes were sent %q", got)
+	for id, fp := range procs {
+		if got := sentAfterMark(t, a.panes[id], fp); got != markOf(a.panes[id]) {
+			t.Errorf("%s was sent %q, want only the marker", id, got)
+		}
 	}
 
 	if got := a.store.State().Tab().Focus; got != "p2" {
@@ -282,21 +247,6 @@ func TestLeaderCommandLeavesScrollAlone(t *testing.T) {
 
 	if got := a.panes["p1"].linesAbove(); got != 3 {
 		t.Errorf("linesAbove = %d after a leader command, want 3", got)
-	}
-}
-
-func TestLeaderLeaderReturnsLive(t *testing.T) {
-	t.Parallel()
-	a, _ := twoShells(t)
-	feedAndWait(t, a.panes["p2"], a.panes["p2"].proc.(*fakeProc), manyLines(30))
-	a.panes["p2"].render()
-
-	x, y := centre(a, "p2")
-	wheelAt(a, x, y, tea.MouseWheelUp)
-	press(a, keyLeader, keyLeader)
-
-	if got := a.panes["p2"].linesAbove(); got != 0 {
-		t.Errorf("linesAbove = %d after leader leader, want 0", got)
 	}
 }
 

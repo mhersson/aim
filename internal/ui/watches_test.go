@@ -17,8 +17,6 @@ import (
 	"github.com/mhersson/aim/internal/harness"
 )
 
-const watchWait = 5 * time.Second
-
 // watchApp is a rail app on a fake git and its watch set, whose commands run on goroutines.
 type watchApp struct {
 	*railApp
@@ -43,7 +41,7 @@ func newWatchApp(t *testing.T, stats bool) *watchApp {
 func (w *watchApp) until(t *testing.T, what string, seen func(tea.Msg), cond func() bool) {
 	t.Helper()
 
-	deadline := time.Now().Add(watchWait)
+	deadline := time.Now().Add(hangGuard)
 
 	for !cond() {
 		select {
@@ -526,7 +524,7 @@ func TestAppCloseNoLeaksWithWatches(t *testing.T) {
 	_, c = r.Update(struct{}{})
 	pm.run(c)
 
-	pumped, stop := context.WithTimeout(context.Background(), watchWait)
+	pumped, stop := context.WithTimeout(context.Background(), hangGuard)
 	defer stop()
 
 	for f.watches.holds(root) == 0 {
@@ -553,7 +551,7 @@ func TestAppCloseNoLeaksWithWatches(t *testing.T) {
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), hangGuard)
 	defer cancel()
 
 	if err := r.Close(ctx); err != nil {
@@ -568,5 +566,5 @@ func TestAppCloseNoLeaksWithWatches(t *testing.T) {
 		t.Errorf("notice = %q", r.notice)
 	}
 
-	eventually2(t, 2*time.Second, "goroutines to return to baseline", func() bool { return runtime.NumGoroutine() <= base })
+	eventually2(t, hangGuard, "goroutines to return to baseline", func() bool { return runtime.NumGoroutine() <= base })
 }

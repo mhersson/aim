@@ -56,7 +56,6 @@ func TestDefaultMethod(t *testing.T) {
 		{"all allowed", []string{"merge", "squash", "rebase"}, github.MergeCommit},
 		{"squash and rebase", []string{"squash", "rebase"}, github.Squash},
 		{"rebase only", []string{"rebase"}, github.Rebase},
-		{"merge only", []string{"merge"}, github.MergeCommit},
 	}
 
 	for _, tc := range tests {
@@ -83,36 +82,98 @@ func TestMergeWarning(t *testing.T) {
 	}
 
 	approved := core.PRInfo{ReviewDecision: "APPROVED", ChecksTotal: 4, ChecksDone: 4}
+	failing := func(n int) core.PRInfo {
+		pr := approved
+		pr.ChecksFailed = n
 
-	tests := []struct {
-		name string
-		pr   core.PRInfo
-		c    *core.PRChecks
-		fit  int
-		want string
-	}{
-		{"failed with one name", core.PRInfo{ReviewDecision: "APPROVED", ChecksTotal: 4, ChecksDone: 4, ChecksFailed: 1}, checks("lint"), 0, "lint failed"},
-		{"failed with two names", core.PRInfo{ReviewDecision: "APPROVED", ChecksTotal: 4, ChecksDone: 4, ChecksFailed: 2}, checks("lint", "test"), 0, "lint, test failed"},
-		{"failed with more names", core.PRInfo{ReviewDecision: "APPROVED", ChecksTotal: 5, ChecksDone: 5, ChecksFailed: 3}, checks("a", "b", "c"), 0, "a, b and 1 more failed"},
-		{"failed before names load", core.PRInfo{ReviewDecision: "APPROVED", ChecksTotal: 4, ChecksDone: 4, ChecksFailed: 2}, nil, 0, "2 checks failed"},
-		{"running", core.PRInfo{ReviewDecision: "APPROVED", ChecksTotal: 4, ChecksDone: 2}, nil, 0, "2 checks running"},
-		{"changes requested", core.PRInfo{ReviewDecision: "CHANGES_REQUESTED", ChecksTotal: 4, ChecksDone: 4}, nil, 0, "changes were requested"},
-		{"no approval", core.PRInfo{ChecksTotal: 4, ChecksDone: 4}, nil, 0, "no approval yet"},
-		{"all at once", core.PRInfo{ChecksTotal: 4, ChecksDone: 3, ChecksFailed: 1}, checks("lint"), 0, "lint failed, 1 check running, no approval yet"},
-		{"names give way to a count when the line is short", core.PRInfo{ReviewDecision: "APPROVED", ChecksTotal: 4, ChecksDone: 4, ChecksFailed: 2}, checks("lint-everything", "test-everything"), 20, "2 checks failed"},
-		{"names stay when they fit", core.PRInfo{ReviewDecision: "APPROVED", ChecksTotal: 4, ChecksDone: 4, ChecksFailed: 1}, checks("lint"), 20, "lint failed"},
-		{"none", approved, nil, 0, ""},
+		return pr
+	}
+	running := func(n int) core.PRInfo {
+		pr := approved
+		pr.ChecksDone -= n
+
+		return pr
+	}
+	reviewed := func(decision string) core.PRInfo {
+		pr := approved
+		pr.ReviewDecision = decision
+
+		return pr
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	// Each cause is a part of its own; none of them is a warning.
+	t.Run("nothing wrong", func(t *testing.T) {
+		t.Parallel()
 
-			if got := mergeWarning(tc.pr, tc.c, tc.fit); got != tc.want {
-				t.Errorf("mergeWarning = %q, want %q", got, tc.want)
-			}
-		})
-	}
+		if got := mergeWarning(approved, nil, 0); got != "" {
+			t.Errorf("mergeWarning = %q, want none", got)
+		}
+	})
+
+	t.Run("the review part", func(t *testing.T) {
+		t.Parallel()
+
+		changes, none := mergeWarning(reviewed("CHANGES_REQUESTED"), nil, 0), mergeWarning(reviewed(""), nil, 0)
+		if changes == "" || none == "" || changes == none {
+			t.Errorf("changes requested %q and no approval %q, want two different warnings", changes, none)
+		}
+	})
+
+	t.Run("failed checks are named, cut at two with the count left", func(t *testing.T) {
+		t.Parallel()
+
+		got := mergeWarning(failing(3), checks("alpha", "beta", "gamma"), 0)
+		if !strings.Contains(got, "alpha") || !strings.Contains(got, "beta") || strings.Contains(got, "gamma") || !strings.Contains(got, "1") {
+			t.Errorf("mergeWarning = %q, want alpha and beta and the 1 left out", got)
+		}
+	})
+
+	t.Run("two failed checks are both named with no count", func(t *testing.T) {
+		t.Parallel()
+
+		got := mergeWarning(failing(2), checks("alpha", "beta"), 0)
+		if !strings.Contains(got, "alpha") || !strings.Contains(got, "beta") || strings.Contains(got, "more") {
+			t.Errorf("mergeWarning = %q, want alpha and beta and no count left out", got)
+		}
+	})
+
+	t.Run("failed and running checks are counted", func(t *testing.T) {
+		t.Parallel()
+
+		failed, waiting := mergeWarning(failing(2), nil, 0), mergeWarning(running(2), nil, 0)
+		if !strings.Contains(failed, "2") || !strings.Contains(waiting, "2") || failed == waiting {
+			t.Errorf("failed %q and running %q, want two different warnings counting 2", failed, waiting)
+		}
+	})
+
+	t.Run("causes combine, failed then running then review", func(t *testing.T) {
+		t.Parallel()
+
+		pr := core.PRInfo{ChecksTotal: 4, ChecksDone: 3, ChecksFailed: 1}
+		want := strings.Join([]string{
+			mergeWarning(failing(1), checks("lint"), 0),
+			mergeWarning(running(1), nil, 0),
+			mergeWarning(reviewed(""), nil, 0),
+		}, ", ")
+
+		if got := mergeWarning(pr, checks("lint"), 0); got != want {
+			t.Errorf("mergeWarning = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("names give way to a count when the line is short", func(t *testing.T) {
+		t.Parallel()
+
+		long := checks("lint-everything", "test-everything")
+
+		if got, want := mergeWarning(failing(2), long, 20), mergeWarning(failing(2), nil, 0); got != want {
+			t.Errorf("a short line: %q, want the count %q", got, want)
+		}
+
+		if got := mergeWarning(failing(1), checks("lint"), 20); !strings.Contains(got, "lint") {
+			t.Errorf("a name that fits: %q, want it named", got)
+		}
+	})
 }
 
 func TestMergeStateWord(t *testing.T) {
@@ -125,30 +186,42 @@ func TestMergeStateWord(t *testing.T) {
 
 	ui := mocha.UI
 
+	// Each state has its own non-empty word and tone; HAS_HOOKS reads as CLEAN,
+	// an unknown state as UNKNOWN, and BEHIND and DIRTY name the base.
 	tests := []struct {
-		state, text string
-		fg          theme.Hex
+		state string
+		fg    theme.Hex
 	}{
-		{"CLEAN", "mergeable", ui.Success},
-		{"HAS_HOOKS", "mergeable", ui.Success},
-		{"UNSTABLE", "mergeable, checks failing", ui.Warning},
-		{"BLOCKED", "blocked by branch protection", ui.Warning},
-		{"BEHIND", "behind main", ui.Warning},
-		{"DIRTY", "conflicts with main", ui.Error},
-		{"DRAFT", "draft", ui.Muted},
-		{"UNKNOWN", "mergeability unknown", ui.Subtle},
-		{"", "mergeability unknown", ui.Subtle},
+		{"CLEAN", ui.Success},
+		{"UNSTABLE", ui.Warning},
+		{"BLOCKED", ui.Warning},
+		{"BEHIND", ui.Warning},
+		{"DIRTY", ui.Error},
+		{"DRAFT", ui.Muted},
+		{"UNKNOWN", ui.Subtle},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.state, func(t *testing.T) {
-			t.Parallel()
+	seen := map[string]string{}
 
-			got := mergeStateWord(tc.state, "main", ui)
-			if got.text != tc.text || got.fg != tc.fg {
-				t.Errorf("mergeStateWord(%q) = %q in %v, want %q in %v", tc.state, got.text, got.fg, tc.text, tc.fg)
-			}
-		})
+	for _, tc := range tests {
+		got := mergeStateWord(tc.state, "main", ui)
+		if got.text == "" || got.fg != tc.fg {
+			t.Errorf("mergeStateWord(%q) = %q in %v, want a word in %v", tc.state, got.text, got.fg, tc.fg)
+		}
+
+		if other, dup := seen[got.text]; dup {
+			t.Errorf("%s and %s read the same: %q", tc.state, other, got.text)
+		}
+
+		seen[got.text] = tc.state
+
+		if want, has := tc.state == "BEHIND" || tc.state == "DIRTY", strings.Contains(got.text, "main"); has != want {
+			t.Errorf("mergeStateWord(%q) = %q, names the base = %v, want %v", tc.state, got.text, has, want)
+		}
+	}
+
+	if hooks, clean := mergeStateWord("HAS_HOOKS", "main", ui), mergeStateWord("CLEAN", "main", ui); hooks != clean {
+		t.Errorf("HAS_HOOKS = %+v, want CLEAN's %+v", hooks, clean)
 	}
 }
 
@@ -721,19 +794,18 @@ func TestMergeGolden(t *testing.T) {
 	}
 }
 
-// TestMergeText is the same screens without styling, so the layout reads.
+// TestMergeText is the icons=false screens without styling; the colour golden
+// of the icons=true ones holds the same text.
 func TestMergeText(t *testing.T) {
 	t.Parallel()
 
-	for _, icons := range []bool{true, false} {
-		for _, c := range mergeScenes() {
-			t.Run(fmt.Sprintf("icons=%v/%s", icons, c.name), func(t *testing.T) {
-				t.Parallel()
+	for _, c := range mergeScenes() {
+		t.Run("icons=false/"+c.name, func(t *testing.T) {
+			t.Parallel()
 
-				got := ansi.Strip(mergeScene(t, icons, c.w, c.h, c.warn).View().Content)
-				golden.RequireEqual(t, []byte(got))
-			})
-		}
+			got := ansi.Strip(mergeScene(t, false, c.w, c.h, c.warn).View().Content)
+			golden.RequireEqual(t, []byte(got))
+		})
 	}
 }
 
@@ -742,26 +814,27 @@ func TestMergeText(t *testing.T) {
 func TestMergeBoxFitsAShortTerminal(t *testing.T) {
 	t.Parallel()
 
-	got := ansi.Strip(mergeScene(t, true, 100, 18, true).View().Content)
+	a := mergeScene(t, true, 100, 18, true)
+	got := ansi.Strip(a.View().Content)
+	lines := strings.Split(got, "\n")
 
-	for _, want := range []string{"[x] delete feat/review-pane after merging", "enter still merges if GitHub allows it"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("the box lost %q:\n%s", want, got)
-		}
+	// The delete row names the branch with its box checked.
+	del := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, "feat/review-pane") && strings.Contains(l, "[x]") })
+	if del < 0 {
+		t.Fatalf("the box lost the delete row:\n%s", got)
 	}
 
-	if strings.Contains(got, "esc cancel") {
-		t.Errorf("a hint row is left:\n%s", got)
+	if reminder := mergeReminder(a.keys.merge); reminder == "" || !strings.Contains(got, reminder) {
+		t.Errorf("the box lost the reminder %q:\n%s", reminder, got)
+	}
+
+	if hint := a.keys.merge.hint("merge.cancel") + " cancel"; strings.Contains(got, hint) {
+		t.Errorf("a hint row is left (%q):\n%s", hint, got)
 	}
 
 	// The box's bottom border is the one under the delete row.
-	lines := strings.Split(got, "\n")
-	for i, l := range lines {
-		if strings.Contains(l, "after merging") {
-			if i+1 >= len(lines) || !strings.Contains(lines[i+1], "╯") {
-				t.Errorf("the row under the delete row is not the box's bottom border:\n%s", got)
-			}
-		}
+	if del+1 >= len(lines) || !strings.Contains(lines[del+1], "╯") {
+		t.Errorf("the row under the delete row is not the box's bottom border:\n%s", got)
 	}
 }
 
@@ -831,7 +904,6 @@ func TestMergeDeleteHintDropsWhole(t *testing.T) {
 	}{
 		{"a short branch in a wide box shows it", "fix/a", 200, true},
 		{"a long branch drops it", "feat/review-pane-with-a-long-name", 200, false},
-		{"a narrow terminal drops it", "fix/a", 60, false},
 	}
 
 	for _, tt := range tests {

@@ -208,7 +208,7 @@ func TestHighlightAnswerFollowsItsView(t *testing.T) {
 			j := a.drawer.hlJob
 			tt.change(t, a, v)
 
-			msg, ok := j.run(context.Background(), &a.drawer.hl).(drawerSpansMsg)
+			msg, ok := j.run(context.Background(), a.drawer.hl).(drawerSpansMsg)
 			if !ok {
 				t.Fatal("the batch gave no answer")
 			}
@@ -236,7 +236,7 @@ func TestHighlightStopsWithTheApp(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if msg := a.drawer.hlJob.run(ctx, &a.drawer.hl); msg != nil {
+	if msg := a.drawer.hlJob.run(ctx, a.drawer.hl); msg != nil {
 		t.Errorf("a cancelled batch answered %T", msg)
 	}
 }
@@ -255,7 +255,7 @@ func TestHighlightJobRace(t *testing.T) {
 		t.Fatal("no batch was started")
 	}
 
-	j, hl := a.drawer.hlJob, &a.drawer.hl
+	j, hl := a.drawer.hlJob, a.drawer.hl
 	done := make(chan tea.Msg, 1)
 
 	go func() { done <- j.run(context.Background(), hl) }()

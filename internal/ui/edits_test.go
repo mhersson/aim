@@ -322,12 +322,12 @@ func TestSubagentEditCounts(t *testing.T) {
 	r := newHookEditRig(t, map[string]git.Place{"/w/b/x.go": placeAt("/w/b")}, nil)
 
 	ev := r.event("PostToolUse", "/w/b/x.go")
-	ev.Subagent, ev.Cwd = true, "/w/b"
+	ev.Subagent = true
 
 	r.deliver(r.hook(ev))
 
-	if p := r.pane(); p.FollowDir() != "/w/b" || p.AgentCwd != "" {
-		t.Errorf("pane = FollowDir %q AgentCwd %q, want the edit recorded and the agent's own directory kept", p.FollowDir(), p.AgentCwd)
+	if got := r.pane().FollowDir(); got != "/w/b" {
+		t.Errorf("FollowDir = %q, want the edit recorded", got)
 	}
 }
 
@@ -516,12 +516,12 @@ func TestBashChangedSubagent(t *testing.T) {
 	r := newHookEditRig(t, map[string]git.Place{"/w/b/x.go": placeAt("/w/b")}, nil)
 
 	ev := r.changed("/w/b/x.go")
-	ev.Subagent, ev.Cwd = true, "/w/b"
+	ev.Subagent = true
 
 	r.deliver(r.hook(ev))
 
-	if p := r.pane(); p.FollowDir() != "/w/b" || p.AgentCwd != "" {
-		t.Errorf("pane = FollowDir %q AgentCwd %q, want the list recorded and the agent's own directory kept", p.FollowDir(), p.AgentCwd)
+	if got := r.pane().FollowDir(); got != "/w/b" {
+		t.Errorf("FollowDir = %q, want the list recorded", got)
 	}
 }
 

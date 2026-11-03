@@ -542,7 +542,7 @@ func TestRailNameProbeSharesTheProbeSlots(t *testing.T) {
 			if nm, ok := msg.(railNameMsg); !ok || !errors.Is(nm.err, context.Canceled) {
 				t.Errorf("answer = %+v, want a cancel", msg)
 			}
-		case <-time.After(5 * time.Second):
+		case <-time.After(hangGuard):
 			t.Fatal("the waiting name probe did not end with the rail")
 		}
 
@@ -562,7 +562,7 @@ func TestRailNameProbeSharesTheProbeSlots(t *testing.T) {
 			if nm, ok := msg.(railNameMsg); !ok || nm.name != "waited" {
 				t.Errorf("answer = %+v, want the name", msg)
 			}
-		case <-time.After(5 * time.Second):
+		case <-time.After(hangGuard):
 			t.Fatal("the name probe did not run once a slot was free")
 		}
 

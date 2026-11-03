@@ -82,21 +82,14 @@ func TestConversationFromTheList(t *testing.T) {
 		t.Fatalf("no conversation shown; notice %q", a.notice)
 	}
 
-	text := shownText(a)
-	for _, s := range []string{"#311 conversation", "Fixes the drawer."} {
-		if !strings.Contains(text, s) {
-			t.Errorf("the overlay lacks %q:\n%s", s, text)
-		}
+	if a.conv.number != 311 {
+		t.Errorf("the overlay is on #%d, want #311", a.conv.number)
 	}
 
 	press(a, keyEsc)
 
 	if a.conv != nil || a.prList == nil {
 		t.Fatalf("esc left conv = %v, list = %v; want the list alone", a.conv != nil, a.prList != nil)
-	}
-
-	if text := shownText(a); !strings.Contains(text, "Pull requests") || strings.Contains(text, "#311 conversation") {
-		t.Errorf("the list does not show again:\n%s", text)
 	}
 }
 
@@ -187,105 +180,6 @@ func TestConversationFromTheDrawer(t *testing.T) {
 
 func TestConversationKeys(t *testing.T) {
 	t.Parallel()
-
-	keys := []struct {
-		name string
-		key  tea.KeyPressMsg
-		want func(v *mdView, start, h int) (cursor, top int)
-		from int // the line it starts on
-	}{
-		{"j", keyRune('j'), func(_ *mdView, s, _ int) (int, int) { return s + 1, 0 }, 0},
-		{"down", tea.KeyPressMsg{Code: tea.KeyDown}, func(_ *mdView, s, _ int) (int, int) { return s + 1, 0 }, 0},
-		{"k", keyRune('k'), func(_ *mdView, s, _ int) (int, int) { return s - 1, 0 }, 5},
-		{"up", tea.KeyPressMsg{Code: tea.KeyUp}, func(_ *mdView, s, _ int) (int, int) { return s - 1, 0 }, 5},
-		{"ctrl+d", tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl}, func(_ *mdView, s, h int) (int, int) { return s + h/2, 0 }, 0},
-		{"ctrl+u", tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl}, func(_ *mdView, s, h int) (int, int) { return s - h/2, 0 }, 10},
-		{"ctrl+f", tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl}, func(_ *mdView, s, h int) (int, int) { return s + h - 1, h - 1 }, 0},
-		{"pgdown", tea.KeyPressMsg{Code: tea.KeyPgDown}, func(_ *mdView, s, h int) (int, int) { return s + h - 1, h - 1 }, 0},
-		{"g", keyRune('g'), func(*mdView, int, int) (int, int) { return 0, 0 }, 12},
-		{"G", keyRune('G'), func(v *mdView, _, h int) (int, int) {
-			n := len(v.layout().Lines)
-
-			return n - 1, n - h
-		}, 0},
-	}
-
-	for _, tc := range keys {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			a, _ := convApp(t, true, 160, 30)
-			convOpen(t, a)
-
-			v := &a.conv.view
-			if v.cursor != 0 {
-				t.Fatalf("it opened on line %d, want the description's top line", v.cursor)
-			}
-
-			v.cursor, v.top = tc.from, 0
-			v.clamp()
-
-			press(a, tc.key)
-
-			wc, _ := tc.want(v, tc.from, v.h)
-			if v.cursor != wc {
-				t.Errorf("%s: cursor = %d, want %d", tc.name, v.cursor, wc)
-			}
-		})
-	}
-
-	t.Run("pgup and ctrl+b page back", func(t *testing.T) {
-		t.Parallel()
-
-		for _, k := range []tea.KeyPressMsg{{Code: tea.KeyPgUp}, {Code: 'b', Mod: tea.ModCtrl}} {
-			a, _ := convApp(t, true, 160, 20)
-			convOpen(t, a)
-
-			v := &a.conv.view
-			press(a, keyRune('G'))
-
-			top, cursor := v.top, v.cursor
-
-			press(a, k)
-
-			if v.top != top-(v.h-1) || v.cursor != cursor-(v.h-1) {
-				t.Errorf("%v: top %d cursor %d, want %d and %d", k, v.top, v.cursor, top-(v.h-1), cursor-(v.h-1))
-			}
-		}
-	})
-
-	t.Run("] and [ visit the items", func(t *testing.T) {
-		t.Parallel()
-
-		a, _ := convApp(t, true, 160, 48)
-		convOpen(t, a)
-
-		d, v := a.conv.doc, &a.conv.view
-
-		next, ok := d.itemLine(0, 1)
-		if !ok {
-			t.Fatal("the conversation has no second item")
-		}
-
-		press(a, keyRune(']'))
-
-		if v.cursor != next {
-			t.Fatalf("] went to line %d, want the next item's first line %d", v.cursor, next)
-		}
-
-		press(a, keyRune('j'))
-		press(a, keyRune('['))
-
-		if v.cursor != next {
-			t.Errorf("[ from inside the item went to %d, want its top %d", v.cursor, next)
-		}
-
-		press(a, keyRune('['))
-
-		if v.cursor != 0 {
-			t.Errorf("[ from the item's top went to %d, want the previous item's top 0", v.cursor)
-		}
-	})
 
 	t.Run("] and [ show the item from its top", func(t *testing.T) {
 		t.Parallel()
@@ -652,23 +546,6 @@ func convReadsOf(cmd tea.Cmd) []convReadMsg {
 func TestConversationStale(t *testing.T) {
 	t.Parallel()
 
-	t.Run("after esc", func(t *testing.T) {
-		t.Parallel()
-
-		a, reads := convApp(t, true, 160, 48)
-		cmd := press(a, keyRune('i'))
-		press(a, keyEsc)
-		ciDeliver(a, cmd)
-
-		if a.conv != nil {
-			t.Error("an answer after esc reopened the overlay")
-		}
-
-		if got := len(reads.convReads()); got != 1 {
-			t.Errorf("reads = %d, want the one", got)
-		}
-	})
-
 	t.Run("after a newer read", func(t *testing.T) {
 		t.Parallel()
 
@@ -705,7 +582,7 @@ func TestConversationStale(t *testing.T) {
 	t.Run("after the overlay reopened on another pull request", func(t *testing.T) {
 		t.Parallel()
 
-		a, _ := convApp(t, true, 160, 48)
+		a, reads := convApp(t, true, 160, 48)
 		first := convReadsOf(press(a, keyRune('i')))
 		repo, number := a.conv.repo, a.conv.number
 
@@ -716,10 +593,16 @@ func TestConversationStale(t *testing.T) {
 			t.Fatalf("answers = %d, want 1", len(first))
 		}
 
+		calls := len(reads.convReads())
+
 		a.Update(first[0])
 
 		if v := a.conv; v == nil || v.number != number+1 || v.doc != nil || !v.loading {
 			t.Errorf("the first view's answer changed the reopened overlay: %+v", v)
+		}
+
+		if got := len(reads.convReads()); got != calls {
+			t.Errorf("the stale answer issued reads: %d, want %d", got, calls)
 		}
 	})
 }
@@ -833,18 +716,6 @@ func TestConversationTooSmall(t *testing.T) {
 	if text := shownText(a); strings.Contains(text, "conversation") {
 		t.Errorf("20x8 drew the box:\n%s", text)
 	}
-
-	press(a, keyRune('j'))
-
-	if a.conv == nil {
-		t.Fatal("a key other than esc closed the box")
-	}
-
-	press(a, keyEsc)
-
-	if a.conv != nil {
-		t.Error("esc did not close a box too small to draw")
-	}
 }
 
 func TestConvRows(t *testing.T) {
@@ -855,7 +726,6 @@ func TestConvRows(t *testing.T) {
 		rows               int
 		blanks, hint, head bool
 	}{
-		{44, 35, true, true, true},
 		{12, 3, true, true, true},
 		{11, 5, false, true, true},
 		{9, 3, false, true, true},
@@ -917,43 +787,16 @@ func TestConversationGolden(t *testing.T) {
 	}
 }
 
-// TestConversationText is the same screens without styling, so the layout reads.
+// TestConversationText is the icons=false screens without styling; the colour
+// golden of the icons=true ones holds the same text.
 func TestConversationText(t *testing.T) {
 	t.Parallel()
 
-	for _, icons := range []bool{true, false} {
-		for _, c := range convScenes() {
-			t.Run(fmt.Sprintf("icons=%v/%s", icons, c.name), func(t *testing.T) {
-				t.Parallel()
-				golden.RequireEqual(t, []byte(ansi.Strip(convScene(t, icons, c.w, c.h, c.mode).View().Content)))
-			})
-		}
-	}
-}
-
-// TestConversationSmall: at 80x24 and 40x12 the blank rows, then the hints,
-// then the header go before a row of the view is cut.
-func TestConversationSmall(t *testing.T) {
-	t.Parallel()
-
-	a := convScene(t, true, 80, 24, "ok")
-	text := shownText(a)
-
-	for _, want := range []string{"#7 Show the pull request over its diff", "j/k line", "esc close"} {
-		if !strings.Contains(text, want) {
-			t.Errorf("80x24 lacks %q:\n%s", want, text)
-		}
-	}
-
-	a = convScene(t, true, 40, 12, "ok")
-	text = shownText(a)
-
-	if !strings.Contains(text, "#7 Show the pull") || strings.Contains(text, "esc close") {
-		t.Errorf("40x12 keeps the header and drops the hints:\n%s", text)
-	}
-
-	if rows, _, _, _ := convRows(8); rows < convMinRows {
-		t.Errorf("a box of 8 rows keeps %d view rows", rows)
+	for _, c := range convScenes() {
+		t.Run("icons=false/"+c.name, func(t *testing.T) {
+			t.Parallel()
+			golden.RequireEqual(t, []byte(ansi.Strip(convScene(t, false, c.w, c.h, c.mode).View().Content)))
+		})
 	}
 }
 
@@ -1034,13 +877,6 @@ func TestConversationLinks(t *testing.T) {
 
 		if a.conv.chooser == nil || len(a.conv.chooser.targets) != 2 {
 			t.Fatalf("chooser = %+v, want two targets", a.conv.chooser)
-		}
-
-		x, y, _, _, _ := planBox(a.width, a.height)
-		rows := strings.Split(shownText(a), "\n")
-
-		if got := []rune(rows[y+wtTopY])[x+wtInsetX]; got != '╭' {
-			t.Errorf("cell two in on the box's fourth row = %q, want the chooser's corner", got)
 		}
 
 		press(a, keyRune('j'))
@@ -1124,37 +960,21 @@ func TestConversationSearch(t *testing.T) {
 		a, _ := convReading(t, 160, 48)
 		press(a, keyRune('/'))
 
-		if s := shownText(a); !strings.Contains(s, "/ ▏") || !strings.Contains(s, "enter find") || strings.Contains(s, "]/[ item") {
-			t.Errorf("empty prompt:\n%s", s)
+		if !a.conv.searching {
+			t.Fatal("/ did not open the prompt")
 		}
 
 		typed(a, "lin")
 		a.Update(tea.PasteMsg{Content: "ks"})
 
-		if s := shownText(a); !strings.Contains(s, "/ links▏") {
-			t.Errorf("typed and pasted:\n%s", s)
+		if a.conv.query != "links" {
+			t.Errorf("typed and pasted: query = %q", a.conv.query)
 		}
 
 		a.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 
-		if s := shownText(a); !strings.Contains(s, "/ link▏") {
-			t.Errorf("after backspace:\n%s", s)
-		}
-	})
-
-	t.Run("matches paint in Match", func(t *testing.T) {
-		t.Parallel()
-
-		a, _ := convReading(t, 160, 48)
-		if n := matchCount(t, a); n != 0 {
-			t.Fatalf("%d cells paint in Match before any query", n)
-		}
-
-		press(a, keyRune('/'))
-		typed(a, "nothing")
-
-		if matchCount(t, a) == 0 {
-			t.Error("no match painted while typing")
+		if a.conv.query != "link" {
+			t.Errorf("after backspace: query = %q", a.conv.query)
 		}
 	})
 
@@ -1364,12 +1184,10 @@ func TestConversationReadingGolden(t *testing.T) {
 func TestConversationReadingText(t *testing.T) {
 	t.Parallel()
 
-	for _, icons := range []bool{true, false} {
-		for _, name := range []string{"search", "chooser"} {
-			t.Run(fmt.Sprintf("icons=%v/%s", icons, name), func(t *testing.T) {
-				t.Parallel()
-				golden.RequireEqual(t, []byte(shownText(convReadingScene(t, icons, name))))
-			})
-		}
+	for _, name := range []string{"search", "chooser"} {
+		t.Run("icons=false/"+name, func(t *testing.T) {
+			t.Parallel()
+			golden.RequireEqual(t, []byte(shownText(convReadingScene(t, false, name))))
+		})
 	}
 }

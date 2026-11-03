@@ -212,7 +212,7 @@ func (a *App) settleDrawerRows() tea.Cmd {
 		return nil
 	}
 
-	ctx, hl := a.ctx, &a.drawer.hl
+	ctx, hl := a.ctx, a.drawer.hl
 
 	return func() tea.Msg { return j.run(ctx, hl) }
 }

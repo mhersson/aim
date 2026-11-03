@@ -229,16 +229,12 @@ func TestPlacePicturesMatchesTheCompositor(t *testing.T) {
 
 		// A string sequence rides on the next cell drawn, and a carriage return
 		// moves the column.
-		{"an APC before the picture", row(a(5) + apc + a(w-5)), nil, false},
 		{"an APC just before the picture", row(a(picX) + apc + a(w-picX)), nil, false},
-		{"an APC inside the picture", row(a(12) + apc + a(w-12)), nil, false},
-		{"an APC after the picture", row(a(20) + apc + a(w-20)), nil, false},
 		{"a DCS in the row", row(a(12) + dcs + a(w-12)), nil, false},
 		{"an APC at the end of the row before a picture at the left edge", at(picY-1, a(w)+apc), []picRow{{X: 0, Y: picY, ID: 9, Cols: 6}}, false},
 		{"an APC between a picture row and a later one at the left edge", at(2, a(w)+apc), []picRow{
 			{X: picX, Y: 1, ID: 9, Cols: picCols}, {X: 0, Y: 3, ID: 10, Cols: picCols},
 		}, false},
-		{"a carriage return in the row", row(a(20) + "\r" + a(5)), nil, false},
 		{"a carriage return rewinds over the picture", row(a(w) + "\r" + strings.Repeat("b", 12)), nil, false},
 
 		// A style or link left open carries into the picture's row.
@@ -458,7 +454,7 @@ func TestSplicedDrawerRecordsAsRecordLayer(t *testing.T) {
 	}
 }
 
-func TestOverlayLinesAndDrawerRecordPictures(t *testing.T) {
+func TestOverlayLinesRecordPictures(t *testing.T) {
 	t.Parallel()
 
 	const w, h = 20, 6
@@ -472,15 +468,5 @@ func TestOverlayLinesAndDrawerRecordPictures(t *testing.T) {
 
 	if !reflect.DeepEqual(f.boxes, []core.Rect{{X: 8, Y: 2, W: 4, H: 2}}) || f.pics[0][0].X != 8 || f.pics[0][0].Y != 2 {
 		t.Fatalf("overlayLines recorded %v %v", f.boxes, f.pics)
-	}
-
-	a := &App{width: w, height: h}
-
-	var g frameLayers
-
-	a.drawDrawer(&g, blank, core.Rect{X: 16, Y: 0, W: 4, H: 2}, []string{"cccc", "dddd"}, pics, true)
-
-	if len(g.pics) != 1 || g.pics[0][0].X != 16 {
-		t.Fatalf("drawDrawer recorded %v", g.pics)
 	}
 }

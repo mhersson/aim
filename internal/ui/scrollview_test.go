@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -211,28 +210,15 @@ func TestScrollViewAcrossHistoryCap(t *testing.T) {
 	}
 }
 
-func TestKeyAndPasteReturnToLive(t *testing.T) {
+func TestPasteReturnsToLive(t *testing.T) {
 	t.Parallel()
+	p, _ := scrollPane(t, 5, 20)
+	p.scrollBy(4)
 
-	tests := []struct {
-		name string
-		send func(p *pane)
-	}{
-		{"key", func(p *pane) { p.sendKey(uv.KeyPressEvent{Code: 'a', Text: "a"}) }},
-		{"paste", func(p *pane) { p.sendPaste("x") }},
-	}
+	p.sendPaste("x")
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			p, _ := scrollPane(t, 5, 20)
-			p.scrollBy(4)
-
-			tt.send(p)
-
-			if got := p.linesAbove(); got != 0 {
-				t.Fatalf("linesAbove = %d after %s, want 0", got, tt.name)
-			}
-		})
+	if got := p.linesAbove(); got != 0 {
+		t.Fatalf("linesAbove = %d after a paste, want 0", got)
 	}
 }
 

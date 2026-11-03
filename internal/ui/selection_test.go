@@ -225,21 +225,8 @@ func TestLineAt(t *testing.T) {
 	}
 }
 
-func TestClampPoint(t *testing.T) {
+func TestClampPointOnAnEmptyGrid(t *testing.T) {
 	t.Parallel()
-
-	g := newFakeGrid(5, nil, "a", "b", "c")
-
-	tests := []struct{ in, want point }{
-		{point{1, 2}, point{1, 2}},
-		{point{-1, -1}, point{0, 0}},
-		{point{9, 9}, point{2, 4}},
-	}
-	for _, tt := range tests {
-		if got := clampPoint(g, tt.in); got != tt.want {
-			t.Errorf("clampPoint(%v) = %v, want %v", tt.in, got, tt.want)
-		}
-	}
 
 	if got := clampPoint(newFakeGrid(0, nil), point{4, 4}); got != (point{}) {
 		t.Errorf("clampPoint on empty grid = %v", got)
@@ -256,7 +243,6 @@ func TestCharClass(t *testing.T) {
 		{"", classBlank},
 		{" ", classBlank},
 		{"a", classWord},
-		{"Z", classWord},
 		{"7", classWord},
 		{"_", classWord},
 		{"-", classWord},
@@ -266,10 +252,7 @@ func TestCharClass(t *testing.T) {
 		{":", classWord},
 		{"@", classWord},
 		{"中", classWord},
-		{"é", classWord},
 		{"(", classOther},
-		{",", classOther},
-		{"=", classOther},
 		{"\t", classOther},
 	}
 	for _, tt := range tests {

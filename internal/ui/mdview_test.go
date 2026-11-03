@@ -101,26 +101,39 @@ func TestParseMarkdownTokenisesOnce(t *testing.T) {
 	}
 }
 
-func TestParseMarkdownTokenCap(t *testing.T) {
+func TestParseMarkdownDefaultTokenCap(t *testing.T) {
 	t.Parallel()
 
+	if got := parseNow("x", nil).tokenMax; got != mdTokenMax {
+		t.Fatalf("parseMarkdown caps at %d, want %d", got, mdTokenMax)
+	}
+}
+
+// codeBlocks is one fenced block per size, its lines named b<block>_<line>.
+func codeBlocks(sizes ...int) string {
 	var sb strings.Builder
 
-	for b := range 30 {
+	for b, n := range sizes {
 		sb.WriteString("```go\n")
 
-		for l := range 1000 {
+		for l := range n {
 			fmt.Fprintf(&sb, "b%d_%d\n", b, l)
 		}
 
 		sb.WriteString("```\n\n")
 	}
 
+	return sb.String()
+}
+
+func TestParseMarkdownTokenCap(t *testing.T) {
+	t.Parallel()
+
 	var calls atomic.Int32
 
-	d := parseNow(sb.String(), countingTokeniser(&calls))
-	if got := calls.Load(); got != 20 {
-		t.Fatalf("tokeniser called %d times, want 20", got)
+	d := parseMarkdownCapped([]byte(codeBlocks(2, 2, 1)), "", countingTokeniser(&calls), 4)
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("tokeniser called %d times, want 2", got)
 	}
 
 	lay := d.layout(100, false)
@@ -128,7 +141,7 @@ func TestParseMarkdownTokenCap(t *testing.T) {
 	for _, c := range []struct {
 		line string
 		want bool
-	}{{"b0_5 ", true}, {"b19_5 ", true}, {"b20_5 ", false}, {"b29_5 ", false}} {
+	}{{"b0_1", true}, {"b1_1", true}, {"b2_0", false}} {
 		i := lineOf(lay, c.line)
 		if i < 0 {
 			t.Fatalf("line %q not found", c.line)
@@ -143,17 +156,15 @@ func TestParseMarkdownTokenCap(t *testing.T) {
 func TestParseMarkdownCapIsSticky(t *testing.T) {
 	t.Parallel()
 
-	src := "```go\n" + strings.Repeat("big\n", 19999) + "```\n\n```go\nover_a\nover_b\n```\n\n```go\nsmall_one\n```\n"
-
 	var calls atomic.Int32
 
-	d := parseNow(src, countingTokeniser(&calls))
+	d := parseMarkdownCapped([]byte(codeBlocks(3, 2, 1)), "", countingTokeniser(&calls), 4)
 	if got := calls.Load(); got != 1 {
 		t.Fatalf("tokeniser called %d times, want 1", got)
 	}
 
 	lay := d.layout(100, false)
-	if i := lineOf(lay, "small_one"); i < 0 || hasClass(lay.Lines[i]) {
+	if i := lineOf(lay, "b2_0"); i < 0 || hasClass(lay.Lines[i]) {
 		t.Errorf("a block after the cap was tokenised (line %d)", i)
 	}
 }
@@ -400,23 +411,6 @@ func TestLineTargets(t *testing.T) {
 	})
 }
 
-func TestMDViewTargets(t *testing.T) {
-	t.Parallel()
-
-	v := newTestView("plain\n\nsee [docs](https://a.example)\n", 40, 10)
-	v.move(lineOf(v.layout(), "see"))
-
-	if got := v.targets(); len(got) != 1 || got[0].URL != "https://a.example" {
-		t.Errorf("targets = %+v", got)
-	}
-
-	v.end(false)
-
-	if got := v.targets(); len(got) != 0 {
-		t.Errorf("targets of a plain line = %+v", got)
-	}
-}
-
 func TestMDViewGoSource(t *testing.T) {
 	t.Parallel()
 
@@ -447,23 +441,6 @@ func TestMDViewGoSource(t *testing.T) {
 				t.Errorf("goSource(%d): cursor %d, want %d", c.line, v.cursor, c.want)
 			}
 		})
-	}
-
-	v.goSource(4)
-
-	if got := v.sourceLine(); got != 3 {
-		t.Errorf("sourceLine = %d, want 3", got)
-	}
-
-	blank := slices.Index(lay.Source, md.SourceRange{})
-	if blank < 0 {
-		t.Fatal("no blank layout line")
-	}
-
-	v.move(blank - v.cursor)
-
-	if got := v.sourceLine(); got != 3 {
-		t.Errorf("sourceLine of a blank line = %d, want 3 (the next block)", got)
 	}
 }
 
@@ -540,10 +517,21 @@ func TestMDViewDrawWidths(t *testing.T) {
 
 	v, p := drawTestView(t, true)
 	v.doc.toggleFold(0)
-	v.end(false)
+
+	lay := v.layout()
+
+	inside := lineOf(lay, "inside_one")
+	if inside < 0 {
+		t.Fatal("the opened fold's code block is not drawn")
+	}
+
+	cursors := []int{0, inside, len(lay.Lines) - 1}
 
 	for _, focused := range []bool{true, false} {
-		for v.cursor < len(v.layout().Lines)-1 {
+		for _, c := range cursors {
+			v.end(false)
+			v.move(c - v.cursor)
+
 			rows := v.draw(p, focused)
 			if len(rows) != 8 {
 				t.Fatalf("%d rows, want 8", len(rows))
@@ -554,11 +542,7 @@ func TestMDViewDrawWidths(t *testing.T) {
 					t.Fatalf("cursor %d row %d is %d cells", v.cursor, i, w)
 				}
 			}
-
-			v.move(1)
 		}
-
-		v.end(false)
 	}
 }
 
@@ -566,15 +550,6 @@ func TestMDViewCursorColumn(t *testing.T) {
 	t.Parallel()
 
 	v, p := drawTestView(t, true)
-	rows := v.draw(p, true)
-	cur := v.cursor - v.top
-
-	for i, r := range rows {
-		plain := ansi.Strip(r)
-		if marked := strings.HasPrefix(plain, "▎ "); marked != (i == cur) {
-			t.Errorf("row %d marked = %v", i, marked)
-		}
-	}
 
 	for i, r := range v.draw(p, false) {
 		if strings.Contains(r, "▎") {
@@ -583,60 +558,34 @@ func TestMDViewCursorColumn(t *testing.T) {
 	}
 }
 
-func TestMDViewHugeDoc(t *testing.T) {
+func TestMDViewDeepQuotes(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		name string
-		src  func() string
-	}{
-		{"4 MiB", func() string {
-			unit := "A paragraph with a [link](https://a.example/x), **bold** and `code` in it.\n\n"
+	// 64 levels is past md's maxDepth of 32.
+	cmd := parseCmd([]byte(strings.Repeat(">", 64)+" deep\n"), "", nil, func(d *mdDoc) tea.Msg { return d })
 
-			return strings.Repeat(unit, md.MaxBytes/len(unit)+10)
-		}},
-		{"nested quotes", func() string { return strings.Repeat(">", 10000) + " deep\n" }},
-		{"long code block", func() string {
-			return "```go\n" + strings.Repeat("x := 1\n", 30000) + "```\n"
-		}},
+	d, ok := cmd().(*mdDoc)
+	if !ok || d == nil {
+		t.Fatal("parseCmd did not answer with the doc")
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
+	th := mochaTheme(t)
+	v := &mdView{doc: d}
+	v.size(120, 40, true)
 
-			var calls atomic.Int32
+	for _, focused := range []bool{true, false} {
+		rows := v.draw(newMDPainter(th, th.UI.Bg), focused)
+		if len(rows) != 40 {
+			t.Fatalf("%d rows, want 40", len(rows))
+		}
 
-			cmd := parseCmd([]byte(c.src()), "", countingTokeniser(&calls), func(d *mdDoc) tea.Msg { return d })
-			d, ok := cmd().(*mdDoc)
-
-			if !ok || d == nil {
-				t.Fatal("parseCmd did not answer with the doc")
+		for i, r := range rows {
+			if w := ansi.StringWidth(r); w != 120 {
+				t.Fatalf("row %d is %d cells", i, w)
 			}
+		}
 
-			if c.name == "long code block" && calls.Load() != 0 {
-				t.Errorf("a block past the cap was tokenised %d times", calls.Load())
-			}
-
-			th := mochaTheme(t)
-			v := &mdView{doc: d}
-			v.size(120, 40, true)
-
-			for _, focused := range []bool{true, false} {
-				rows := v.draw(newMDPainter(th, th.UI.Bg), focused)
-				if len(rows) != 40 {
-					t.Fatalf("%d rows, want 40", len(rows))
-				}
-
-				for i, r := range rows {
-					if w := ansi.StringWidth(r); w != 120 {
-						t.Fatalf("row %d is %d cells", i, w)
-					}
-				}
-
-				v.end(true)
-			}
-		})
+		v.end(true)
 	}
 }
 

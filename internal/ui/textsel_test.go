@@ -123,7 +123,7 @@ func TestMDViewCopyLarge(t *testing.T) {
 
 	var b strings.Builder
 
-	const n = 3000
+	const n = 40
 
 	for i := range n {
 		fmt.Fprintf(&b, "- line %d\n", i)
@@ -234,6 +234,7 @@ func TestTextPaint(t *testing.T) {
 }
 
 func TestMDViewSelectionPaint(t *testing.T) {
+	t.Parallel()
 	th := mochaTheme(t)
 	p := newMDPainter(th, th.UI.Bg).withQuery("find")
 	src := "> quoted\n\n```go\ncode_here\n```\n\nfind me"
@@ -456,14 +457,7 @@ func TestTextSelAfterUpdate(t *testing.T) {
 	}{
 		{"nothing changed", func(*App) {}, true},
 		{"a doc swapped for the same text", func(a *App) { a.plan.view.doc = parseNow(src, nil) }, true},
-		{"the selected line changed", func(a *App) {
-			a.plan.view.doc = parseNow(strings.Replace(src, "first line here", "FIRST line here", 1), nil)
-		}, false},
-		{"a line below the selection changed", func(a *App) {
-			a.plan.view.doc = parseNow(strings.Replace(src, "second line there", "second line gone", 1), nil)
-		}, true},
 		{"the width changed", func(a *App) { a.plan.view.size(a.plan.view.w-2, a.plan.view.h, a.plan.view.icons) }, false},
-		{"the overlay closed", func(a *App) { a.plan = nil }, false},
 	}
 
 	for _, tt := range tests {

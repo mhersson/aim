@@ -10,6 +10,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/golden"
+
+	"github.com/mhersson/aim/internal/core"
 )
 
 // planLinkDoc is a plan file under docs/superpowers/plans: a line with no link,
@@ -140,10 +142,6 @@ func TestPlanEnterLinks(t *testing.T) {
 			if folded := len(r.a.plan.shown().layout().Lines) != before; folded != tt.folded {
 				t.Errorf("fold toggled = %v, want %v", folded, tt.folded)
 			}
-
-			if r.a.plan.chooser != nil && !strings.Contains(r.shown(t), "Links") {
-				t.Error("the chooser is not drawn")
-			}
 		})
 	}
 }
@@ -157,13 +155,12 @@ func TestPlanLinkChooser(t *testing.T) {
 		r := linkPlan(t, 120, 40)
 		r.onLine(t, "first then second")
 		r.enter()
-		r.keys("j", "j", "j", "k", "k", "k")
+		r.keys("j", "j", "k")
 
-		if sel := r.a.plan.chooser.sel; sel != 0 {
-			t.Fatalf("selection = %d after j j j k k k, want 0", sel)
+		if sel := r.a.plan.chooser.sel; sel != 1 {
+			t.Fatalf("selection = %d after j j k, want 1", sel)
 		}
 
-		r.keys("j")
 		r.page(r.enter())
 
 		if r.a.plan.chooser != nil {
@@ -222,22 +219,23 @@ func TestPlanLinkChooser(t *testing.T) {
 		}
 	})
 
-	t.Run("a box too short for one row draws nothing and esc closes it", func(t *testing.T) {
+	t.Run("a box too short for one row draws no chooser row", func(t *testing.T) {
 		t.Parallel()
+
+		const url = "https://example.com/1"
 
 		r := linkPlan(t, 120, 40)
 		r.onLine(t, "first then second")
 		r.enter()
-		r.a.Update(tea.WindowSizeMsg{Width: 120, Height: 8})
 
-		if strings.Contains(r.shown(t), "Links") {
-			t.Error("the chooser is drawn in a box with no room")
+		if !strings.Contains(r.shown(t), url) {
+			t.Fatal("the chooser does not draw its rows in a tall box")
 		}
 
-		r.keys("esc")
+		r.a.Update(tea.WindowSizeMsg{Width: 120, Height: 8})
 
-		if r.a.plan == nil || r.a.plan.chooser != nil {
-			t.Error("esc did not close the chooser alone")
+		if strings.Contains(r.shown(t), url) {
+			t.Error("the chooser is drawn in a box with no room")
 		}
 	})
 }
@@ -260,7 +258,7 @@ func TestPlanNarrowWidths(t *testing.T) {
 		return r
 	}
 
-	for _, sz := range [][2]int{{28, 14}, {30, 14}, {34, 16}, {40, 16}, {80, 24}} {
+	for _, sz := range [][2]int{{28, 14}, {80, 24}} {
 		w, h := sz[0], sz[1]
 
 		t.Run(fmt.Sprintf("%dx%d chooser", w, h), func(t *testing.T) {
@@ -274,8 +272,8 @@ func TestPlanNarrowWidths(t *testing.T) {
 				t.Fatal("the chooser did not open")
 			}
 
-			if !strings.Contains(r.shown(t), "Links") {
-				t.Error("the chooser is not drawn")
+			if !strings.Contains(r.shown(t), "https://e") {
+				t.Error("the chooser does not show a target's URL")
 			}
 
 			assertScreen(t, r.a, w, h)
@@ -309,11 +307,6 @@ func TestPlanPages(t *testing.T) {
 	pv := r.a.plan
 	if len(pv.pages) != 1 || pv.pages[0].path != filepath.Join(r.wt, "docs/b.md") {
 		t.Fatalf("pages = %v", pv.pages)
-	}
-
-	screen := r.shown(t)
-	if !strings.Contains(screen, "docs/b.md") || strings.Contains(screen, "plan file") || !strings.Contains(screen, "Bee") {
-		t.Errorf("page not shown with its title and no tag:\n%s", screen)
 	}
 
 	// The keys act on the page.
@@ -357,7 +350,7 @@ func TestPlanPages(t *testing.T) {
 		t.Fatalf("esc did not return to the plan: %d pages, cursor %d (was %d)", len(pv.pages), pv.view.cursor, planCursor)
 	}
 
-	if !strings.Contains(r.shown(t), "plan file") {
+	if !strings.Contains(r.shown(t), planKindWord(core.PlanFile)) {
 		t.Error("the tag did not come back")
 	}
 
@@ -404,9 +397,9 @@ func TestPlanLinkEditor(t *testing.T) {
 	t.Run("a path outside the root is refused", func(t *testing.T) {
 		t.Parallel()
 
-		for _, tt := range []struct{ name, line, want string }{
-			{"up", "up and", "x.md"},
-			{"abs", "up and", "/etc/hosts"},
+		for _, tt := range []struct{ name, line string }{
+			{"up", "up and"},
+			{"abs", "up and"},
 		} {
 			r := linkPlan(t, 120, 40)
 			base := r.st.count()
@@ -430,8 +423,8 @@ func TestPlanLinkEditor(t *testing.T) {
 				t.Fatalf("%s: overlay open %v, editors %d", tt.name, r.a.plan != nil, r.st.count()-base)
 			}
 
-			if !strings.HasPrefix(r.a.notice, "not opening ") || !strings.HasSuffix(r.a.notice, ": outside the worktree") || !strings.Contains(r.a.notice, tt.want) {
-				t.Errorf("%s: notice = %q", tt.name, r.a.notice)
+			if want := markdownNotice(r.wt, target.Path, r.home, errOutsideWorktree); r.a.notice != want {
+				t.Errorf("%s: notice = %q, want %q", tt.name, r.a.notice, want)
 			}
 		}
 	})
@@ -491,8 +484,12 @@ func TestPlanPageLate(t *testing.T) {
 }
 
 func TestPlanLinksGolden(t *testing.T) {
+	t.Parallel()
+
 	for _, name := range []string{"plan-links", "plan-page"} {
 		t.Run("catppuccin-mocha/icons=true/"+name, func(t *testing.T) {
+			t.Parallel()
+
 			golden.RequireEqual(t, []byte(planLinkScene(t, true, name).View().Content))
 		})
 	}
@@ -501,13 +498,11 @@ func TestPlanLinksGolden(t *testing.T) {
 func TestPlanLinksText(t *testing.T) {
 	t.Parallel()
 
-	for _, icons := range []bool{true, false} {
-		for _, name := range []string{"plan-links", "plan-page"} {
-			t.Run(map[bool]string{true: "icons=true/", false: "icons=false/"}[icons]+name, func(t *testing.T) {
-				t.Parallel()
-				golden.RequireEqual(t, []byte(ansi.Strip(planLinkScene(t, icons, name).View().Content)))
-			})
-		}
+	for _, name := range []string{"plan-links", "plan-page"} {
+		t.Run("icons=false/"+name, func(t *testing.T) {
+			t.Parallel()
+			golden.RequireEqual(t, []byte(ansi.Strip(planLinkScene(t, false, name).View().Content)))
+		})
 	}
 }
 

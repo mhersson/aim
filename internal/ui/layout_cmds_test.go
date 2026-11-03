@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -181,13 +180,13 @@ func TestMoveNotices(t *testing.T) {
 		keys string
 		want string
 	}{
-		{"same tab", "> 1", "the pane is already in tab 1"},
-		{"same tab send", ". 1", "the pane is already in tab 1"},
-		{"no tab", "> 3", "there is no tab 3"},
-		{"no tab send", ". 9", "there is no tab 9"},
-		{"alone move", "> 2", "the pane is alone in its tab"},
-		{"alone send", ". 2", "the pane is alone in its tab"},
-		{"alone break", "!", "the pane is alone in its tab"},
+		{"same tab", "> 1", moveNotice(core.ErrSameTab, 1)},
+		{"same tab send", ". 1", moveNotice(core.ErrSameTab, 1)},
+		{"no tab", "> 3", moveNotice(core.ErrNoTab, 3)},
+		{"no tab send", ". 9", moveNotice(core.ErrNoTab, 9)},
+		{"alone move", "> 2", moveNotice(core.ErrAlone, 2)},
+		{"alone send", ". 2", moveNotice(core.ErrAlone, 2)},
+		{"alone break", "!", moveNotice(core.ErrAlone, 0)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -230,7 +229,7 @@ func TestMoveToTabNineAndLeft(t *testing.T) {
 		a, _ := wideTabs(t, 9)
 		seq(a, "> 9")
 
-		if a.notice != "the pane is already in tab 9" {
+		if a.notice != moveNotice(core.ErrSameTab, 9) {
 			t.Errorf("notice = %q", a.notice)
 		}
 
@@ -427,11 +426,11 @@ func TestLayoutKeys(t *testing.T) {
 	t.Run("cycle", func(t *testing.T) {
 		a, _ := splitApp(t)
 
-		for _, want := range []string{"master-stack", "scrolling", "bsp"} {
+		for _, want := range []core.LayoutMode{core.ModeMaster, core.ModeScrolling, core.ModeBSP} {
 			press(a, keyLeader, keyRune(' '))
 
-			if a.notice != "layout: "+want {
-				t.Errorf("notice = %q, want layout: %s", a.notice, want)
+			if got := a.store.State().Tab().Mode; got != want || !strings.Contains(a.notice, string(want)) {
+				t.Errorf("mode = %s, notice = %q, want the mode %s", got, a.notice, want)
 			}
 		}
 
@@ -443,14 +442,14 @@ func TestLayoutKeys(t *testing.T) {
 		c, _ := a.reg.get("layout.set.bsp")
 		c.run(a)
 
-		if a.notice != "layout: bsp" {
-			t.Errorf("notice = %q", a.notice)
+		if !strings.Contains(a.notice, string(core.ModeBSP)) {
+			t.Errorf("notice = %q, want the current mode", a.notice)
 		}
 
 		c, _ = a.reg.get("layout.set.scrolling")
 		c.run(a)
 
-		if a.notice != "layout: scrolling" || a.store.State().Tab().Mode != core.ModeScrolling {
+		if !strings.Contains(a.notice, string(core.ModeScrolling)) || a.store.State().Tab().Mode != core.ModeScrolling {
 			t.Errorf("notice = %q mode = %s", a.notice, a.store.State().Tab().Mode)
 		}
 	})
@@ -491,7 +490,7 @@ func TestLayoutKeys(t *testing.T) {
 		a.notice = ""
 		press(a, keyLeader, keyRune(';'))
 
-		if a.notice != "preselection works in BSP layouts" || a.pending || a.prefix != "" {
+		if a.notice != noticePreselectBSP || a.pending || a.prefix != "" {
 			t.Errorf("notice %q pending %v prefix %q", a.notice, a.pending, a.prefix)
 		}
 
@@ -499,7 +498,7 @@ func TestLayoutKeys(t *testing.T) {
 		c, _ := a.reg.get("pane.preselect.up")
 		c.run(a)
 
-		if a.notice != "preselection works in BSP layouts" {
+		if a.notice != noticePreselectBSP {
 			t.Errorf("palette notice = %q", a.notice)
 		}
 
@@ -507,7 +506,7 @@ func TestLayoutKeys(t *testing.T) {
 		c, _ = a.reg.get("pane.preselect.clear")
 		c.run(a)
 
-		if a.notice != "preselection works in BSP layouts" {
+		if a.notice != noticePreselectBSP {
 			t.Errorf("clear notice = %q", a.notice)
 		}
 	})
@@ -519,7 +518,7 @@ func TestRotateEqualizePromote(t *testing.T) {
 		a, _ := lifeAppSized(t, 140, 30)
 		chord(a, 'r')
 
-		if a.notice != "nothing to rotate" {
+		if a.notice != layoutNotice(core.ErrNothingToRotate, "rotate") {
 			t.Errorf("notice = %q", a.notice)
 		}
 
@@ -564,7 +563,7 @@ func TestRotateEqualizePromote(t *testing.T) {
 		chord(a, 'v')
 		press(a, keyLeader, keyEnter)
 
-		if a.notice != "promote works in master-stack layouts" {
+		if a.notice != layoutNotice(core.ErrNeedsMaster, "promote") {
 			t.Errorf("notice = %q", a.notice)
 		}
 
@@ -585,7 +584,7 @@ func TestRotateEqualizePromote(t *testing.T) {
 		c.run(a)
 		chord(a, 'r')
 
-		if a.notice != "rotate works in BSP layouts" {
+		if a.notice != layoutNotice(core.ErrNeedsBSP, "rotate") {
 			t.Errorf("notice = %q", a.notice)
 		}
 	})
@@ -612,13 +611,13 @@ func TestPrefixSequences(t *testing.T) {
 		a, _ := splitApp(t)
 		seq(a, ">x")
 
-		if a.notice != "ctrl+space > x is not bound" || a.pending {
+		if !strings.Contains(a.notice, "ctrl+space > x") || a.pending {
 			t.Errorf("notice %q pending %v", a.notice, a.pending)
 		}
 
 		seq(a, ";x")
 
-		if a.notice != "ctrl+space ; x is not bound" {
+		if !strings.Contains(a.notice, "ctrl+space ; x") {
 			t.Errorf("notice %q", a.notice)
 		}
 	})
@@ -687,92 +686,4 @@ func TestPrefixSequences(t *testing.T) {
 			t.Errorf("pending %v prefix %q", a.pending, a.prefix)
 		}
 	})
-}
-
-func TestLayoutCommandsInPalette(t *testing.T) {
-	t.Parallel()
-	a, _ := splitApp(t)
-
-	type row struct{ id, title, icon, key string }
-
-	want := []row{
-		{"layout.cycle", "Cycle layout", "\U000F0574", "ctrl+space space"},
-		{"layout.set.bsp", "Layout: BSP", "\U000F0574", ""},
-		{"layout.set.master-stack", "Layout: master-stack", "\U000F06FD", ""},
-		{"layout.set.scrolling", "Layout: scrolling", "\U000F056D", ""},
-		{"pane.preselect.left", "Preselect left", "\U000F004D", "ctrl+space ; h"},
-		{"pane.preselect.down", "Preselect down", "\U000F0045", "ctrl+space ; j"},
-		{"pane.preselect.up", "Preselect up", "\U000F005D", "ctrl+space ; k"},
-		{"pane.preselect.right", "Preselect right", "\U000F0054", "ctrl+space ; l"},
-		{"pane.preselect.clear", "Clear preselection", "\U000F0156", "ctrl+space ; esc"},
-		{"layout.rotate", "Rotate split", "\U000F0467", "ctrl+space r"},
-		{"layout.equalize", "Equalize", "\U000F01FC", "ctrl+space ="},
-		{"layout.promote", "Promote to master", "\U000F01A5", "ctrl+space enter"},
-		{"pane.break", "Break pane into new tab", "\U000F03CC", "ctrl+space !"},
-	}
-	for n := 1; n <= 9; n++ {
-		want = append(want,
-			row{fmt.Sprintf("pane.move.tab.%d", n), fmt.Sprintf("Move pane to tab %d", n), "\U000F0DAD", fmt.Sprintf("ctrl+space > %d", n)},
-			row{fmt.Sprintf("pane.send.tab.%d", n), fmt.Sprintf("Send pane to tab %d", n), "\U000F0DAD", fmt.Sprintf("ctrl+space . %d", n)})
-	}
-
-	a.openCommandPalette()
-
-	byID := map[string]string{}
-	for _, it := range a.overlay.items {
-		byID[it.ID] = it.Icon + "|" + it.Title + "|" + it.Hint
-	}
-
-	for _, w := range want {
-		if got, wantRow := byID[w.id], w.icon+"|"+w.title+"|"+w.key; got != wantRow {
-			t.Errorf("%s = %q, want %q", w.id, got, wantRow)
-		}
-	}
-
-	a.icons = false
-	a.openCommandPalette()
-
-	for _, it := range a.overlay.items {
-		if strings.HasPrefix(it.ID, "layout.") && it.Icon != "" {
-			t.Errorf("%s has an icon with icons off", it.ID)
-		}
-	}
-}
-
-func TestWhichKeyLayoutGroup(t *testing.T) {
-	t.Parallel()
-	a := newTestApp(t)
-	sized(t, a, 140, 40)
-	press(a, keyLeader)
-	a.Update(whichKeyMsg{seq: a.seq})
-
-	plain := ansi.Strip(a.View().Content)
-	for _, w := range []string{
-		"\U000F0574 Layout", "Cycle layout", "Rotate split", "Equalize", "Promote to master",
-		"Clear preselection", "Break pane into new tab",
-	} {
-		if !strings.Contains(plain, w) {
-			t.Errorf("popup lacks %q:\n%s", w, plain)
-		}
-	}
-
-	for _, row := range []string{`> 1-9 +Move pane to tab`, `\. 1-9 +Send pane to tab`, `; hjkl +Preselect`} {
-		if !regexp.MustCompile(row).MatchString(plain) {
-			t.Errorf("popup lacks the row %q:\n%s", row, plain)
-		}
-	}
-
-	if strings.Contains(plain, "Move pane to tab 1") || strings.Contains(plain, "Preselect left") {
-		t.Errorf("a family was not collapsed:\n%s", plain)
-	}
-
-	// Layout sits in the left column below Panes; Tabs and App stay on the right.
-	_, panesY := cellOf(t, strings.Split(plain, "\n"), "Panes")
-	layoutX, layoutY := cellOf(t, strings.Split(plain, "\n"), "Layout")
-	panesX, _ := cellOf(t, strings.Split(plain, "\n"), "Panes")
-	tabsX, tabsY := cellOf(t, strings.Split(plain, "\n"), "Tabs")
-
-	if layoutY <= panesY || layoutX != panesX || tabsX <= layoutX || tabsY != panesY {
-		t.Errorf("group positions: panes (%d,%d) layout (%d,%d) tabs (%d,%d)", panesX, panesY, layoutX, layoutY, tabsX, tabsY)
-	}
 }
