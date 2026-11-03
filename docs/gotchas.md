@@ -155,11 +155,12 @@ what to do about it. Skim it before your first commit each session.
   a fixed identity, `GIT_CONFIG_GLOBAL` to a config file of its own and
   `XDG_CONFIG_HOME` to its own dir (so no `~/.config/git/ignore` or
   `attributes` is read) once for the test binary, so its tests need no
-  `t.Setenv` and can call `t.Parallel()`. Packages without
-  such a `TestMain`, like `cmd/aim`, isolate git per test with `isolateGit`,
-  which uses `t.Setenv`. A helper that builds its own `cmd.Env` keeps that
-  `GIT_CONFIG_GLOBAL`. internal/ui's `TestMain` sets none of it: outside the `bench` tag it puts a
-  failing `git` first on `PATH`, since no test there starts git.
+  `t.Setenv` and can call `t.Parallel()`. Packages without such a `TestMain`,
+  like `cmd/aim`, isolate git per test with `isolateGit`, which uses
+  `t.Setenv`. A helper that builds its own `cmd.Env` keeps that
+  `GIT_CONFIG_GLOBAL`. internal/ui's `TestMain` sets none of it: outside the
+  `bench` tag it puts a failing `git` first on `PATH`, since no test there
+  starts git.
 - `commit`, `merge`, `fetch` and a push's `receive-pack` start
   `git maintenance run --auto`, which detaches by default
   (`maintenance.autoDetach`) and removes `.git/objects/maintenance.lock` after

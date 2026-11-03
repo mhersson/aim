@@ -188,10 +188,10 @@ or changes:
 CI runs the full gates on every pull request that changes Go code (every test
 under the race detector, the darwin build, `go mod tidy` and the native macOS
 tests), only the doc tests on one that changes none, and the commit scan on
-every pull request. A branch goes up as a draft
-pull request, so CI checks it while the work finishes. Run `make scan-commits`
-before every push; `make check` runs CI's Linux go-checks gates locally when you
-need them without a push.
+every pull request. A branch goes up as a draft pull request, so CI checks it
+while the work finishes. Run `make scan-commits` before every push;
+`make check` runs CI's Linux go-checks gates locally when you need them without
+a push.
 
 - No Claude session links (`Claude-Session` lines or `claude.ai/code/session_`
   URLs) in commits or PRs.
