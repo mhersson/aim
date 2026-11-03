@@ -1,6 +1,7 @@
 package md
 
 import (
+	"html"
 	"strconv"
 	"strings"
 	"unicode"
@@ -20,8 +21,16 @@ const (
 // are cut with …, never wrapped. The box is built at least numW+6 cells wide
 // (room for one code cell) and then cut to width, so no line is ever wider.
 func (l *layouter) codeBlock(out *frag, n *ast.CodeBlock, width int) {
-	lines := codeLines(n, l.d.src)
+	lang := n.Info.Value(l.d.src)
+	if i := strings.IndexAny(lang, " \t"); i >= 0 {
+		lang = lang[:i]
+	}
 
+	l.codeBox(out, codeLines(n, l.d.src), lang, width)
+}
+
+// codeBox lays out lines as a code block labelled lang.
+func (l *layouter) codeBox(out *frag, lines []string, lang string, width int) {
 	numW := 0
 	if len(lines) > 0 {
 		numW = len(strconv.Itoa(len(lines)))
@@ -29,11 +38,6 @@ func (l *layouter) codeBlock(out *frag, n *ast.CodeBlock, width int) {
 
 	fw := max(width, numW+6)
 	frame := styled(RoleCodeFrame)
-
-	lang := n.Info.Value(l.d.src)
-	if i := strings.IndexAny(lang, " \t"); i >= 0 {
-		lang = lang[:i]
-	}
 
 	var spans [][]Span
 	if len(lines) > 0 && l.highlight != nil {
@@ -75,6 +79,95 @@ func (l *layouter) codeBlock(out *frag, n *ast.CodeBlock, width int) {
 	}
 
 	out.lines = append(out.lines, fit(Line{frame.run("╰" + strings.Repeat("─", fw-2) + "╯")}, width))
+}
+
+// preBlock lays out an HTML block that opens with <pre> as a code block with
+// no language; text after the closing tag flows as HTML. It reports false when
+// the block does not open with <pre>.
+func (l *layouter) preBlock(out *frag, raw string, width int, text Role, lead int) bool {
+	raw = strings.TrimLeft(raw, " \t\r\n")
+	if name, closing, ok := tagName(raw); !ok || closing || name != "pre" {
+		return false
+	}
+
+	body, rest := splitPre(raw[tagEnd(raw, 0):])
+	body = strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(plainHTML(body), "\r"), "\n"), "\n")
+
+	var lines []string
+
+	if body != "" {
+		for line := range strings.SplitSeq(body, "\n") {
+			lines = append(lines, strings.TrimSuffix(line, "\r"))
+		}
+	}
+
+	l.codeBox(out, lines, "", max(width-lead, 1))
+
+	if strings.TrimSpace(rest) != "" {
+		l.flow(out, restyle(l.htmlSegs(rest), text, false), width, lead)
+	}
+
+	return true
+}
+
+// splitPre cuts s at its closing </pre> tag; without one all of s is the body.
+func splitPre(s string) (body, rest string) {
+	for i := 0; i < len(s); {
+		j := strings.IndexByte(s[i:], '<')
+		if j < 0 {
+			break
+		}
+
+		i += j
+		if name, closing, ok := tagName(s[i:]); ok && closing && name == "pre" {
+			return s[:i], s[tagEnd(s, i):]
+		}
+
+		i++
+	}
+
+	return s, ""
+}
+
+// plainHTML is s with its tags and comments dropped and its entities decoded;
+// the whitespace of the text is kept.
+func plainHTML(s string) string {
+	var b strings.Builder
+
+	for i := 0; i < len(s); {
+		j := strings.IndexByte(s[i:], '<')
+		if j < 0 {
+			b.WriteString(html.UnescapeString(s[i:]))
+
+			break
+		}
+
+		b.WriteString(html.UnescapeString(s[i : i+j]))
+		i += j
+
+		if strings.HasPrefix(s[i:], "<!--") {
+			end := strings.Index(s[i+4:], "-->")
+			if end < 0 {
+				break
+			}
+
+			i += 4 + end + 3
+
+			continue
+		}
+
+		if _, _, ok := tagName(s[i:]); ok {
+			i = tagEnd(s, i)
+
+			continue
+		}
+
+		b.WriteByte('<')
+
+		i++
+	}
+
+	return b.String()
 }
 
 // codeLines is the block's lines as written: goldmark's padding applied, the

@@ -718,6 +718,25 @@ func TestHTMLBlocks(t *testing.T) {
 	goldenText(t, "html_block", l.debug())
 }
 
+func TestPreBlocks(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name, src string
+	}{
+		{"whitespace and blank lines", "<pre>\n  a\n\n    b\n</pre>\n"},
+		{"inline tags and entities", "<pre>x <b>bold</b> &lt;y&gt;\n<span class=\"k\">  z</span>\n</pre>\n"},
+		{"wrapped in code", "<pre><code>one\n  two\n</code></pre>\n"},
+		{"text after the close", "<pre>a  b</pre> after\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := layoutOf(tt.src, 24, "")
+			goldenText(t, "pre_"+strings.ReplaceAll(tt.name, " ", "_"), l.debug())
+		})
+	}
+}
+
 func TestFragmentsInFolds(t *testing.T) {
 	t.Parallel()
 

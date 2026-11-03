@@ -430,6 +430,10 @@ func (l *layouter) htmlBlock(out *frag, h *ast.HTMLBlock, width int, text Role, 
 		if name, _, ok := tagName(strings.TrimLeft(raw, " \t\r\n")); ok && (name == "script" || name == "style") {
 			return
 		}
+
+		if l.preBlock(out, raw, width, text, lead) {
+			return
+		}
 	}
 
 	l.flow(out, restyle(l.htmlSegs(raw), text, false), width, lead)
