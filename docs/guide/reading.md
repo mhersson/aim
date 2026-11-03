@@ -97,4 +97,4 @@ Only some images load as pictures: an `https` image on `github.com`, a `.githubu
 | Read again | `r` |
 | Close | `esc` |
 
-`y` copies as described in [Copy, paste and the mouse](copy-paste-mouse.md). `e` works in a plan and in a markdown file: it opens the file in a new shell pane beside the focused one and closes the box; it does nothing in the conversation. `r` reads the shown file or the conversation again; a plan or file keeps its place.
+`y` copies as described in [Copy, paste and the mouse](copy-paste-mouse.md). `e` works in a plan and in a markdown file: it opens the file in a new shell pane beside the focused one and closes the box; in the conversation, which has no file to open, it only says so. `r` reads the shown file or the conversation again; a plan or file keeps its place.

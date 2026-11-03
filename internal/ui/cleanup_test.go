@@ -1417,3 +1417,41 @@ func TestCleanupCommandRegistered(t *testing.T) {
 		t.Errorf("group = %q, want Git", g)
 	}
 }
+
+func TestCleanupNoWorktree(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		from   cleanupFrom
+		branch string
+		want   string
+	}{
+		{"command names the branch", fromCommand, "feat/x", noticeNoCleanupWorktree("feat/x")},
+		{"command without a branch", fromCommand, "", noticeNothingToClean},
+		{"merge stays silent", fromMerge, "feat/x", ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := newCleanupRig(t)
+			r.notice = ""
+
+			msg := cleanupFoundMsg{
+				seq: r.cleanupSeq, from: tc.from, pane: r.store.State().Tab().Focus,
+				pr: core.PRInfo{Number: 7, HeadBranch: tc.branch}, ok: false,
+			}
+			r.onCleanupFound(msg)
+
+			if r.notice != tc.want {
+				t.Errorf("notice = %q, want %q", r.notice, tc.want)
+			}
+
+			if tc.want != "" && r.noticeLevel() != levelNotice {
+				t.Errorf("level = %v, want notice", r.noticeLevel())
+			}
+		})
+	}
+}

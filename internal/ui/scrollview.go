@@ -97,15 +97,12 @@ func (p *pane) scrollBy(n int) bool {
 	return true
 }
 
-// scrollLive returns the view to the live screen and reports whether it was scrolled.
-func (p *pane) scrollLive() bool {
+// scrollLive returns the view to the live screen.
+func (p *pane) scrollLive() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	was := p.scrolled
 	p.scrolled = false
-
-	return was
 }
 
 // viewTop returns the absolute row of the first view row; the history length

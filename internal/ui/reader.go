@@ -108,6 +108,9 @@ func (a *App) readerClose(key string) tea.Cmd {
 	return nil
 }
 
+// noticeConvNoFile answers e in the conversation, which is not a file.
+const noticeConvNoFile = "the conversation has no file to open"
+
 // planEdit opens the shown file in the editor at the cursor's source line in a
 // new shell pane and closes the overlay.
 func (a *App) planEdit() tea.Cmd {
@@ -225,6 +228,8 @@ func readerCommands() []command {
 		}),
 		cmd("reader.edit", "open in the editor", func(a *App, _ *mdView, conv bool) tea.Cmd {
 			if conv {
+				a.notice = noticeConvNoFile
+
 				return nil
 			}
 
