@@ -668,7 +668,7 @@ func TestDiffHeadersCopyWhole(t *testing.T) {
 
 	d.dragRows(t, 0, 6, line, d.code(t, line)+len("line 1")-1)
 
-	want := "a.txt\n" + hunkHeader(hunk) + "\nline 1"
+	want := "dir/sub/c.txt\n" + hunkHeader(hunk) + "\nline 1"
 	if got := primaryWrites(d.clip); !slices.Equal(got, []string{want}) {
 		t.Errorf("primary writes %q, want %q", got, want)
 	}
@@ -851,8 +851,8 @@ func TestStickyHeaderSelects(t *testing.T) {
 	clickRun(d.App, x, y)
 	clickRun(d.App, x, y)
 
-	if got := primaryWrites(d.clip); !slices.Equal(got, []string{"a.txt"}) {
-		t.Errorf("primary writes %q, want [a.txt]", got)
+	if got := primaryWrites(d.clip); !slices.Equal(got, []string{"dir/sub/c.txt"}) {
+		t.Errorf("primary writes %q, want [dir/sub/c.txt]", got)
 	}
 }
 
@@ -860,7 +860,7 @@ func TestDiffSelectionReload(t *testing.T) {
 	t.Parallel()
 
 	edits := func(n ...int) func(*testing.T, string) {
-		return func(t *testing.T, dir string) { write(t, filepath.Join(dir, "a.txt"), editedLines(40, n...)) }
+		return func(t *testing.T, file string) { write(t, file, editedLines(40, n...)) }
 	}
 
 	tests := []struct {
@@ -887,6 +887,7 @@ func TestDiffSelectionReload(t *testing.T) {
 			d := newDiffSel(t)
 			v := d.v
 			from, to := rowWith(t, v, tt.from), rowWith(t, v, tt.to)
+			path := v.res.Files[v.rows[from].file].Path
 			x0, y0 := rowCell(t, d.drawerRig, from, d.code(t, from))
 			x1, y1 := rowCell(t, d.drawerRig, to, d.code(t, to)+len(tt.to)-1)
 
@@ -910,9 +911,9 @@ func TestDiffSelectionReload(t *testing.T) {
 				d.settle()
 			}
 
-			tt.edit(t, d.dir)
+			tt.edit(t, filepath.Join(d.dir, path))
 
-			d.run(d.batch(d.root, git.Batch{Paths: []string{"a.txt"}}))
+			d.run(d.batch(d.root, git.Batch{Paths: []string{path}}))
 
 			if tt.hidden {
 				openIn(t, d.App, core.SelectTab{Index: 0})
@@ -1009,7 +1010,7 @@ func TestDiffCopyKey(t *testing.T) {
 		want []string
 	}{
 		{"a diff line", func() int { return rowWith(t, d.v, "edited 3") }, []string{"edited 3"}},
-		{"a file header", func() int { return 0 }, []string{"a.txt"}},
+		{"a file header", func() int { return 0 }, []string{"dir/sub/c.txt"}},
 		{"a hunk header", func() int { return 1 }, []string{hunkHeader(d.v.res.Files[0].Hunks[0])}},
 	}
 
@@ -1612,7 +1613,7 @@ func TestDiffDragThroughReload(t *testing.T) {
 		body string
 	}{
 		{"another file reloads while the drag is held", "z.txt", editedLines(40, 3, 30, 12)},
-		{"rows above shift while the drag is held", "a.txt", editedLines(40, 3, 5, 30)},
+		{"rows above shift while the drag is held", "dir/sub/c.txt", editedLines(40, 3, 5, 30)},
 	}
 
 	for _, tt := range tests {
@@ -1634,7 +1635,7 @@ func TestDiffDragThroughReload(t *testing.T) {
 			d.run(d.batch(d.root, git.Batch{Paths: []string{tt.path}}))
 			d.until(t, "the drawer to reload", func() bool { return v.gen > gen && !v.loading && v.queued == nil })
 
-			if tt.path == "a.txt" && rowWith(t, v, "line 28") == from {
+			if tt.path == "dir/sub/c.txt" && rowWith(t, v, "line 28") == from {
 				t.Fatal("setup: the rows did not shift")
 			}
 

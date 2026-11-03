@@ -63,8 +63,8 @@ func treeRigOn(t *testing.T, r *drawerRig, w, h int, from treeStart) (*drawerRig
 	case treeStartIdle:
 		r.showTree(t)
 	case treeStartKeyed:
-		// The tree lists dir/sub/c.txt, dir/b.txt, a.txt, z.txt; the cursor is in a.txt,
-		// so one j selects z.txt, a file the cursor is not in.
+		// The tree lists dir/sub/c.txt, dir/b.txt, a.txt, z.txt; the cursor is in
+		// dir/sub/c.txt, so one j selects dir/b.txt, a file the cursor is not in.
 		r.keys(keyTab, keyRune('j'))
 	}
 
@@ -133,8 +133,8 @@ func TestReviewTreeToggle(t *testing.T) {
 			}
 
 			switch {
-			case tt.jumps && (fileAtCursor(v) != "z.txt" || v.rows[v.cursor].kind != rowFile):
-				t.Errorf("cursor on %s (kind %d), want z.txt's header", fileAtCursor(v), v.rows[v.cursor].kind)
+			case tt.jumps && (fileAtCursor(v) != "dir/b.txt" || v.rows[v.cursor].kind != rowFile):
+				t.Errorf("cursor on %s (kind %d), want dir/b.txt's header", fileAtCursor(v), v.rows[v.cursor].kind)
 			case !tt.jumps && v.cursor != cursor:
 				t.Errorf("cursor moved from %d to %d, want it where it was", cursor, v.cursor)
 			}

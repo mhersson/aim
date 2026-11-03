@@ -49,7 +49,7 @@ A shell, or an agent without a session, has branch mode only. A turn drawer whos
 
 ### The file tree
 
-`tab` opens the file tree, on the left of the drawer, and gives it the keyboard; the tree is hidden when a drawer opens. Pressing `tab` again with the tree focused hides it.
+`tab` opens the file tree, on the left of the drawer, and gives it the keyboard; the tree is hidden when a drawer opens. Pressing `tab` again with the tree focused hides it. The tree lists folders before files at each level, each by name, and the diff lists its files in the same order.
 
 | To | Press |
 | --- | --- |

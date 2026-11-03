@@ -162,7 +162,7 @@ func TestRenderedPictureKeepsRow(t *testing.T) {
 
 	var b strings.Builder
 
-	b.WriteString("intro\n\n![logo](docs/logo.png)\n\n")
+	b.WriteString("intro\n\n![brand](docs/logo.png)\n\n")
 
 	for i := range 40 {
 		fmt.Fprintf(&b, "para %d\n\n", i)
@@ -172,7 +172,7 @@ func TestRenderedPictureKeepsRow(t *testing.T) {
 	v := m.v
 
 	at := rowWith(t, v, "para 1")
-	v.top, v.cursor = rowWith(t, v, "logo")-1, at
+	v.top, v.cursor = rowWith(t, v, "brand")-1, at
 
 	before := frameRow(t, m.View().Content, "para 1")
 
