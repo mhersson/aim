@@ -215,7 +215,8 @@ func run(ctx context.Context, env core.Env, configPath, recordDir string, fresh 
 		NoOSC52:           !cfg.Clipboard.OSC52On(),
 		NoNativeClipboard: !cfg.Clipboard.NativeOn(),
 
-		RecordDir: recordDir,
+		RecordDir:  recordDir,
+		ConfigPath: configPath,
 
 		Shell:        hooks.Shell,
 		HookSettings: hooks.Settings,

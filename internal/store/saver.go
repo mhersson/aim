@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -15,14 +16,15 @@ import (
 // WriteAtomic replaces path with data: a temp file in the same directory is
 // written, synced and renamed over it, so a reader sees the old or the new
 // content and never a partial file.
-func WriteAtomic(path string, data []byte) error { return writeAtomic(path, data, true) }
+func WriteAtomic(path string, data []byte) error { return writeAtomic(path, data, true, 0o600) }
 
 // WriteAtomicNoSync is WriteAtomic without the sync, for a file that need not
 // survive a crash. On macOS a sync is F_FULLFSYNC, which waits for the drive to
 // flush every process's pending writes.
-func WriteAtomicNoSync(path string, data []byte) error { return writeAtomic(path, data, false) }
+func WriteAtomicNoSync(path string, data []byte) error { return writeAtomic(path, data, false, 0o600) }
 
-func writeAtomic(path string, data []byte, durable bool) (err error) {
+// writeAtomic replaces path with data in a file of mode perm.
+func writeAtomic(path string, data []byte, durable bool, perm fs.FileMode) (err error) {
 	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp") // 0600
 	if err != nil {
 		return fmt.Errorf("creating temp file: %w", err)
@@ -35,6 +37,14 @@ func writeAtomic(path string, data []byte, durable bool) (err error) {
 			_ = os.Remove(tmp)
 		}
 	}()
+
+	if perm != 0o600 {
+		if err = f.Chmod(perm); err != nil {
+			_ = f.Close()
+
+			return fmt.Errorf("chmod %s: %w", tmp, err)
+		}
+	}
 
 	if _, err = f.Write(data); err != nil {
 		_ = f.Close()

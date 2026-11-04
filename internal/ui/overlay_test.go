@@ -2,6 +2,8 @@ package ui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -159,6 +161,75 @@ func TestThemePickerCommits(t *testing.T) {
 
 	if got := a.View().BackgroundColor; got != latte.UI.Bg {
 		t.Errorf("background = %v, want %v", got, latte.UI.Bg)
+	}
+}
+
+func TestThemePickerCtrlSSaves(t *testing.T) {
+	t.Parallel()
+
+	const latte = "catppuccin-latte"
+
+	tests := []struct {
+		name  string
+		file  string // the config before; "" for none
+		want  string // the config after
+		level toastLevel
+	}{
+		{"saved", "", "theme = \"catppuccin-latte\"\n", levelSuccess},
+		{"not valid TOML", "theme = \n", "theme = \n", levelError},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			home := t.TempDir()
+			path := filepath.Join(home, ".config", "aim", "config.toml")
+
+			if tt.file != "" {
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+
+				if err := os.WriteFile(path, []byte(tt.file), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			a := newTestApp(t)
+			a.configPath = path
+			a.getenv = func(k string) string {
+				if k == "HOME" {
+					return home
+				}
+
+				return testGetenv(k)
+			}
+
+			sized(t, a, 100, 30)
+			pressRun(a, keyLeader, keyRune('t'), keyDown, tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+
+			if got := a.store.State().Theme; got != latte {
+				t.Errorf("theme = %q, want %q", got, latte)
+			}
+
+			if a.overlay != nil || a.preview != nil {
+				t.Error("overlay or preview still set after ctrl+s")
+			}
+
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if string(got) != tt.want {
+				t.Errorf("config = %q, want %q", got, tt.want)
+			}
+
+			if !carries(latte, "~/.config/aim/config.toml").matches(a.notice) || a.noticeLevel() != tt.level {
+				t.Errorf("notice = %q at level %v, want one carrying the theme and the config at level %v", a.notice, a.noticeLevel(), tt.level)
+			}
+		})
 	}
 }
 

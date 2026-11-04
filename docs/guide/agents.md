@@ -135,11 +135,11 @@ Click the module or press `ctrl+space u` (command "Claude usage") for the detail
 
 Every action is a command, and the palette runs any that is not specific to one view: press `ctrl+space :`, type part of the name, move with `up` and `down` (or `ctrl+n`, `ctrl+p`, `tab`, `shift+tab`), and press `enter` to run it. `esc` closes it. Each row shows the leader key of its command, if it has one. Commands without a key, such as "Layout: BSP", are listed in [Keys](keys.md#commands-without-a-default-key).
 
-To change the theme, press `ctrl+space t`. The list previews each theme as you move; `enter` applies it, and `esc` closes the picker and keeps the theme you had. The same themes are in the palette as "Theme: ...".
+To change the theme, press `ctrl+space t`. The list previews each theme as you move; `enter` applies it, `ctrl+s` applies it and saves it in the config, and `esc` closes the picker and keeps the theme you had. The same themes are in the palette as "Theme: ...".
 
-A theme you pick lasts until AIM quits; the next start uses `theme` from the config. Set it in [`config.example.toml`](../../config.example.toml) to change the theme AIM starts with.
+A theme you apply with `enter` or from the palette lasts until AIM quits; the next start uses `theme` from the config. `ctrl+s` sets `theme` in the config file AIM started with (the `--config` file, else the default path), so the next start uses it too. It changes only the value of the file's top-level `theme` line, or adds `theme = "<name>"` at the top when there is none, and leaves every other line as it was; with no config yet it creates the file. A config that is a symlink stays one, and the file it points to changes. A toast names the theme and the file. When the file is not valid TOML or cannot be written, an error toast says why and the file is left as it was; the theme still applies until AIM quits. To set the theme by hand, see [`config.example.toml`](../../config.example.toml).
 
-These keys are fixed: typing, the movement keys above, `enter` and `esc`.
+These keys are fixed: typing, the movement keys above, `enter`, `ctrl+s` and `esc`.
 
 ## Close panes and tabs
 

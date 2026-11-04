@@ -3,6 +3,7 @@
 package palette
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 
@@ -46,8 +47,9 @@ type Model struct {
 	sel     int // index into matches, -1 when nothing matches
 	top     int // first visible row of matches
 	theme   theme.Theme
-	icons   bool   // some item has an icon, so every row reserves its column
-	enter   string // label of the enter hint in the footer
+	icons   bool        // some item has an icon, so every row reserves its column
+	enter   string      // label of the enter hint in the footer
+	hints   [][2]string // the owner's own keys, hinted between enter and esc
 }
 
 type titles []Item
@@ -77,6 +79,14 @@ func New(title string, items []Item, t theme.Theme) Model {
 // WithEnterLabel returns m with the footer's enter hint labelled label.
 func (m Model) WithEnterLabel(label string) Model {
 	m.enter = label
+
+	return m
+}
+
+// WithHint returns m with key and its label hinted in the footer, for a key
+// the palette's owner handles.
+func (m Model) WithHint(key, label string) Model {
+	m.hints = append(slices.Clone(m.hints), [2]string{key, label})
 
 	return m
 }
@@ -278,7 +288,7 @@ func (m Model) View(width int) string {
 		lines = append(lines, m.row(i, box))
 	}
 
-	hints := box.Hints([][2]string{{"up/down", "move"}, {"enter", m.enter}, {"esc", "close"}})
+	hints := box.Hints(slices.Concat([][2]string{{"up/down", "move"}, {"enter", m.enter}}, m.hints, [][2]string{{"esc", "close"}}))
 	count := " " + strconv.Itoa(max(m.sel+1, 0)) + " of " + strconv.Itoa(len(m.matches)) + " "
 	lines = append(lines, box.Divider(), box.Row(hints, panel), box.Bottom(count))
 

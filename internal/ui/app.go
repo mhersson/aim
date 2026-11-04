@@ -30,6 +30,8 @@ type Options struct {
 	Getenv func(string) string
 	// Cwd is the launch directory, where the first pane starts; empty means os.Getwd.
 	Cwd string
+	// ConfigPath is the config file AIM loaded; the theme picker's ctrl+s saves the theme there.
+	ConfigPath string
 	// RecordDir, when set, receives one recording per pane (diagnostics); empty means off.
 	RecordDir string
 	// Icons draws Nerd Font glyphs; false drops every one.
@@ -178,6 +180,7 @@ type App struct {
 	loader      *pictureLoader // loads the pictures off the update loop
 	getenv      func(string) string
 	cwd         string
+	configPath  string // the config file AIM loaded, which the theme picker's ctrl+s saves to
 	recordDir   string // empty unless recording
 	icons       bool   // draw Nerd Font glyphs
 	started     bool   // the first size message was handled; it opens the first pane only once
@@ -296,7 +299,7 @@ func New(opts Options) (*App, error) {
 		panes: map[core.PaneID]*pane{}, outerFocused: true,
 		watches:  watchState{set: opts.Watches, open: opts.Git.Open, panes: map[core.PaneID]*paneWatch{}, pins: map[core.TabID]*pinWatch{}, failed: map[string]bool{}},
 		pictures: newPictures(nil, getenv, opts.Logger),
-		getenv:   getenv, cwd: cwd, recordDir: opts.RecordDir, icons: opts.Icons, clock: realClock{}, start: termStart, sweepRefs: opts.SweepRefs,
+		getenv:   getenv, cwd: cwd, configPath: opts.ConfigPath, recordDir: opts.RecordDir, icons: opts.Icons, clock: realClock{}, start: termStart, sweepRefs: opts.SweepRefs,
 		load:         newSysLoad(opts.Logger),
 		probeSem:     make(chan struct{}, railProbeMax),
 		probeBudget:  railProbeTimeout,
@@ -787,6 +790,8 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.closeOverlay()
 	case palette.HighlightMsg:
 		a.highlighted(msg.ID)
+	case themeSavedMsg:
+		a.themeSaved(msg)
 	case whichKeyMsg:
 		a.popup = a.pending && a.prefix == "" && msg.seq == a.seq
 	default:

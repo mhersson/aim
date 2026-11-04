@@ -66,7 +66,7 @@ make release-dry  # the GoReleaser dry run: archives, checksums, binaries, chang
 | `internal/git`     | Worktrees, turn snapshots, watcher, diff engine                   |
 | `internal/github`  | Auth via `go-gh`, GraphQL and REST client, poller, PR actions     |
 | `internal/md`      | Markdown to styled cells plus image references                    |
-| `internal/store`   | `state.json` and reviewed-hunk persistence                        |
+| `internal/store`   | `state.json`, reviewed hunks and the config's `theme` line        |
 | `spikes/`          | Throwaway experiments; nothing outside `spikes/` imports them     |
 | `scripts/`         | POSIX shell helpers for the Makefile                              |
 
@@ -216,8 +216,9 @@ a push.
   local branch is deleted only from the worktree cleanup confirm, with its box
   checked, when it holds nothing the merged pull request did not.
 - Write only to the platform state and cache dirs, worktrees under AIM's
-  worktree root, and `.git/info/exclude`; only the cleanup confirm removes such
-  a worktree.
+  worktree root, `.git/info/exclude`, and the `theme` line of the user's
+  `config.toml`. Only the cleanup confirm removes such a worktree, and only the
+  theme picker's `ctrl+s` writes that line.
 - Merges always pass the reviewed head `sha`, and every approve or merge needs a
   confirm step in the UI.
 - Code ported from TUIOS (MIT) keeps its license header and is listed in

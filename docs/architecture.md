@@ -487,6 +487,11 @@ the followed place back, and one after a session change records nothing.
   Shell startup files hold the user's setup for every terminal, so the
   integration lives in the run dir and reaches only the shells AIM starts,
   through their argv and environment.
+  The config file is the user's own. They ask for the one write it gets with
+  the theme picker's `ctrl+s`, and only the `theme` line changes
+  (`core.ConfigWithTheme`, `store.SaveTheme`), so the rest of their file stays
+  theirs byte for byte; a symlinked config is written through, so a dotfiles
+  link survives. Nothing else in AIM writes the config.
 - **Deleting a branch.** `git branch -d` refuses a squash-merged branch, so AIM
   uses `-D` after its own check: the tip is still the one the confirm showed
   and has no commit past the merged head (`git.BranchAhead`,
