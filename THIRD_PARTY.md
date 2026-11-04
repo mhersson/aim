@@ -14,6 +14,30 @@ AIM includes material copied from the projects below, each under the MIT License
 - Copyright (C) 2017 Alec Thomas
 - Used in `internal/ui/theme/syntax.go`: the mapping from token types to colours and text attributes.
 
+## Gruvbox palette
+
+- Source: https://github.com/morhetz/gruvbox (`colors/gruvbox.vim`)
+- By morhetz; the README names the licence, MIT/X11, and no copyright holder
+- Used in `themes/gruvbox-*.toml`: the colour values of the dark and light palettes and their hard, medium and soft backgrounds.
+
+## Tokyo Night palette
+
+- Source: https://github.com/folke/tokyonight.nvim (`extras/lua/tokyonight_night.lua`, `_storm.lua`, `_moon.lua` and `_day.lua`)
+- By folke, under the Apache License 2.0 (text at the end); the licence names no copyright holder
+- Used in `themes/tokyo-night-*.toml`: the colour values of the night, storm, moon and day styles.
+
+## Everforest palette
+
+- Source: https://github.com/sainnhe/everforest (`autoload/everforest.vim`)
+- Copyright (c) 2019 sainnhe
+- Used in `themes/everforest-*.toml`: the colour values of the dark and light palettes and their hard, medium and soft backgrounds.
+
+## Ayu palette
+
+- Source: https://github.com/ayu-theme/ayu-colors (the `ayu` npm package 9.1.0, `dist/generated/dark.js`, `mirage.js` and `light.js`)
+- Copyright (c) Konstantin Pschera <me@kons.ch> (kons.ch)
+- Used in `themes/ayu-*.toml`: the colour values of the dark, mirage and light schemes.
+
 ## tuios line diff and invisible characters
 
 - Source: https://github.com/Gaurav-Gosain/tuios (`internal/linediff/linediff.go`, `internal/invisible/invisible.go`, `internal/invisible/invisible_test.go`) at commit aaaa128cd35b38ba8aa08a5f69e688f01385ec3e

@@ -179,7 +179,7 @@ func TestMergeWarning(t *testing.T) {
 func TestMergeStateWord(t *testing.T) {
 	t.Parallel()
 
-	mocha, err := theme.ByName("catppuccin-mocha")
+	mocha, err := theme.Builtin().ByName("catppuccin-mocha")
 	if err != nil {
 		t.Fatal(err)
 	}

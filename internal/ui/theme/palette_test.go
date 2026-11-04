@@ -21,7 +21,7 @@ func paletteFields(p Palette) map[string]Hex {
 func TestPaletteHex(t *testing.T) {
 	hexRE := regexp.MustCompile(`^#[0-9a-f]{6}$`)
 
-	for _, th := range All() {
+	for _, th := range Builtin() {
 		fields := paletteFields(th.Palette)
 		for name, h := range fields {
 			if !hexRE.MatchString(string(h)) {

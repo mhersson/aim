@@ -1,0 +1,34 @@
+# Tokyo Night, storm style.
+# Source: https://github.com/folke/tokyonight.nvim (extras/lua/tokyonight_storm.lua)
+# Licence: Apache License 2.0, by folke (see THIRD_PARTY.md)
+
+title = "Tokyo Night Storm"
+dark = true
+
+[palette]
+rosewater = "#c0caf5"
+flamingo = "#ff9e64"
+pink = "#9d7cd8"
+mauve = "#bb9af7"
+red = "#f7768e"
+maroon = "#db4b4b"
+peach = "#ff9e64"
+yellow = "#e0af68"
+green = "#9ece6a"
+teal = "#1abc9c"
+sky = "#89ddff"
+sapphire = "#7dcfff"
+blue = "#7aa2f7"
+lavender = "#2ac3de"
+text = "#c0caf5"
+subtext1 = "#a9b1d6"
+subtext0 = "#a9b1d6"
+overlay2 = "#737aa2"
+overlay1 = "#737aa2"
+overlay0 = "#565f89"
+surface2 = "#414868"
+surface1 = "#3b4261"
+surface0 = "#292e42"
+base = "#24283b"
+mantle = "#1f2335"
+crust = "#1b1e2d"

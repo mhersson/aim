@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/golden"
 
+	"github.com/mhersson/aim/internal/core"
 	"github.com/mhersson/aim/internal/ui/palette"
 )
 
@@ -161,6 +162,26 @@ func TestThemePickerCommits(t *testing.T) {
 
 	if got := a.View().BackgroundColor; got != latte.UI.Bg {
 		t.Errorf("background = %v, want %v", got, latte.UI.Bg)
+	}
+}
+
+func TestThemePickerOffersUserThemes(t *testing.T) {
+	t.Parallel()
+
+	themes, dawn := withDawn(t)
+	a := newOptionsApp(t, Options{Themes: themes, Store: core.NewStore(core.State{Theme: "catppuccin-mocha"})})
+	sized(t, a, 100, 30)
+	// The user's themes come after the built-ins, so down from Mocha is test-dawn.
+	pressRun(a, keyLeader, keyRune('t'), keyDown)
+
+	if a.preview == nil || a.preview.theme.Name != dawn.Name {
+		t.Fatalf("preview = %+v, want %s", a.preview, dawn.Name)
+	}
+
+	pressRun(a, keyEnter)
+
+	if got := a.store.State().Theme; got != dawn.Name {
+		t.Errorf("theme = %q, want %s", got, dawn.Name)
 	}
 }
 

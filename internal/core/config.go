@@ -322,7 +322,20 @@ func LoadConfig(path string) (Config, error) {
 	}
 
 	cfg := DefaultConfig()
-	err = toml.NewDecoder(bytes.NewReader(data)).DisallowUnknownFields().Decode(&cfg)
+	if err := DecodeStrict(data, &cfg); err != nil {
+		return Config{}, fmt.Errorf("config %s: %w", path, err)
+	}
+
+	cfg.Keys.Order = keyOrder(data)
+
+	return cfg, nil
+}
+
+// DecodeStrict decodes the TOML in data into v, which must hold a field for
+// every key. Its errors name the unknown keys, or the line and key of a value
+// that does not decode, for the caller to put after the file's path.
+func DecodeStrict(data []byte, v any) error {
+	err := toml.NewDecoder(bytes.NewReader(data)).DisallowUnknownFields().Decode(v)
 
 	// StrictMissingError unwraps to DecodeErrors, so it is matched first.
 	var (
@@ -331,20 +344,18 @@ func LoadConfig(path string) (Config, error) {
 	)
 	switch {
 	case err == nil:
-		cfg.Keys.Order = keyOrder(data)
-
-		return cfg, nil
+		return nil
 	case errors.As(err, &strictErr):
 		keys := make([]string, len(strictErr.Errors))
 		for i := range strictErr.Errors {
 			keys[i] = strings.Join(strictErr.Errors[i].Key(), ".")
 		}
 
-		return Config{}, fmt.Errorf("config %s: unknown key %s", path, strings.Join(keys, ", "))
+		return fmt.Errorf("unknown key %s", strings.Join(keys, ", "))
 	case errors.As(err, &decodeErr):
-		return Config{}, fmt.Errorf("config %s: %s", path, decodeText(decodeErr))
+		return errors.New(decodeText(decodeErr))
 	default:
-		return Config{}, fmt.Errorf("config %s: %w", path, err)
+		return err //nolint:wrapcheck // the caller names the file
 	}
 }
 

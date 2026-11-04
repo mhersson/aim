@@ -1,0 +1,34 @@
+# Ayu, mirage.
+# Source: https://github.com/ayu-theme/ayu-colors (the ayu npm package 9.1.0, dist/generated/mirage.js)
+# Licence: MIT, Copyright (c) Konstantin Pschera (see THIRD_PARTY.md)
+
+title = "Ayu Mirage"
+dark = true
+
+[palette]
+rosewater = "#cccac2"
+flamingo = "#f29e74"
+pink = "#dfbfff"
+mauve = "#ffcc66"
+red = "#ff6666"
+maroon = "#f28779"
+peach = "#ffa659"
+yellow = "#ffcd66"
+green = "#d5ff80"
+teal = "#95e6cb"
+sky = "#5ccfe6"
+sapphire = "#73d0ff"
+blue = "#73d0ff"
+lavender = "#80bfff"
+text = "#cccac2"
+subtext1 = "#c0c6cf"
+subtext0 = "#afb7c1"
+overlay2 = "#707a8c"
+overlay1 = "#707a8c"
+overlay0 = "#6e7c8f"
+surface2 = "#6e7c8f"
+surface1 = "#171b24"
+surface0 = "#282e3b"
+base = "#242936"
+mantle = "#1f2430"
+crust = "#735923"

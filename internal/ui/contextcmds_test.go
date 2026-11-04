@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mhersson/aim/internal/core"
+	"github.com/mhersson/aim/internal/ui/theme"
 )
 
 // contextKeys builds a [keys] config with the entries of one context, in order.
@@ -107,7 +108,7 @@ func TestScopedCommands(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := CheckKeys(tt.cfg)
+			err := CheckKeys(tt.cfg, theme.Builtin())
 			if err == nil {
 				t.Fatal("CheckKeys = nil, want an error")
 			}

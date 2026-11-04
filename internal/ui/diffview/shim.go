@@ -148,7 +148,7 @@ func MixColors(a, b color.Color, t float64) color.Color {
 // default syntax colours take, one function per colour.
 
 func mocha() theme.Palette {
-	t, err := theme.ByName("catppuccin-mocha")
+	t, err := theme.Builtin().ByName("catppuccin-mocha")
 	if err != nil {
 		return theme.Palette{}
 	}

@@ -22,6 +22,7 @@ import (
 	"github.com/mhersson/aim/internal/github"
 	"github.com/mhersson/aim/internal/store"
 	"github.com/mhersson/aim/internal/ui"
+	"github.com/mhersson/aim/internal/ui/theme"
 )
 
 // closeTimeout bounds how long quitting waits for pane processes to end.
@@ -98,7 +99,12 @@ func run(ctx context.Context, env core.Env, configPath, recordDir string, fresh 
 		return err
 	}
 
-	if err := validateConfig(cfg); err != nil {
+	themes, err := theme.Load(filepath.Join(filepath.Dir(configPath), "themes"))
+	if err != nil {
+		return err //nolint:wrapcheck // the error names the file
+	}
+
+	if err := validateConfig(cfg, themes); err != nil {
 		return fmt.Errorf("config %s: %w", configPath, err)
 	}
 
@@ -205,6 +211,7 @@ func run(ctx context.Context, env core.Env, configPath, recordDir string, fresh 
 		Icons:  cfg.IconsOn(),
 		Diff:   cfg.Diff,
 		Keys:   cfg.Keys,
+		Themes: themes,
 
 		Worktrees:    cfg.Worktrees,
 		Plans:        cfg.Plans,

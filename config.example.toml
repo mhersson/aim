@@ -15,7 +15,9 @@
 ## More: docs/guide/config.md.
 
 ## The color theme at startup. Switching themes while AIM runs lasts only for
-## that session, unless ctrl+s in the theme picker saves the theme here.
+## that session, unless ctrl+s in the theme picker saves the theme here. A
+## theme file of your own in the themes folder beside this file adds its name
+## to the values; see docs/guide/themes.md.
 ## values: catppuccin-latte | catppuccin-frappe | catppuccin-macchiato | catppuccin-mocha
 # theme = "catppuccin-mocha"
 

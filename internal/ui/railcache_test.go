@@ -57,7 +57,7 @@ func TestRailCacheReusesLinesWhileNothingChanges(t *testing.T) {
 func TestRailCacheKeyCoversEveryInput(t *testing.T) {
 	t.Parallel()
 
-	latte, err := theme.ByName("catppuccin-latte")
+	latte, err := theme.Builtin().ByName("catppuccin-latte")
 	if err != nil {
 		t.Fatal(err)
 	}

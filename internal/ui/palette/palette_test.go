@@ -17,7 +17,7 @@ import (
 func mustTheme(t *testing.T, name string) theme.Theme {
 	t.Helper()
 
-	th, err := theme.ByName(name)
+	th, err := theme.Builtin().ByName(name)
 	if err != nil {
 		t.Fatal(err)
 	}

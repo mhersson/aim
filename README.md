@@ -30,7 +30,7 @@ Watch it as a [video (MP4)](https://github.com/user-attachments/assets/26f3b30c-
 - **Plans and markdown.** The agent's plan, any markdown file and a pull request's conversation open in a reading box, with pictures over the Kitty graphics protocol.
 - **Keyboard first.** One leader key, which-key, a command palette, every key remappable, copy mode and mouse selection.
 - **Picks up where you left off.** Tabs, layouts and each agent's Claude session come back on restart.
-- **Themes.** Catppuccin Latte, Frappé, Macchiato and Mocha, switched from the palette while AIM runs.
+- **Themes.** Catppuccin Latte, Frappé, Macchiato and Mocha, plus [themes of your own](docs/guide/themes.md) from files beside the config, switched from the palette while AIM runs.
 
 ## Screenshots
 
