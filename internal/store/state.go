@@ -1,6 +1,7 @@
-// Package store reads, validates and writes the state file. The file is
-// untrusted input: Decode never panics and nothing it returns needs escaping
-// beyond what core already quotes.
+// Package store reads, validates and writes the state file, and saves the
+// theme picker's theme to the config file. The state file is untrusted input:
+// Decode never panics and nothing it returns needs escaping beyond what core
+// already quotes.
 package store
 
 import (

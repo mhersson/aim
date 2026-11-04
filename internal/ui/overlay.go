@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mhersson/aim/internal/core"
+	"github.com/mhersson/aim/internal/store"
 	"github.com/mhersson/aim/internal/ui/palette"
 	"github.com/mhersson/aim/internal/ui/theme"
 )
@@ -110,8 +111,47 @@ func (a *App) openThemePicker() {
 	}
 
 	o := a.openOverlay(overlayThemes, a.titled(iconTheme, "Theme"), items)
-	o.pal = o.pal.WithEnterLabel("apply")
+	o.pal = o.pal.WithEnterLabel("apply").WithHint("ctrl+s", "save")
 	o.pal.Select(a.theme.Name)
+}
+
+// themeSavedMsg reports the theme picker's save of name to the config at path.
+type themeSavedMsg struct {
+	name, path string
+	err        error
+}
+
+// saveTheme applies the theme picker's selection as enter does, and saves it
+// as the config's theme off the update loop.
+func (a *App) saveTheme() tea.Cmd {
+	it, ok := a.overlay.pal.Selected()
+	if !ok {
+		return nil
+	}
+
+	a.closeOverlay()
+	// dispatch logs its own failures.
+	_ = a.dispatch(core.SetTheme{Name: it.ID})
+
+	path := a.configPath
+
+	return func() tea.Msg {
+		return themeSavedMsg{name: it.ID, path: path, err: store.SaveTheme(path, it.ID)}
+	}
+}
+
+// themeSaved toasts how the theme picker's save went; the theme applies either way.
+func (a *App) themeSaved(msg themeSavedMsg) {
+	where := shortPath(msg.path, "", a.getenv("HOME"))
+
+	if msg.err != nil {
+		a.log.Warn("save theme", "path", msg.path, "err", msg.err)
+		a.toast(levelError, "could not save "+msg.name+" to "+where+": "+msg.err.Error())
+
+		return
+	}
+
+	a.toast(levelSuccess, "saved "+msg.name+" to "+where)
 }
 
 // glyph returns icon, or "" when icons are off.

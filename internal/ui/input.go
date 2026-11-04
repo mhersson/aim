@@ -98,6 +98,10 @@ func (a *App) routeKey(msg tea.KeyPressMsg) tea.Cmd {
 			return nil
 		}
 
+		if msg.String() == "ctrl+s" && a.overlay.kind == overlayThemes {
+			return a.saveTheme()
+		}
+
 		return a.updateOverlay(msg)
 	}
 

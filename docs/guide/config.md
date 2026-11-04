@@ -19,7 +19,7 @@ mkdir -p ~/.config/aim
 cp config.example.toml ~/.config/aim/config.toml
 ```
 
-A theme you pick from the command palette while AIM runs lasts for that session only; the `theme` setting decides the theme at the next start (see [the command palette and themes](agents.md#the-command-palette-and-themes)).
+The `theme` setting decides the theme at each start. A theme you pick while AIM runs lasts for that session only, unless you save it with `ctrl+s` in the theme picker: that sets `theme` in the config file AIM started with and leaves the rest of it as it was (see [the command palette and themes](agents.md#the-command-palette-and-themes)). It is the only time AIM writes the file.
 
 ## Errors at start
 

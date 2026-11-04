@@ -8,11 +8,13 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/mhersson/aim/internal/core/tiling"
 	"github.com/pelletier/go-toml/v2"
+	"github.com/pelletier/go-toml/v2/unstable"
 )
 
 // DefaultTheme is the theme used when config.toml does not set one.
@@ -340,15 +342,55 @@ func LoadConfig(path string) (Config, error) {
 
 		return Config{}, fmt.Errorf("config %s: unknown key %s", path, strings.Join(keys, ", "))
 	case errors.As(err, &decodeErr):
-		line, _ := decodeErr.Position()
-
-		msg := strings.TrimPrefix(decodeErr.Error(), "toml: ")
-		if key := decodeErr.Key(); len(key) > 0 {
-			msg = strings.Join(key, ".") + ": " + msg
-		}
-
-		return Config{}, fmt.Errorf("config %s: line %d: %s", path, line, msg)
+		return Config{}, fmt.Errorf("config %s: %s", path, decodeText(decodeErr))
 	default:
 		return Config{}, fmt.Errorf("config %s: %w", path, err)
 	}
+}
+
+// decodeText is a decode error as "line N: key: problem".
+func decodeText(e *toml.DecodeError) string {
+	line, _ := e.Position()
+
+	msg := strings.TrimPrefix(e.Error(), "toml: ")
+	if key := e.Key(); len(key) > 0 {
+		msg = strings.Join(key, ".") + ": " + msg
+	}
+
+	return fmt.Sprintf("line %d: %s", line, msg)
+}
+
+// ConfigWithTheme is a config file's data with its top-level theme set to name.
+// Only the value of an uncommented top-level theme key changes; with none, a
+// theme line goes first. Every other byte is kept.
+func ConfigWithTheme(data []byte, name string) ([]byte, error) {
+	if err := toml.Unmarshal(data, &map[string]any{}); err != nil {
+		if de := (*toml.DecodeError)(nil); errors.As(err, &de) {
+			return nil, fmt.Errorf("not valid TOML: %s", decodeText(de))
+		}
+
+		return nil, fmt.Errorf("not valid TOML: %w", err)
+	}
+
+	// Theme names are ASCII, where Go's quoting is TOML's.
+	value := strconv.Quote(name)
+
+	var p unstable.Parser
+
+	p.Reset(data)
+
+	for p.NextExpression() {
+		e := p.Expression()
+		if e.Kind == unstable.Table || e.Kind == unstable.ArrayTable {
+			break
+		}
+
+		if e.Kind == unstable.KeyValue && slices.Equal(keyParts(e.Key()), []string{"theme"}) {
+			r := e.Value().Raw
+
+			return slices.Concat(data[:r.Offset], []byte(value), data[r.Offset+r.Length:]), nil
+		}
+	}
+
+	return slices.Concat([]byte("theme = "+value+"\n"), data), nil
 }
