@@ -1,0 +1,34 @@
+# Ayu, dark.
+# Source: https://github.com/ayu-theme/ayu-colors (the ayu npm package 9.1.0, dist/generated/dark.js)
+# Licence: MIT, Copyright (c) Konstantin Pschera (see THIRD_PARTY.md)
+
+title = "Ayu Dark"
+dark = true
+
+[palette]
+rosewater = "#bfbdb6"
+flamingo = "#f29668"
+pink = "#d2a6ff"
+mauve = "#e6b450"
+red = "#d95757"
+maroon = "#f07178"
+peach = "#ff8f40"
+yellow = "#ffb454"
+green = "#aad94c"
+teal = "#95e6cb"
+sky = "#39bae6"
+sapphire = "#59c2ff"
+blue = "#59c2ff"
+lavender = "#73b8ff"
+text = "#bfbdb6"
+subtext1 = "#bfbdb6"
+subtext0 = "#667381"
+overlay2 = "#667381"
+overlay1 = "#5a6378"
+overlay0 = "#5a6673"
+surface2 = "#404953"
+surface1 = "#333b44"
+surface0 = "#161a24"
+base = "#10141c"
+mantle = "#0d1017"
+crust = "#765b24"

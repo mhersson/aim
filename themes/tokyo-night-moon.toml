@@ -1,0 +1,34 @@
+# Tokyo Night, moon style.
+# Source: https://github.com/folke/tokyonight.nvim (extras/lua/tokyonight_moon.lua)
+# Licence: Apache License 2.0, by folke (see THIRD_PARTY.md)
+
+title = "Tokyo Night Moon"
+dark = true
+
+[palette]
+rosewater = "#c8d3f5"
+flamingo = "#ff966c"
+pink = "#fca7ea"
+mauve = "#c099ff"
+red = "#ff757f"
+maroon = "#c53b53"
+peach = "#ff966c"
+yellow = "#ffc777"
+green = "#c3e88d"
+teal = "#4fd6be"
+sky = "#89ddff"
+sapphire = "#86e1fc"
+blue = "#82aaff"
+lavender = "#65bcff"
+text = "#c8d3f5"
+subtext1 = "#828bb8"
+subtext0 = "#828bb8"
+overlay2 = "#737aa2"
+overlay1 = "#737aa2"
+overlay0 = "#636da6"
+surface2 = "#444a73"
+surface1 = "#3b4261"
+surface0 = "#2f334d"
+base = "#222436"
+mantle = "#1e2030"
+crust = "#191b29"

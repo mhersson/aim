@@ -138,3 +138,16 @@ func TestLoadWithoutFolder(t *testing.T) {
 		t.Errorf("Load() names = %q, want the built-ins %q", got, want)
 	}
 }
+
+func TestExampleThemes(t *testing.T) {
+	t.Parallel()
+
+	set, err := Load(filepath.Join("..", "..", "..", "themes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(set) == len(Builtin()) {
+		t.Fatal("the repository's themes folder holds no example themes")
+	}
+}

@@ -1,0 +1,34 @@
+# Tokyo Night, day style.
+# Source: https://github.com/folke/tokyonight.nvim (extras/lua/tokyonight_day.lua)
+# Licence: Apache License 2.0, by folke (see THIRD_PARTY.md)
+
+title = "Tokyo Night Day"
+dark = false
+
+[palette]
+rosewater = "#3760bf"
+flamingo = "#b15c00"
+pink = "#7847bd"
+mauve = "#9854f1"
+red = "#f52a65"
+maroon = "#c64343"
+peach = "#b15c00"
+yellow = "#8c6c3e"
+green = "#587539"
+teal = "#118c74"
+sky = "#006a83"
+sapphire = "#007197"
+blue = "#2e7de9"
+lavender = "#188092"
+text = "#3760bf"
+subtext1 = "#6172b0"
+subtext0 = "#6172b0"
+overlay2 = "#68709a"
+overlay1 = "#68709a"
+overlay0 = "#848cb5"
+surface2 = "#a1a6c5"
+surface1 = "#a8aecb"
+surface0 = "#c4c8da"
+base = "#e1e2e7"
+mantle = "#d0d5e3"
+crust = "#e1e2e7"

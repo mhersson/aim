@@ -1,0 +1,34 @@
+# Everforest, dark, medium contrast.
+# Source: https://github.com/sainnhe/everforest (autoload/everforest.vim)
+# Licence: MIT, Copyright (c) 2019 sainnhe (see THIRD_PARTY.md)
+
+title = "Everforest Dark Medium"
+dark = true
+
+[palette]
+rosewater = "#d3c6aa"
+flamingo = "#e69875"
+pink = "#d699b6"
+mauve = "#d699b6"
+red = "#e67e80"
+maroon = "#e67e80"
+peach = "#e69875"
+yellow = "#dbbc7f"
+green = "#a7c080"
+teal = "#83c092"
+sky = "#83c092"
+sapphire = "#7fbbb3"
+blue = "#7fbbb3"
+lavender = "#7fbbb3"
+text = "#d3c6aa"
+subtext1 = "#d3c6aa"
+subtext0 = "#9da9a0"
+overlay2 = "#9da9a0"
+overlay1 = "#9da9a0"
+overlay0 = "#859289"
+surface2 = "#7a8478"
+surface1 = "#475258"
+surface0 = "#343f44"
+base = "#2d353b"
+mantle = "#232a2e"
+crust = "#232a2e"

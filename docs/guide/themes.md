@@ -1,6 +1,6 @@
 # Themes
 
-AIM ships the four Catppuccin flavors: Latte, Frappé, Macchiato and Mocha. You can add your own, one file per theme, in a `themes` folder beside the config file. AIM reads them at start and offers them after the built-ins wherever a theme is chosen: the theme picker (`ctrl+space t`) with its preview, the palette's "Theme: ..." commands, `theme` in the config and the picker's `ctrl+s` save. This page covers where the files go, what a file holds, the errors at start and what AIM paints with each colour.
+AIM ships the four Catppuccin flavors: Latte, Frappé, Macchiato and Mocha. You can add your own, one file per theme, in a `themes` folder beside the config file. AIM reads them at start and offers them after the built-ins wherever a theme is chosen: the theme picker (`ctrl+space t`) with its preview, the palette's "Theme: ..." commands, `theme` in the config and the picker's `ctrl+s` save. This page covers where the files go, what a file holds, the examples you can copy, the errors at start and what AIM paints with each colour.
 
 ## Where the files go
 
@@ -55,6 +55,17 @@ crust = "#11111b"
 
 With it in place, `theme = "my-mocha"` in the config starts AIM in it.
 
+## Examples to copy
+
+The repository's [`themes`](../../themes/) folder holds theme files ported from four themes: Gruvbox (dark and light, each in hard, medium and soft contrast), Tokyo Night (night, storm, moon and day), Everforest (dark and light, each in hard, medium and soft contrast) and Ayu (dark, mirage and light). AIM does not ship them; copy the ones you want into your themes folder. From a clone of the repository, this copies them all:
+
+```sh
+mkdir -p ~/.config/aim/themes
+cp themes/*.toml ~/.config/aim/themes/
+```
+
+Each file names its source and licence at the top. Each maps its theme's own colours onto the slots by what AIM paints with them, so a theme with fewer than 26 colours uses some of them twice.
+
 ## Errors at start
 
 A theme file is as strict as the config. Invalid TOML, an unknown key, a missing key, a value of the wrong type, a colour that is not `#rrggbb` and a bad file name all stop AIM before it takes over the terminal. AIM prints one line that names the file and the problem, to the terminal, and exits with status 1. Every unknown key is listed, and so is every missing one; of the colours that are not `#rrggbb`, the first is named. The line starts with `aim: theme <path>:`. For example:
@@ -73,7 +84,7 @@ A theme the config's `theme` names is checked after the folder is read, so remov
 
 ## What each slot paints
 
-The 26 slots are Catppuccin's. The shades run from `crust` through `mantle`, `base`, `surface0` to `surface2`, `overlay0` to `overlay2` and `subtext0` and `subtext1` to `text`: `base` is the background, `mantle` and `crust` are a step and two steps darker, and each shade after `base` is a step nearer the text. The other fourteen are the accent colours. When you port a palette, keep that order of shades, and pick each accent by the role in the table rather than by its name.
+The 26 slots are Catppuccin's. In Catppuccin the shades run from `crust` through `mantle`, `base`, `surface0` to `surface2`, `overlay0` to `overlay2` and `subtext0` and `subtext1` to `text`: `base` is the background, `mantle` and `crust` are a step and two steps darker, and each shade after `base` is a step nearer the text. The other fourteen are the accent colours. When you port a palette, keep the order from `base` to `text`. `mantle` can be `base` when the palette has no darker shade, and since AIM paints only text on the accent with `crust`, pick it to read well on `mauve`. Pick each accent by the role in the table rather than by its name.
 
 The "In code" column is the syntax colours, in the code blocks of plans, markdown and pull request conversations and in the review drawer's diffs; where the two differ, the cell says which. The CI log colours are the ANSI colours a check's log asks for.
 
