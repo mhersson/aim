@@ -12,7 +12,7 @@ func TestReviewPaletteFromTheme(t *testing.T) {
 	t.Parallel()
 
 	for _, name := range []string{"catppuccin-mocha", "catppuccin-latte"} {
-		th, err := theme.ByName(name)
+		th, err := theme.Builtin().ByName(name)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -2,11 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mhersson/aim/internal/core"
+	"github.com/mhersson/aim/internal/ui/theme"
 )
 
 func TestRootRejectsBadConfig(t *testing.T) {
@@ -58,6 +62,25 @@ func TestRootRejectsBadConfig(t *testing.T) {
 				t.Errorf("state dir has %d entries, want none", len(entries))
 			}
 		})
+	}
+}
+
+func TestValidateConfigTakesThemes(t *testing.T) {
+	t.Parallel()
+
+	dawn := theme.Builtin()[0]
+	dawn.Name = "test-dawn"
+
+	cfg := core.DefaultConfig()
+	cfg.Theme = dawn.Name
+	cfg.Keys = core.KeysConfig{Leader: map[string]string{"x": "theme.set." + dawn.Name}, Order: map[string][]string{"leader": {"x"}}}
+
+	if err := validateConfig(cfg, append(theme.Builtin(), dawn)); err != nil {
+		t.Errorf("validateConfig() with %s loaded = %v, want nil", dawn.Name, err)
+	}
+
+	if err := validateConfig(cfg, theme.Builtin()); !errors.Is(err, theme.ErrUnknownTheme) {
+		t.Errorf("validateConfig() with the built-ins = %v, want ErrUnknownTheme", err)
 	}
 }
 

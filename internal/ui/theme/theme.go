@@ -16,7 +16,7 @@ type UI struct {
 	Agent, Shell, Bar, Dim, Clock, Git, Load, Working, Blocked, Idle, Review, Code, Meter Hex
 }
 
-// Theme is one Catppuccin flavor.
+// Theme is one theme AIM offers.
 type Theme struct {
 	Name    string // ByName key, e.g. "catppuccin-mocha"
 	Title   string // display name, e.g. "Catppuccin Mocha"
@@ -28,9 +28,14 @@ type Theme struct {
 // ErrUnknownTheme is returned by ByName for a name no theme has.
 var ErrUnknownTheme = errors.New("unknown theme")
 
-// All returns every theme, light first: latte, frappe, macchiato, mocha.
-func All() []Theme {
-	return []Theme{
+// Set is the themes AIM offers, in order, the built-ins first. It is built
+// once at start and handed to everything that lists themes.
+type Set []Theme
+
+// Builtin returns the Catppuccin flavors, light first: latte, frappe,
+// macchiato, mocha.
+func Builtin() Set {
+	return Set{
 		newTheme("catppuccin-latte", "Catppuccin Latte", false, lattePalette()),
 		newTheme("catppuccin-frappe", "Catppuccin Frappé", true, frappePalette()),
 		newTheme("catppuccin-macchiato", "Catppuccin Macchiato", true, macchiatoPalette()),
@@ -38,12 +43,10 @@ func All() []Theme {
 	}
 }
 
-// Names returns the theme names in the order of All.
-func Names() []string {
-	all := All()
-
-	names := make([]string, len(all))
-	for i, t := range all {
+// Names returns the theme names in order.
+func (s Set) Names() []string {
+	names := make([]string, len(s))
+	for i, t := range s {
 		names[i] = t.Name
 	}
 
@@ -51,14 +54,14 @@ func Names() []string {
 }
 
 // ByName returns the theme called name.
-func ByName(name string) (Theme, error) {
-	for _, t := range All() {
+func (s Set) ByName(name string) (Theme, error) {
+	for _, t := range s {
 		if t.Name == name {
 			return t, nil
 		}
 	}
 
-	return Theme{}, fmt.Errorf("%w %q (known: %s)", ErrUnknownTheme, name, strings.Join(Names(), ", "))
+	return Theme{}, fmt.Errorf("%w %q (known: %s)", ErrUnknownTheme, name, strings.Join(s.Names(), ", "))
 }
 
 func newTheme(name, title string, dark bool, p Palette) Theme {

@@ -205,7 +205,7 @@ func loadChecked(t *testing.T, text string) (core.Config, error) {
 		return cfg, err //nolint:wrapcheck // the message is the problem text
 	}
 
-	return cfg, validateConfig(cfg)
+	return cfg, validateConfig(cfg, theme.Builtin())
 }
 
 func normalized(c core.Config) core.Config {
@@ -250,7 +250,7 @@ func allowedByKey() map[string]allowedSpec {
 	bools := allowedSpec{values: []string{"true", "false"}}
 
 	return map[string]allowedSpec{
-		"theme":                     {values: theme.Names()},
+		"theme":                     {values: theme.Builtin().Names()},
 		"icons":                     bools,
 		"layout.default_mode":       {values: names(core.LayoutModes())},
 		"layout.auto_scheme":        {values: core.AutoSchemes()},

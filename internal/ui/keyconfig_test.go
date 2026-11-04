@@ -12,6 +12,7 @@ import (
 
 	"github.com/mhersson/aim/internal/core"
 	"github.com/mhersson/aim/internal/git"
+	"github.com/mhersson/aim/internal/ui/theme"
 )
 
 // leaderKeys builds a [keys] config with the leader entries in the given order.
@@ -211,7 +212,7 @@ func TestCheckKeysErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			requireKeyError(t, CheckKeys(tt.cfg), tt.want)
+			requireKeyError(t, CheckKeys(tt.cfg, theme.Builtin()), tt.want)
 		})
 	}
 }
@@ -235,7 +236,7 @@ func TestComposeKeyErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			requireKeyError(t, CheckKeys(tt.cfg), tt.want)
+			requireKeyError(t, CheckKeys(tt.cfg, theme.Builtin()), tt.want)
 		})
 	}
 }
@@ -615,7 +616,7 @@ func TestResolveDrawer(t *testing.T) {
 					t.Errorf("resolveKeys() = %v, want an error carrying %q", err, tt.wantErr)
 				}
 
-				requireKeyError(t, CheckKeys(tt.cfg), tt.wantErr)
+				requireKeyError(t, CheckKeys(tt.cfg, theme.Builtin()), tt.wantErr)
 
 				return
 			}
@@ -978,4 +979,17 @@ func TestPRHeaderFollowsBindings(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestUserThemeKeyBinding(t *testing.T) {
+	t.Parallel()
+
+	themes, dawn := withDawn(t)
+	cfg := leaderKeys("x", "theme.set."+dawn.Name)
+
+	if err := CheckKeys(cfg, themes); err != nil {
+		t.Errorf("CheckKeys() with %s loaded = %v, want nil", dawn.Name, err)
+	}
+
+	requireKeyError(t, CheckKeys(cfg, theme.Builtin()), []string{"keys.leader", `"theme.set.` + dawn.Name + `"`})
 }

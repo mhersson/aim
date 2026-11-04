@@ -30,6 +30,8 @@ type Options struct {
 	Getenv func(string) string
 	// Cwd is the launch directory, where the first pane starts; empty means os.Getwd.
 	Cwd string
+	// Themes is every theme AIM offers, the built-ins first; nil means the built-ins.
+	Themes theme.Set
 	// ConfigPath is the config file AIM loaded; the theme picker's ctrl+s saves the theme there.
 	ConfigPath string
 	// RecordDir, when set, receives one recording per pane (diagnostics); empty means off.
@@ -142,6 +144,8 @@ type App struct {
 	cleanupSeq int // cleanup check counter; an answer for an older check is stale
 
 	pushing map[string]string // worktree root -> the branch being pushed there
+
+	themes theme.Set // every theme offered, from Options.Themes
 
 	// theme, styles and sample follow store.State().Theme; only sync updates them.
 	theme  theme.Theme
@@ -266,7 +270,12 @@ func New(opts Options) (*App, error) {
 		}
 	}
 
-	reg, err := newRegistry(defaultCommands())
+	themes := opts.Themes
+	if themes == nil {
+		themes = theme.Builtin()
+	}
+
+	reg, err := newRegistry(commands(themes))
 	if err != nil {
 		return nil, fmt.Errorf("build command registry: %w", err)
 	}
@@ -295,7 +304,7 @@ func New(opts Options) (*App, error) {
 	a := &App{
 		git: opts.Git, harness: h, tick: tea.Tick, hookSettings: opts.HookSettings, hookSock: opts.HookSock, shell: opts.Shell,
 		events: opts.Events, notice: opts.Notice, save: opts.Save, marks: opts.Marks,
-		log: opts.Logger, store: opts.Store, reg: reg, keymap: km, keys: tables,
+		log: opts.Logger, store: opts.Store, themes: themes, reg: reg, keymap: km, keys: tables,
 		panes: map[core.PaneID]*pane{}, outerFocused: true,
 		watches:  watchState{set: opts.Watches, open: opts.Git.Open, panes: map[core.PaneID]*paneWatch{}, pins: map[core.TabID]*pinWatch{}, failed: map[string]bool{}},
 		pictures: newPictures(nil, getenv, opts.Logger),
@@ -354,7 +363,7 @@ func New(opts Options) (*App, error) {
 
 // sync loads the store's theme into the cached theme, styles and sample.
 func (a *App) sync() error {
-	th, err := theme.ByName(a.store.State().Theme)
+	th, err := a.themes.ByName(a.store.State().Theme)
 	if err != nil {
 		return err
 	}
@@ -370,11 +379,11 @@ func (a *App) sync() error {
 }
 
 // dispatch applies act to the store and re-syncs the cached theme after a
-// theme change. A theme the theme package does not know is logged and
-// rejected, leaving the store and the view as they were.
+// theme change. A theme the app does not offer is logged and rejected,
+// leaving the store and the view as they were.
 func (a *App) dispatch(act core.Action) error {
 	if st, ok := act.(core.SetTheme); ok {
-		if _, err := theme.ByName(st.Name); err != nil {
+		if _, err := a.themes.ByName(st.Name); err != nil {
 			a.log.Warn("unknown theme", "name", st.Name, "err", err)
 
 			return err

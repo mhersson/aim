@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/mhersson/aim/internal/core"
+	"github.com/mhersson/aim/internal/ui/theme"
 )
 
 const keysPagePath = "../../docs/guide/keys.md"
@@ -295,7 +296,7 @@ func TestKeysPageKeysLoad(t *testing.T) {
 			t.Errorf("keys.%s %q = %q: Validate: %v", context, key, command, err)
 		}
 
-		if err := CheckKeys(cfg); err != nil {
+		if err := CheckKeys(cfg, theme.Builtin()); err != nil {
 			t.Errorf("keys.%s %q = %q: CheckKeys: %v", context, key, command, err)
 		}
 	}

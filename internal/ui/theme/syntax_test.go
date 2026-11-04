@@ -8,7 +8,7 @@ import (
 )
 
 func TestSyntaxMatchesChroma(t *testing.T) {
-	for _, th := range All() {
+	for _, th := range Builtin() {
 		t.Run(th.Name, func(t *testing.T) {
 			bundled := styles.Get(th.Name)
 			if bundled.Name != th.Name {
@@ -39,7 +39,7 @@ func TestSyntaxMatchesChroma(t *testing.T) {
 }
 
 func TestSyntaxColoursFromPalette(t *testing.T) {
-	for _, th := range All() {
+	for _, th := range Builtin() {
 		t.Run(th.Name, func(t *testing.T) {
 			ours, err := th.Syntax()
 			if err != nil {

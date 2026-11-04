@@ -37,7 +37,17 @@ var testDrawCaches = &drawCaches{}
 func newKeyedApp(t *testing.T, name string, keys core.KeysConfig) *App {
 	t.Helper()
 
-	app, err := New(Options{Logger: testLogger(), Git: newFakeGit(t), Icons: true, Keys: keys, caches: testDrawCaches, Store: core.NewStore(core.State{Theme: name})})
+	return newOptionsApp(t, Options{Keys: keys, Store: core.NewStore(core.State{Theme: name})})
+}
+
+// newOptionsApp is a test app from opts, with the test logger, the fake git,
+// icons on and the shared draw caches.
+func newOptionsApp(t *testing.T, opts Options) *App {
+	t.Helper()
+
+	opts.Logger, opts.Git, opts.Icons, opts.caches = testLogger(), newFakeGit(t), true, testDrawCaches
+
+	app, err := New(opts)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

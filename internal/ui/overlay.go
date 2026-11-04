@@ -103,10 +103,8 @@ func (a *App) paletteHint(id string) string {
 }
 
 func (a *App) openThemePicker() {
-	all := theme.All()
-
-	items := make([]palette.Item, len(all))
-	for i, th := range all {
+	items := make([]palette.Item, len(a.themes))
+	for i, th := range a.themes {
 		items[i] = palette.Item{ID: th.Name, Title: th.Title}
 	}
 
@@ -222,7 +220,7 @@ func (a *App) highlighted(id string) {
 		return
 	}
 
-	th, err := theme.ByName(id)
+	th, err := a.themes.ByName(id)
 	if err != nil {
 		a.log.Warn("preview theme", "name", id, "err", err)
 

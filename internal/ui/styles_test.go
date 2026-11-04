@@ -10,7 +10,7 @@ import (
 func TestBorderRunCache(t *testing.T) {
 	t.Parallel()
 
-	th, err := theme.ByName("catppuccin-mocha")
+	th, err := theme.Builtin().ByName("catppuccin-mocha")
 	if err != nil {
 		t.Fatal(err)
 	}

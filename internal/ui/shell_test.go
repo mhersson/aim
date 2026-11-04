@@ -18,12 +18,23 @@ import (
 func mustTheme(t *testing.T, name string) theme.Theme {
 	t.Helper()
 
-	th, err := theme.ByName(name)
+	th, err := theme.Builtin().ByName(name)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	return th
+}
+
+// withDawn is the built-in themes plus test-dawn, a copy of Catppuccin Latte
+// standing in for a user's theme.
+func withDawn(t *testing.T) (theme.Set, theme.Theme) {
+	t.Helper()
+
+	dawn := mustTheme(t, "catppuccin-latte")
+	dawn.Name, dawn.Title = "test-dawn", "Test Dawn"
+
+	return append(theme.Builtin(), dawn), dawn
 }
 
 func sized(t *testing.T, a *App, w, h int) {

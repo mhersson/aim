@@ -7,23 +7,18 @@ import (
 	"testing"
 )
 
-func TestAllAndByName(t *testing.T) {
+func TestBuiltinAndByName(t *testing.T) {
 	names := []string{"catppuccin-latte", "catppuccin-frappe", "catppuccin-macchiato", "catppuccin-mocha"}
-	if got := Names(); !slices.Equal(got, names) {
-		t.Errorf("Names() = %q, want %q", got, names)
+	if got := Builtin().Names(); !slices.Equal(got, names) {
+		t.Errorf("Builtin().Names() = %q, want %q", got, names)
 	}
 
-	var allNames []string
-	for _, th := range All() {
-		allNames = append(allNames, th.Name)
-	}
+	user := Builtin()[0]
+	user.Name = "test-dawn"
+	set := append(Builtin(), user)
 
-	if !slices.Equal(allNames, names) {
-		t.Errorf("All() names = %q, want %q", allNames, names)
-	}
-
-	for _, name := range names {
-		th, err := ByName(name)
+	for _, name := range append(names, "test-dawn") {
+		th, err := set.ByName(name)
 		if err != nil {
 			t.Errorf("ByName(%q): %v", name, err)
 
@@ -36,14 +31,18 @@ func TestAllAndByName(t *testing.T) {
 	}
 
 	for _, name := range []string{"nope", ""} {
-		if _, err := ByName(name); !errors.Is(err, ErrUnknownTheme) {
+		if _, err := set.ByName(name); !errors.Is(err, ErrUnknownTheme) {
 			t.Errorf("ByName(%q) error = %v, want ErrUnknownTheme", name, err)
 		}
+	}
+
+	if _, err := Builtin().ByName("test-dawn"); !errors.Is(err, ErrUnknownTheme) {
+		t.Errorf("Builtin().ByName(test-dawn) error = %v, want ErrUnknownTheme", err)
 	}
 }
 
 func TestUIRoles(t *testing.T) {
-	for _, th := range All() {
+	for _, th := range Builtin() {
 		inPalette := map[Hex]bool{}
 		for _, h := range paletteFields(th.Palette) {
 			inPalette[h] = true

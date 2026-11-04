@@ -3,12 +3,20 @@ package ui
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/mhersson/aim/internal/core"
 	"github.com/mhersson/aim/internal/ui/theme"
 )
+
+// defaultCommands is the commands with only the built-in themes, which the
+// keys page and the README's Keys table are built from.
+func defaultCommands() []command {
+	return commands(theme.Builtin())
+}
 
 func TestRegistry(t *testing.T) {
 	t.Parallel()
@@ -170,8 +178,8 @@ func TestDefaultCommands(t *testing.T) {
 		"worktree.cleanup",
 		"app.quit",
 	)
-	if len(cmds) != len(fixed)+len(theme.All()) {
-		t.Fatalf("defaultCommands() has %d commands, want %d", len(cmds), len(fixed)+len(theme.All()))
+	if len(cmds) != len(fixed)+len(theme.Builtin()) {
+		t.Fatalf("defaultCommands() has %d commands, want %d", len(cmds), len(fixed)+len(theme.Builtin()))
 	}
 
 	for i, f := range fixed {
@@ -180,7 +188,7 @@ func TestDefaultCommands(t *testing.T) {
 		}
 	}
 
-	for i, th := range theme.All() {
+	for i, th := range theme.Builtin() {
 		c := cmds[len(fixed)+i]
 		if c.id != "theme.set."+th.Name {
 			t.Errorf("command %d = %q, want theme.set.%s", len(fixed)+i, c.id, th.Name)
@@ -209,5 +217,32 @@ func TestThemeCommands(t *testing.T) {
 	v := a.View()
 	if want := mustTheme(t, "catppuccin-latte").UI.Bg; v.BackgroundColor != want {
 		t.Errorf("BackgroundColor = %v, want %v", v.BackgroundColor, want)
+	}
+}
+
+func TestUserThemeCommand(t *testing.T) {
+	t.Parallel()
+
+	themes, dawn := withDawn(t)
+	a := newOptionsApp(t, Options{Themes: themes, Store: core.NewStore(core.State{Theme: "catppuccin-mocha"})})
+	sized(t, a, 100, 30)
+
+	c, ok := a.reg.get("theme.set." + dawn.Name)
+	if !ok {
+		t.Fatalf("theme.set.%s is not registered", dawn.Name)
+	}
+
+	if !strings.HasSuffix(c.title, dawn.Title) {
+		t.Errorf("title = %q, want one ending in %q", c.title, dawn.Title)
+	}
+
+	c.run(a)
+
+	if got := a.store.State().Theme; got != dawn.Name {
+		t.Errorf("store theme = %q, want %s", got, dawn.Name)
+	}
+
+	if got := a.View().BackgroundColor; got != dawn.UI.Bg {
+		t.Errorf("BackgroundColor = %v, want %v", got, dawn.UI.Bg)
 	}
 }

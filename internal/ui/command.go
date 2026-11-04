@@ -60,7 +60,8 @@ func (r *registry) all() []command {
 	return append([]command(nil), r.order...)
 }
 
-func defaultCommands() []command {
+// commands returns every command, with one theme.set command per theme in themes.
+func commands(themes theme.Set) []command {
 	// In the order of the h j k l keys.
 	dirs := []struct {
 		name string
@@ -238,7 +239,7 @@ func defaultCommands() []command {
 		title: "Quit AIM",
 		run:   (*App).quit,
 	})
-	for _, th := range theme.All() {
+	for _, th := range themes {
 		cmds = append(cmds, command{
 			id:    "theme.set." + th.Name,
 			icon:  iconTheme,

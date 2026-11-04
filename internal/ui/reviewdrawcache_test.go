@@ -240,7 +240,7 @@ func TestDrawerLinesStayTrueToAColdDraw(t *testing.T) {
 	rng := rand.New(rand.NewPCG(7, 11))
 
 	sizes := [][2]int{{200, 52}, {160, 48}, {100, 30}}
-	themes := theme.Names()
+	themes := theme.Builtin().Names()
 	results := []git.Result{turn4Result(), edited(), edgeResult()}
 
 	searchKeys := []tea.KeyPressMsg{keyRune('t'), keyRune('r'), {Code: tea.KeyBackspace}, {Code: tea.KeyEnter}, keyEsc}

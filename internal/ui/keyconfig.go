@@ -8,13 +8,15 @@ import (
 	"unicode/utf8"
 
 	"github.com/mhersson/aim/internal/core"
+	"github.com/mhersson/aim/internal/ui/theme"
 )
 
 // CheckKeys reports the first mistake in the [keys] config that the UI can
 // find: a command that does not exist or does not belong to its context, or a
-// key that is both a key and the start of a sequence. main calls it before the TUI starts.
-func CheckKeys(cfg core.KeysConfig) error {
-	reg, err := newRegistry(defaultCommands())
+// key that is both a key and the start of a sequence. main calls it before the
+// TUI starts, with the themes AIM offers, whose commands a key may name.
+func CheckKeys(cfg core.KeysConfig, themes theme.Set) error {
+	reg, err := newRegistry(commands(themes))
 	if err != nil {
 		return fmt.Errorf("build command registry: %w", err)
 	}

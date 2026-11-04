@@ -19,7 +19,7 @@ import (
 func mochaTheme(t *testing.T) theme.Theme {
 	t.Helper()
 
-	th, err := theme.ByName("catppuccin-mocha")
+	th, err := theme.Builtin().ByName("catppuccin-mocha")
 	if err != nil {
 		t.Fatal(err)
 	}
