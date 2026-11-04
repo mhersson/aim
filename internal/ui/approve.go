@@ -14,7 +14,7 @@ import (
 // approveTimeout bounds one approval.
 const approveTimeout = 30 * time.Second
 
-// maxApproveWidth caps the approve confirm.
+// maxApproveWidth caps the approve and ready confirms.
 const maxApproveWidth = 66
 
 // The approve confirm's notices.

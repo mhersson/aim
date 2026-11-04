@@ -10,6 +10,7 @@ import (
 // PRInfo is a pull request as the poll sees it. It mirrors the GitHub client's
 // type so that core needs no import of it.
 type PRInfo struct {
+	ID                              string // the node id GraphQL mutations take
 	Number                          int
 	Title, URL, Author              string
 	State                           string // OPEN, MERGED or CLOSED

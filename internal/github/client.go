@@ -161,8 +161,23 @@ func (c *Client) rest(ctx context.Context, method, path string, body, out any) e
 
 // query runs a struct-tagged GraphQL query; name labels it in errors.
 func (c *Client) query(ctx context.Context, name string, q any, vars map[string]any) error {
+	return c.runGraphQL(ctx, "query", name, func(ctx context.Context) error {
+		return c.gqlAPI.QueryWithContext(ctx, name, q, vars)
+	})
+}
+
+// mutate runs a struct-tagged GraphQL mutation; name labels it in errors.
+func (c *Client) mutate(ctx context.Context, name string, m any, vars map[string]any) error {
+	return c.runGraphQL(ctx, "mutation", name, func(ctx context.Context) error {
+		return c.gqlAPI.MutateWithContext(ctx, name, m, vars)
+	})
+}
+
+// runGraphQL runs one GraphQL request and classifies its error, with the reset of
+// a rate limit the response headers gave.
+func (c *Client) runGraphQL(ctx context.Context, kind, name string, run func(context.Context) error) error {
 	h := new(resetHolder)
-	err := c.gqlAPI.QueryWithContext(context.WithValue(ctx, resetKey{}, h), name, q, vars)
+	err := run(context.WithValue(ctx, resetKey{}, h))
 
 	var reset time.Time
 	if unix := h.unix.Load(); unix != 0 {
@@ -173,5 +188,5 @@ func (c *Client) query(ctx context.Context, name string, q any, vars map[string]
 		return nil
 	}
 
-	return fmt.Errorf("github: query %s: %w", name, classifyAt(redactURL(err), time.Now(), reset))
+	return fmt.Errorf("github: %s %s: %w", kind, name, classifyAt(redactURL(err), time.Now(), reset))
 }

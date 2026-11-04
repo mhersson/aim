@@ -11,5 +11,6 @@ import (
 type prActions interface {
 	CreatePR(ctx context.Context, r github.Repo, n github.NewPR) (github.PR, error)
 	Approve(ctx context.Context, r github.Repo, number int, sha string) error
+	MarkReady(ctx context.Context, r github.Repo, id string) error
 	Merge(ctx context.Context, r github.Repo, pr github.PR, info github.RepoInfo, m github.MergeOptions) (github.Merged, error)
 }

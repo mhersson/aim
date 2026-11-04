@@ -146,6 +146,7 @@ func TestDefaultCommands(t *testing.T) {
 		"review.mode.pr",
 		"review.conversation",
 		"review.checks",
+		"review.ready",
 		"review.approve",
 		"review.merge",
 		"review.browser",

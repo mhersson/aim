@@ -32,6 +32,7 @@ var (
 		{"enter", "prlist.show"},
 		{"i", "prlist.conversation"},
 		{"c", "prlist.checks"},
+		{"R", "prlist.ready"},
 		{"a", "prlist.approve"},
 		{"M", "prlist.merge"},
 		{"O", "prlist.browser"},
@@ -207,6 +208,12 @@ func prListCommands() []command {
 		}),
 		cmd("prlist.checks", "show the checks", true, func(a *App, rows []prListRow, i int) tea.Cmd {
 			return a.openChecks(rows[i].key.repo, rows[i].key.number)
+		}),
+		// Marking ready needs no diff, so it works on any row, checked out or not.
+		cmd("prlist.ready", "mark ready", true, func(a *App, rows []prListRow, i int) tea.Cmd {
+			a.openReady(rows[i].key.repo, rows[i].key.number, rows[i].pr, true)
+
+			return nil
 		}),
 		cmd("prlist.approve", "approve", true, func(a *App, rows []prListRow, i int) tea.Cmd {
 			if a.actions == nil {

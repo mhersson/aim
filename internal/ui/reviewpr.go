@@ -47,6 +47,7 @@ const (
 	thenBrowser
 	thenApprove
 	thenMerge
+	thenReady // the place's pull request is enough: nothing is fetched or loaded
 )
 
 // prWant is a pull request already known, as the list knows it: its repository
@@ -441,6 +442,12 @@ func (a *App) onPRPlace(msg prPlaceMsg) tea.Cmd {
 		return nil
 	}
 
+	if msg.then == thenReady {
+		a.readyAtPlace(msg)
+
+		return nil
+	}
+
 	base := msg.base
 	if base == "" {
 		base = msg.prAsk.base
@@ -603,6 +610,8 @@ func (a *App) prLoadedNotice(number int, then prThen) string {
 		id, what = "review.approve", "to approve"
 	case thenMerge:
 		id, what = "review.merge", "to merge"
+	case thenReady:
+		id, what = "review.ready", "to mark it ready"
 	case thenNothing:
 	}
 
@@ -634,7 +643,7 @@ func (a *App) prThenRun(then prThen) tea.Cmd {
 		a.openApprove(v.pr.Repo, v.pr.Number, v.res.Head)
 	case thenMerge:
 		a.openMerge(v.pr.Repo, v.pr.Number, v.res.Head, v.pr.Root)
-	case thenNothing:
+	case thenReady, thenNothing:
 	}
 
 	return nil

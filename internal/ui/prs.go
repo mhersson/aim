@@ -572,7 +572,7 @@ func prReason(err error) string {
 
 func prInfoOf(pr github.PR) core.PRInfo {
 	return core.PRInfo{
-		Number: pr.Number, Title: pr.Title, URL: pr.URL, Author: pr.Author, State: pr.State,
+		ID: pr.ID, Number: pr.Number, Title: pr.Title, URL: pr.URL, Author: pr.Author, State: pr.State,
 		HeadBranch: pr.HeadBranch, HeadOID: pr.HeadOID, BaseBranch: pr.BaseBranch,
 		ReviewDecision: pr.ReviewDecision, MergeState: pr.MergeState,
 		Draft: pr.Draft, CrossRepo: pr.CrossRepo, ViewerAuthored: pr.ViewerAuthored,

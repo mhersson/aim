@@ -827,10 +827,16 @@ func (d *drawCtx) hintRuns(cw int) []railRun {
 	}
 
 	if _, ok := d.v.src.(git.PRSource); ok {
+		// Only a draft can be marked ready; fitHints drops the empty pair.
+		var ready [2]string
+		if d.pr.Draft {
+			ready = pair("ready", "review.ready")
+		}
+
 		pairs = [][2]string{
 			pair("line", next, prev), pair("hunk", "review.hunk.next", "review.hunk.prev"),
 			pair("zoom", "review.zoom"), pair("conversation", "review.conversation"),
-			pair("checks", "review.checks"), pair("approve", "review.approve"), pair("merge", "review.merge"),
+			pair("checks", "review.checks"), ready, pair("approve", "review.approve"), pair("merge", "review.merge"),
 			pair("browser", "review.browser"),
 			pair("reviewed", "review.mark"), d.showReadPair(pair),
 			pair("mode", "review.mode.branch", "review.mode.turn"),

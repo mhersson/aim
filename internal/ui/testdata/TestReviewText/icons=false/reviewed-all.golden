@@ -5,7 +5,7 @@
 │reviewing the diff of the last turn                                                                │ 3 files  +6 -6     │  M b.go                                                          ✓ reviewed │
 │                                                                                                   │                    │  M c.go                                                          ✓ reviewed │
 │                                                                                                   │ M a.go           ✓ │                                                                             │
-│                                                                                                   │ M b.go           ✓ │    all 6 hunks reviewed; R shows them                                       │
+│                                                                                                   │ M b.go           ✓ │    all 6 hunks reviewed; v shows them                                       │
 │                                                                                                   │ M c.go           ✓ │                                                                             │
 │                                                                                                   │                    │                                                                             │
 │                                                                                                   │                    │                                                                             │

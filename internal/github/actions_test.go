@@ -257,6 +257,67 @@ func TestApproveBadNumberSendsNothing(t *testing.T) {
 	}
 }
 
+func TestMarkReadySendsTheID(t *testing.T) {
+	t.Parallel()
+
+	c, reqs := setup(t, step{body: `{"data":{"markPullRequestReadyForReview":{"pullRequest":{"isDraft":false}}}}`})
+
+	if err := c.MarkReady(t.Context(), "PR_kwDOAAAB12"); err != nil {
+		t.Fatal(err)
+	}
+
+	rs := reqs()
+	if len(rs) != 1 || rs[0].method != "POST" || rs[0].path != "/graphql" {
+		t.Fatalf("requests = %+v", rs)
+	}
+
+	var body struct {
+		Query     string
+		Variables map[string]any
+	}
+
+	if err := json.Unmarshal([]byte(rs[0].body), &body); err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.HasPrefix(body.Query, "mutation") ||
+		!strings.Contains(body.Query, "markPullRequestReadyForReview(input: {pullRequestId: $id})") {
+		t.Errorf("query = %q, want the ready mutation on $id", body.Query)
+	}
+
+	if want := map[string]any{"id": "PR_kwDOAAAB12"}; !reflect.DeepEqual(body.Variables, want) {
+		t.Errorf("variables = %v, want %v", body.Variables, want)
+	}
+}
+
+func TestMarkReadyWithoutIDSendsNothing(t *testing.T) {
+	t.Parallel()
+
+	c, reqs := setup(t)
+
+	if err := c.MarkReady(t.Context(), ""); !errors.Is(err, ErrNoNodeID) {
+		t.Fatalf("err = %v, want ErrNoNodeID", err)
+	}
+
+	if n := len(reqs()); n != 0 {
+		t.Errorf("%d requests sent", n)
+	}
+}
+
+func TestMarkReadyRefused(t *testing.T) {
+	t.Parallel()
+
+	const refusal = "Resource not accessible by personal access token"
+
+	c, _ := setup(t, step{body: `{"data":{"markPullRequestReadyForReview":null},"errors":[{"type":"FORBIDDEN",` +
+		`"path":["markPullRequestReadyForReview"],"message":"` + refusal + `"}]}`})
+
+	err := c.MarkReady(t.Context(), "PR_kwDOAAAB12")
+	if _, ok := errors.AsType[*api.GraphQLError](err); !ok || !strings.Contains(err.Error(), refusal) {
+		t.Errorf("err = %v, want the GraphQL refusal %q", err, refusal)
+	}
+}
+
 func mergeablePR() PR {
 	return PR{Number: 42, HeadBranch: "feat/x", HeadOID: "abc", BaseBranch: "main"}
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cli/go-gh/v2/pkg/api"
+	graphql "github.com/cli/shurcooL-graphql"
 )
 
 // NewPR describes a pull request to create.
@@ -122,6 +123,22 @@ func (c *Client) Approve(ctx context.Context, r Repo, number int, sha string) er
 	body := map[string]string{"event": "APPROVE", "commit_id": sha}
 
 	return c.rest(ctx, http.MethodPost, fmt.Sprintf("%s/pulls/%d/reviews", repoPath(r), number), body, nil)
+}
+
+// MarkReady marks the pull request with node id ready for review. An empty id
+// sends nothing.
+func (c *Client) MarkReady(ctx context.Context, id string) error {
+	if id == "" {
+		return ErrNoNodeID
+	}
+
+	var m struct {
+		MarkPullRequestReadyForReview struct {
+			PullRequest struct{ IsDraft bool }
+		} `graphql:"markPullRequestReadyForReview(input: {pullRequestId: $id})"`
+	}
+
+	return c.mutate(ctx, "MarkReady", &m, map[string]any{"id": graphql.ID(id)})
 }
 
 // Merge merges pr at the reviewed commit m.SHA, so GitHub refuses it when the

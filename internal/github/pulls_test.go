@@ -91,7 +91,7 @@ func TestPullRequestsDecodes(t *testing.T) {
 
 	want := []PR{
 		{
-			Number: 12, Title: "Add the poller", URL: "https://github.com/octo/repo/pull/12", Author: "octocat",
+			ID: "PR_kwDOAAAB12", Number: 12, Title: "Add the poller", URL: "https://github.com/octo/repo/pull/12", Author: "octocat",
 			State: "OPEN", ViewerAuthored: true, HeadBranch: "feat/poller", BaseBranch: "main",
 			HeadOID:        "1111111111111111111111111111111111111111",
 			ReviewDecision: "APPROVED", MergeState: "BLOCKED",
@@ -99,7 +99,7 @@ func TestPullRequestsDecodes(t *testing.T) {
 			UpdatedAt: mustTime(t, "2026-10-27T09:30:00Z"),
 		},
 		{
-			Number: 9, Title: "Fix a typo", URL: "https://github.com/octo/repo/pull/9", Author: "ghost",
+			ID: "PR_kwDOAAAB9", Number: 9, Title: "Fix a typo", URL: "https://github.com/octo/repo/pull/9", Author: "ghost",
 			State: "OPEN", Draft: true, CrossRepo: true, HeadBranch: "patch-1", BaseBranch: "main",
 			HeadOID:    "2222222222222222222222222222222222222222",
 			MergeState: "CLEAN",

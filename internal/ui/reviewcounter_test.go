@@ -299,13 +299,13 @@ func TestReviewHintsReviewed(t *testing.T) {
 		show      string // the bound key of review.show.reviewed; none when empty
 		showsRead bool   // v.showRead
 	}{
-		{"R on", func() reviewScene {
+		{"v on", func() reviewScene {
 			s := markedScene(hunksUpTo(1))
 			s.w, s.h = 312, 52
 			s.tune = withMarked(hunksUpTo(1), func(t *testing.T, a *App, v *reviewView) { v.showRead = true })
 
 			return s
-		}, "space", "R", true},
+		}, "space", "v", true},
 		{"file shown whole", func() reviewScene {
 			s := markedScene(hunksUpTo(1))
 			s.w, s.h = 312, 52
@@ -325,7 +325,7 @@ func TestReviewHintsReviewed(t *testing.T) {
 			s.keys = core.KeysConfig{Drawer: map[string]string{"m": "review.mark", "space": "none"}}
 
 			return s
-		}, "m", "R", false},
+		}, "m", "v", false},
 	}
 
 	for _, tt := range tests {

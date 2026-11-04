@@ -38,6 +38,9 @@ type fakeActions struct {
 	creates    []createCall
 	createRes  github.PR
 	createFail error
+
+	readies   []readyCall
+	readyFail error
 }
 
 type createCall struct {

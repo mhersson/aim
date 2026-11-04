@@ -49,7 +49,7 @@ type styles struct {
 	confirmBorder, confirmTitle, confirmQuestion, confirmKey lipgloss.Style
 	// pushTitle is the push confirm's title, in Info and bold.
 	pushTitle lipgloss.Style
-	// approveTitle is the approve confirm's title, in Success and bold.
+	// approveTitle is the approve and ready confirms' title, in Success and bold.
 	approveTitle lipgloss.Style
 	// mergeTitle is the merge box's title, in Accent and bold.
 	mergeTitle lipgloss.Style

@@ -1,0 +1,24 @@
+ 1 p1                                                       layout master-stack 
+────────────────────────────────────────────────────────────────────────────────
+╭─ shell ───────────╭─ multiplex · feat/review-pane ────────────── ✓ 0/4 ─ #7 ─╮
+│$ claude           │ #7 Show the pull request over its diff                   │
+│reviewing the diff │ feat/review-pane → main   ci 4/4   approved   @mhersson …│
+│                   │──────────────────────────────────────────────────────────│
+│                   │      34 + }                                              │
+│                   │  M internal/ui/app.go                              +4 -3 │
+│      ╭─ Mark #7 ready ────────────────────────────────────────────────╮      │
+│      │                                                                │      │
+│      │  A very long title that cannot fit in the box at all, not even…│an    │
+│      │  ready for review: GitHub notifies its reviewers               │      │
+│      │                                                                │ext,  │
+│      │  enter mark ready    esc cancel                                │      │
+│      ╰────────────────────────────────────────────────────────────────╯      │
+│                   │         ↪ core.KindAgent {                               │
+│                   │  44     -         return nil                             │
+│                   │  45     -     }                                          │
+│                   │      43 +     p, ok := a.store.Pane(agent)               │
+│                   │      44 +     if !ok || p.Kind != core.KindAgent {       │
+│                   │▎     45 +         return a.notify("a review pane needs   │
+│                   │▎        ↪ an agent pane")                                │
+│                   │ j/k line   ]/[ hunk   z zoom   i conversation   c checks │
+╰───────────────────╰──────────────────────────────────────────────────────────╯

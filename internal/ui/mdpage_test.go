@@ -664,7 +664,7 @@ func TestMarkdownPageKeys(t *testing.T) {
 
 		before := snapOf()
 
-		for _, k := range []tea.KeyPressMsg{keyRune('f'), keyRune('u'), {Code: tea.KeyTab}, keyRune('w'), keyRune('m'), keyRune('c'), keyRune('}'), keyRune(','), keyRune('x'), keySpace, keyRune('R')} {
+		for _, k := range []tea.KeyPressMsg{keyRune('f'), keyRune('u'), {Code: tea.KeyTab}, keyRune('w'), keyRune('m'), keyRune('c'), keyRune('}'), keyRune(','), keyRune('x'), keySpace, keyRune('v')} {
 			m.notice = ""
 			m.press(k)
 

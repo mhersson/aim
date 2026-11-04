@@ -16,6 +16,8 @@ var (
 	ErrRateLimited = errors.New("github: rate limited")
 	// ErrNoSHA is returned by an approve or merge given no commit; nothing is sent.
 	ErrNoSHA = errors.New("github: no commit given")
+	// ErrNoNodeID is returned by a mark ready given no pull request node id; nothing is sent.
+	ErrNoNodeID = errors.New("github: no pull request id given")
 	// ErrHeadMoved is returned by a merge whose head commit changed since the review.
 	ErrHeadMoved = errors.New("github: the head moved since the review")
 	// ErrNotMergeable is returned by a merge GitHub refuses as not mergeable.

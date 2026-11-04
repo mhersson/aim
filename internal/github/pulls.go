@@ -26,6 +26,7 @@ type Checks struct {
 
 // PR is a pull request as the poll sees it.
 type PR struct {
+	ID                              string // the node id GraphQL mutations take
 	Number                          int
 	Title, URL, Author              string
 	State                           string // OPEN, MERGED, CLOSED
@@ -75,6 +76,7 @@ type rollup struct {
 }
 
 type pullNode struct {
+	ID                string `graphql:"id"`
 	Number            int
 	Title             string
 	URL               string `graphql:"url"`
@@ -194,7 +196,7 @@ func (c *Client) PRForBranch(ctx context.Context, r Repo, branch string) (PR, er
 
 func (n pullNode) pr() PR {
 	pr := PR{
-		Number: n.Number, Title: n.Title, URL: n.URL, Author: "ghost",
+		ID: n.ID, Number: n.Number, Title: n.Title, URL: n.URL, Author: "ghost",
 		State: n.State, Draft: n.IsDraft, CrossRepo: n.IsCrossRepository,
 		HeadBranch: n.HeadRefName, HeadOID: n.HeadRefOid, BaseBranch: n.BaseRefName,
 		ReviewDecision: n.ReviewDecision, MergeState: n.MergeStateStatus,
