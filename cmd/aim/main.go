@@ -99,7 +99,10 @@ func run(ctx context.Context, env core.Env, configPath, recordDir string, fresh 
 		return err
 	}
 
-	themes := theme.Builtin()
+	themes, err := theme.Load(filepath.Join(filepath.Dir(configPath), "themes"))
+	if err != nil {
+		return err //nolint:wrapcheck // the error names the file
+	}
 
 	if err := validateConfig(cfg, themes); err != nil {
 		return fmt.Errorf("config %s: %w", configPath, err)

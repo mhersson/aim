@@ -1,6 +1,6 @@
-// Package theme holds the Catppuccin flavors AIM ships: each flavor's
-// palette, the semantic UI roles widgets colour from, and a matching Chroma
-// syntax style.
+// Package theme holds the themes AIM offers, the Catppuccin flavors it ships
+// and the user's theme files: each theme's palette, the semantic UI roles
+// widgets colour from, and a matching Chroma syntax style.
 package theme
 
 import (
@@ -28,8 +28,8 @@ type Theme struct {
 // ErrUnknownTheme is returned by ByName for a name no theme has.
 var ErrUnknownTheme = errors.New("unknown theme")
 
-// Set is the themes AIM offers, in order, the built-ins first. It is built
-// once at start and handed to everything that lists themes.
+// Set is the themes AIM offers, in order: the built-ins, then the user's by
+// name. It is built once at start and handed to everything that lists themes.
 type Set []Theme
 
 // Builtin returns the Catppuccin flavors, light first: latte, frappe,

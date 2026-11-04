@@ -19,7 +19,7 @@ mkdir -p ~/.config/aim
 cp config.example.toml ~/.config/aim/config.toml
 ```
 
-The `theme` setting decides the theme at each start. A theme you pick while AIM runs lasts for that session only, unless you save it with `ctrl+s` in the theme picker: that sets `theme` in the config file AIM started with and leaves the rest of it as it was (see [the command palette and themes](agents.md#the-command-palette-and-themes)). It is the only time AIM writes the file.
+The `theme` setting decides the theme at each start. A theme you pick while AIM runs lasts for that session only, unless you save it with `ctrl+s` in the theme picker: that sets `theme` in the config file AIM started with and leaves the rest of it as it was (see [the command palette and themes](agents.md#the-command-palette-and-themes)). It is the only time AIM writes the file. Themes of your own go in a `themes` folder beside the config file; see [Themes](themes.md).
 
 ## Errors at start
 
@@ -32,6 +32,8 @@ aim: config /home/you/.config/aim/config.toml: unknown theme "nope" (known: catp
 ```
 
 An invalid TOML or wrong-type error adds the line number: `line 1: theme: cannot decode TOML integer into struct field core.Config.Theme of type string`. A mistake in the `[keys]` section names the key; the examples in the next section show them.
+
+A theme file of your own with a mistake stops the start the same way, with a line that starts `aim: theme <path>:` (see [Themes](themes.md#errors-at-start)).
 
 Fix the line and start again.
 

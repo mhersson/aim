@@ -18,6 +18,7 @@ func TestRootRejectsBadConfig(t *testing.T) {
 		name    string
 		content string
 		missing bool
+		theme   string // a themes/broken.toml beside the config; "" for none
 	}{
 		{name: "unknown key", content: "them = 1\n"},
 		{name: "layout ratio", content: "[layout]\nmaster_ratio = 95\n"},
@@ -26,6 +27,7 @@ func TestRootRejectsBadConfig(t *testing.T) {
 		{name: "review days", content: "[pull_requests]\nreview_requested_days = -1\n"},
 		{name: "unknown theme", content: "theme = \"nope\"\n"},
 		{name: "explicit path missing", missing: true},
+		{name: "broken theme file", content: "theme = \"catppuccin-mocha\"\n", theme: "title = 1\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -42,6 +44,18 @@ func TestRootRejectsBadConfig(t *testing.T) {
 				}
 			}
 
+			named := path
+			if tt.theme != "" {
+				named = filepath.Join(filepath.Dir(path), "themes", "broken.toml")
+				if err := os.MkdirAll(filepath.Dir(named), 0o700); err != nil {
+					t.Fatal(err)
+				}
+
+				if err := os.WriteFile(named, []byte(tt.theme), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
 			cmd := newRootCmd()
 			cmd.SetArgs([]string{"--config", path})
 			cmd.SetOut(io.Discard)
@@ -53,8 +67,8 @@ func TestRootRejectsBadConfig(t *testing.T) {
 
 			err := cmd.ExecuteContext(ctx)
 
-			if err == nil || !strings.Contains(err.Error(), path) {
-				t.Fatalf("Execute() error = %v, want one naming %s", err, path)
+			if err == nil || !strings.Contains(err.Error(), named) {
+				t.Fatalf("Execute() error = %v, want one naming %s", err, named)
 			}
 			// The log is opened right before the TUI starts, so an empty state
 			// dir means the TUI never started.

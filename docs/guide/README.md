@@ -17,4 +17,5 @@ AIM's own keys sit behind a leader key, `ctrl+space` by default: press it, then 
 
 - [Keys](keys.md): every default key and command, generated from the keymap.
 - [Configuration](config.md): where the config file lives, errors at start and the rules for remapping keys.
+- [Themes](themes.md): themes of your own: where the files go, what a file holds and what AIM paints with each colour.
 - [`config.example.toml`](../../config.example.toml): every setting with its meaning, default and allowed values.

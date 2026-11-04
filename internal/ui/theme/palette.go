@@ -9,24 +9,40 @@ var _ color.Color = Hex("")
 
 // RGBA implements color.Color. A value that is not "#rrggbb" is opaque black.
 func (h Hex) RGBA() (r, g, b, a uint32) {
-	if len(h) != 7 || h[0] != '#' {
+	rgb, ok := h.rgb()
+	if !ok {
 		return 0, 0, 0, 0xffff
 	}
 
+	return rgb[0], rgb[1], rgb[2], 0xffff
+}
+
+// valid reports whether h is "#rrggbb", in either case.
+func (h Hex) valid() bool {
+	_, ok := h.rgb()
+
+	return ok
+}
+
+func (h Hex) rgb() ([3]uint32, bool) {
 	var rgb [3]uint32
+	if len(h) != 7 || h[0] != '#' {
+		return rgb, false
+	}
+
 	for i := range rgb {
 		hi, okHi := hexDigit(h[1+2*i])
 
 		lo, okLo := hexDigit(h[2+2*i])
 		if !okHi || !okLo {
-			return 0, 0, 0, 0xffff
+			return rgb, false
 		}
 
 		v := hi<<4 | lo
 		rgb[i] = v<<8 | v
 	}
 
-	return rgb[0], rgb[1], rgb[2], 0xffff
+	return rgb, true
 }
 
 func hexDigit(c byte) (uint32, bool) {
@@ -42,12 +58,51 @@ func hexDigit(c byte) (uint32, bool) {
 	return 0, false
 }
 
-// Palette holds the 26 named colours of a Catppuccin flavor. The flavor
+// Palette holds a theme's 26 colours, in Catppuccin's slots. The flavor
 // values are the official Catppuccin palette (MIT, see THIRD_PARTY.md).
 type Palette struct {
 	Rosewater, Flamingo, Pink, Mauve, Red, Maroon, Peach, Yellow, Green, Teal,
 	Sky, Sapphire, Blue, Lavender, Text, Subtext1, Subtext0, Overlay2, Overlay1,
 	Overlay0, Surface2, Surface1, Surface0, Base, Mantle, Crust Hex
+}
+
+// slot is one of a palette's colours under its theme-file key.
+type slot struct {
+	name string
+	hex  *Hex
+}
+
+// slots returns p's colours in Catppuccin's order. Each name is the field's
+// name in lowercase, the key go-toml decodes into that field.
+func (p *Palette) slots() []slot {
+	return []slot{
+		{"rosewater", &p.Rosewater},
+		{"flamingo", &p.Flamingo},
+		{"pink", &p.Pink},
+		{"mauve", &p.Mauve},
+		{"red", &p.Red},
+		{"maroon", &p.Maroon},
+		{"peach", &p.Peach},
+		{"yellow", &p.Yellow},
+		{"green", &p.Green},
+		{"teal", &p.Teal},
+		{"sky", &p.Sky},
+		{"sapphire", &p.Sapphire},
+		{"blue", &p.Blue},
+		{"lavender", &p.Lavender},
+		{"text", &p.Text},
+		{"subtext1", &p.Subtext1},
+		{"subtext0", &p.Subtext0},
+		{"overlay2", &p.Overlay2},
+		{"overlay1", &p.Overlay1},
+		{"overlay0", &p.Overlay0},
+		{"surface2", &p.Surface2},
+		{"surface1", &p.Surface1},
+		{"surface0", &p.Surface0},
+		{"base", &p.Base},
+		{"mantle", &p.Mantle},
+		{"crust", &p.Crust},
+	}
 }
 
 func lattePalette() Palette {
