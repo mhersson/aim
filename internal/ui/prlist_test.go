@@ -700,7 +700,9 @@ func otherTabsRig(t *testing.T) *prDrawer {
 			searched("github.com/o/r", 7, "Add x", "kari-dev", time.Hour, func(p *github.PR) {
 				p.BaseBranch, p.HeadBranch = "main", "feat/x"
 			}),
-			searched("github.com/acme/infra", 88, "Bump", "kari-dev", 2*time.Hour),
+			searched("github.com/acme/infra", 88, "Bump", "kari-dev", 2*time.Hour, func(p *github.PR) {
+				p.Draft, p.ID = true, "PR_88"
+			}),
 		}},
 		"ghe.example.com": {Requested: []github.SearchPR{
 			searched("ghe.example.com/acme/infra", 4, "Svc", "li", time.Hour),

@@ -731,6 +731,8 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.onBrowserDone(msg)
 	case approvedMsg:
 		a.onApproved(msg)
+	case readiedMsg:
+		a.onReadied(msg)
 	case mergedMsg:
 		return a, a.onMerged(msg)
 	case cleanupPlaceMsg:

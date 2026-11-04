@@ -736,7 +736,7 @@ func TestDrawerRemappedKeys(t *testing.T) {
 func TestDrawerHintsFollowBindings(t *testing.T) {
 	t.Parallel()
 
-	const prHints = "j/k line   ]/[ hunk   z zoom   i conversation   c checks   a approve   M merge   O browser   space reviewed   R show reviewed   b/t mode"
+	const prHints = "j/k line   ]/[ hunk   z zoom   i conversation   c checks   a approve   M merge   O browser   space reviewed   v show reviewed   b/t mode"
 
 	tests := []struct {
 		name    string

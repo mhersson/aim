@@ -246,11 +246,11 @@ func TestReviewShowRead(t *testing.T) {
 
 	r.onFirstChange(t, 0, 0)
 	r.keys(keySpace)
-	r.keys(keyRune('R'))
+	r.keys(keyRune('v'))
 
 	hdr := v.rowOfHunkHeader(0, 0)
 	if hdr < 0 || !v.rows[hdr].read {
-		t.Fatalf("R did not show the reviewed hunk as a header")
+		t.Fatalf("v did not show the reviewed hunk as a header")
 	}
 
 	if next := v.rows[hdr+1]; next.kind == rowLine || next.kind == rowPair {
@@ -305,11 +305,11 @@ func TestReviewShowRead(t *testing.T) {
 		t.Errorf("] landed on row %d, want the folded header %d", v.cursor, want)
 	}
 
-	// R again hides it.
-	r.keys(keyRune('R'))
+	// v again hides it.
+	r.keys(keyRune('v'))
 
 	if v.rowOfHunkHeader(0, 0) >= 0 || v.showRead {
-		t.Errorf("R again left the reviewed hunk shown")
+		t.Errorf("v again left the reviewed hunk shown")
 	}
 }
 
@@ -336,14 +336,14 @@ func TestReviewAllRead(t *testing.T) {
 			t.Fatalf("the rows end in %+v, want a blank row and the note", v.rows[n-2:])
 		}
 
-		if !strings.Contains(r.drawn(t), "all 6 hunks reviewed; R shows them") {
+		if !strings.Contains(r.drawn(t), "all 6 hunks reviewed; v shows them") {
 			t.Errorf("no note:\n%s", r.drawn(t))
 		}
 
-		r.keys(keyRune('R'))
+		r.keys(keyRune('v'))
 
-		if v.countRows(rowHunk) != 6 || strings.Contains(r.drawn(t), "reviewed; R shows") {
-			t.Errorf("R left %d hunk rows or the note", v.countRows(rowHunk))
+		if v.countRows(rowHunk) != 6 || strings.Contains(r.drawn(t), "reviewed; v shows") {
+			t.Errorf("v left %d hunk rows or the note", v.countRows(rowHunk))
 		}
 	})
 }
@@ -399,10 +399,10 @@ func TestReviewMarksIgnored(t *testing.T) {
 
 		before := m.store.State().Marks
 		m.press(keySpace)
-		m.press(keyRune('R'))
+		m.press(keyRune('v'))
 
 		if m.v.showRead || len(m.store.State().Marks) != len(before) {
-			t.Errorf("space or R acted on a rendered file: showRead %v, marks %v", m.v.showRead, m.store.State().Marks)
+			t.Errorf("space or v acted on a rendered file: showRead %v, marks %v", m.v.showRead, m.store.State().Marks)
 		}
 
 		for _, row := range m.v.rows {
@@ -736,7 +736,7 @@ func TestCountHunks(t *testing.T) {
 	}
 }
 
-// R stays on when the drawer starts over, as it does across reloads; the hunks
+// Show reviewed stays on when the drawer starts over, as it does across reloads; the hunks
 // unfolded under it belong to the old view and are dropped.
 func TestReviewResetKeepsShowRead(t *testing.T) {
 	t.Parallel()
@@ -747,7 +747,7 @@ func TestReviewResetKeepsShowRead(t *testing.T) {
 	v := m.reviewReset(m.tabID(), m.v.pane)
 
 	if !v.showRead {
-		t.Error("R is off after the drawer started over")
+		t.Error("show reviewed is off after the drawer started over")
 	}
 
 	if len(v.readOpen) != 0 {

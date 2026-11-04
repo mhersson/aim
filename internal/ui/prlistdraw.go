@@ -241,10 +241,16 @@ func (a *App) prListBox(lk look, w, room int) []string {
 		}
 	}
 
+	ready := ""
+	if sel >= 0 && rows[sel].pr.Draft {
+		ready = kt.hint("prlist.ready")
+	}
+
 	pairs := hintPairs([][2]string{
 		{kt.hint("prlist.show"), "diff"},
 		{kt.hint("prlist.conversation"), "conversation"},
 		{kt.hint("prlist.checks"), "checks"},
+		{ready, "ready"},
 		{kt.hint("prlist.approve"), "approve"},
 		{kt.hint("prlist.merge"), "merge"},
 		{kt.hint("prlist.browser"), "browser"},

@@ -28,6 +28,9 @@ type confirm struct {
 	// approve, when set, makes this the approve confirm: it draws approveBox and
 	// takes only enter and esc.
 	approve *approveTarget
+	// ready, when set, makes this the ready confirm: it draws readyBox and takes
+	// only enter and esc.
+	ready *readyTarget
 	// cleanup, when set, makes this the cleanup confirm: it draws cleanupBox and takes
 	// w, b, enter and esc.
 	cleanup *cleanupTarget
@@ -49,7 +52,7 @@ func (a *App) handleConfirmKey(msg tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 
-	if (c.push != nil || c.approve != nil || c.cleanup != nil) && key != "enter" && key != "esc" {
+	if (c.push != nil || c.approve != nil || c.ready != nil || c.cleanup != nil) && key != "enter" && key != "esc" {
 		return nil
 	}
 
@@ -128,7 +131,7 @@ func overlayConfirm(f *frameLayers, base string, width, height int, c confirm, i
 	switch {
 	case c.push != nil:
 		maxW = maxPushWidth
-	case c.approve != nil:
+	case c.approve != nil, c.ready != nil:
 		maxW = maxApproveWidth
 	case c.cleanup != nil:
 		maxW = maxCleanupWidth
@@ -146,6 +149,8 @@ func overlayConfirm(f *frameLayers, base string, width, height int, c confirm, i
 		lines = pushBox(*c.push, w, icons, st)
 	case c.approve != nil:
 		lines = approveBox(*c.approve, w, icons, st)
+	case c.ready != nil:
+		lines = readyBox(*c.ready, w, icons, st)
 	case c.cleanup != nil:
 		top := max(1, height/3)
 

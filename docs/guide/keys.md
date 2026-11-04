@@ -135,12 +135,13 @@ The table is `[keys.drawer]`. These keys apply while the review drawer has the k
 | `u` | `review.split` | Review: unified or side by side |
 | `enter` | `review.fold` | Review: fold or show removed lines |
 | `space` | `review.mark` | Review: mark the hunk reviewed |
-| `R` | `review.show.reviewed` | Review: show reviewed hunks too |
+| `v` | `review.show.reviewed` | Review: show reviewed hunks too |
 | `b` | `review.mode.branch` | Review: branch mode |
 | `t` | `review.mode.turn` | Review: turn mode |
 | `p` | `review.mode.pr` | Review: pull request |
 | `i` | `review.conversation` | Review: conversation |
 | `c` | `review.checks` | Review: checks |
+| `R` | `review.ready` | Review: mark ready |
 | `a` | `review.approve` | Review: approve |
 | `M` | `review.merge` | Review: merge |
 | `O` | `review.browser` | Review: open in browser |
@@ -191,6 +192,7 @@ The table is `[keys.pr_list]`. These keys apply while the pull request list is o
 | `enter` | `prlist.show` | Pull requests: show the diff |
 | `i` | `prlist.conversation` | Pull requests: show the conversation |
 | `c` | `prlist.checks` | Pull requests: show the checks |
+| `R` | `prlist.ready` | Pull requests: mark ready |
 | `a` | `prlist.approve` | Pull requests: approve |
 | `M` | `prlist.merge` | Pull requests: merge |
 | `O` | `prlist.browser` | Pull requests: open in the browser |

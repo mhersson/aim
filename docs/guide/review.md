@@ -76,8 +76,8 @@ A paste goes into the prompt. These keys are fixed. Pressing `enter` with nothin
 
 To mark the hunk under the cursor as reviewed, press `space`. On a file's header it marks every hunk of the file, or unmarks them all when they are all marked; on a reviewed hunk it unmarks it. After marking, the cursor moves to the next unread hunk, wrapping round.
 
-- A reviewed hunk is hidden. A file with all hunks reviewed shows its header alone, and when every hunk is reviewed and `R` is off, the drawer ends with a note that says so and names the key that shows them.
-- `R` shows the reviewed hunks too, each folded to its header; `enter` on one opens it and again folds it. `R` is a switch for the drawer and is not saved.
+- A reviewed hunk is hidden. A file with all hunks reviewed shows its header alone, and when every hunk is reviewed and `v` is off, the drawer ends with a note that says so and names the key that shows them.
+- `v` shows the reviewed hunks too, each folded to its header; `enter` on one opens it and again folds it. `v` is a switch for the drawer and is not saved.
 - The top border counts the reviewed hunks of the files shown as hunks.
 - Marks count only for files shown as hunks. A file shown whole (`f`) or rendered (`m`), a binary or too large file, and a markdown page count for nothing.
 

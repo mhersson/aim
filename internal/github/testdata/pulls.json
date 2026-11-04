@@ -9,6 +9,7 @@
       "pullRequests": {
         "nodes": [
           {
+            "id": "PR_kwDOAAAB12",
             "number": 12,
             "title": "Add the poller",
             "url": "https://github.com/octo/repo/pull/12",
@@ -47,6 +48,7 @@
             }
           },
           {
+            "id": "PR_kwDOAAAB9",
             "number": 9,
             "title": "Fix a typo",
             "url": "https://github.com/octo/repo/pull/9",

@@ -12,7 +12,7 @@ AIM talks to GitHub with a token it finds the way `gh` does, for `github.com` an
 - the token in `gh`'s own config;
 - the answer of `gh auth token --secure-storage --hostname <host>`, when `gh` is on your `PATH`.
 
-Without a token, everything that does not talk to GitHub keeps working: panes, diffs, review and push. The pull request data does not load, and the notice is `pull requests for <host>/<owner>/<name>: run gh auth login --hostname <host>`. A creating, approving or merging action fails with the reason. A remote that is not on a host AIM knows says `<branch>'s remote is not on GitHub`. When GitHub refuses a token that has been revoked or has expired, AIM looks the token up again at the next poll or action, so the pull requests, checks and actions pick up a new `gh auth login` without a restart.
+Without a token, everything that does not talk to GitHub keeps working: panes, diffs, review and push. The pull request data does not load, and the notice is `pull requests for <host>/<owner>/<name>: run gh auth login --hostname <host>`. A creating, approving, marking ready or merging action fails with the reason. A remote that is not on a host AIM knows says `<branch>'s remote is not on GitHub`. When GitHub refuses a token that has been revoked or has expired, AIM looks the token up again at the next poll or action, so the pull requests, checks and actions pick up a new `gh auth login` without a restart.
 
 ## Push
 
@@ -47,7 +47,7 @@ The box's top row names the repository, the branch, the base and the number of c
 
 In the review drawer, press `p` to show the pull request of the drawer's branch. AIM fetches its refs into `refs/aim/pr/<n>/` (nothing else is written to your repository), deletes them at the clean-up confirm and once per run when no drawer shows the pull request, and fetches them again when the drawer opens it, and the drawer shows the pull request's diff against its base, with the same keys as other modes (see [Review](review.md)). The top of the diff holds a header with the number and title, the branch and base, the checks and the review in words. A row below it reads `↑<n> not pushed: the PR shows the pushed head; ctrl+space g P pushes` when the worktree has commits its push remote lacks, or `the PR moved to <sha7> since this diff; r fetches it` when the pull request got a new head; press `r` to fetch it again.
 
-`b` leaves the mode, and so do `t`, `,` and `.` unless they stop with a notice (the pane has no session or no turns), and so does picking a place in the worktree list. From the drawer, `i` opens the conversation, `c` the checks, `a` approve, `M` merge and `O` the browser; when the pull request is not shown yet, AIM shows it first and then acts.
+`b` leaves the mode, and so do `t`, `,` and `.` unless they stop with a notice (the pane has no session or no turns), and so does picking a place in the worktree list. From the drawer, `i` opens the conversation, `c` the checks, `a` approve, `M` merge and `O` the browser; when the pull request is not shown yet, AIM shows it first and then acts. `R` marks a draft ready without showing it first (see [Mark ready](#mark-ready)).
 
 The notices when there is no pull request: `no pull request for <branch>`, `pull request: HEAD is detached`, `pull request: <branch> has no remote`, `#<n> is not on <remote>`.
 
@@ -61,7 +61,7 @@ To list pull requests, press `ctrl+space g l`. It has three tabs, always opened 
 
 The last two search every GitHub host AIM watches when the list opens, every minute while it is open, and on `r`. Their empty texts are `loading pull requests…`, `no open pull requests ask for your review` or, when `review_requested_days` sets a limit, `no open pull requests updated in the last <N> days ask for your review` (`1 day` for one), and `you have no open pull requests`; a host whose search failed adds `pull requests on <host>: <reason>`. The Agents tab says `no open pull requests on agent branches` when it is empty.
 
-The keys are in [Keys](keys.md#pr-list): `j` and `k` move; `enter` shows the diff; `i`, `c`, `a`, `M` and `O` open the conversation, checks, approve, merge and the browser; `r` refreshes; `esc` closes. On the Agents tab `enter`, `a` and `M` switch to the agent's tab and show the pull request in its drawer; `a` and `M` then open the approve confirm or the merge box. On the other tabs they work through a checkout: a pane in the row's repository, whose drawer opens; with none the notice is `no checkout of <host>/<owner>/<name> here; O opens it in the browser`. `a` on your own pull request says `you can't approve your own pull request` and leaves the list open.
+The keys are in [Keys](keys.md#pr-list): `j` and `k` move; `enter` shows the diff; `i`, `c`, `a`, `M` and `O` open the conversation, checks, approve, merge and the browser; `R` marks a draft ready, on any tab and with no checkout; `r` refreshes; `esc` closes. On the Agents tab `enter`, `a` and `M` switch to the agent's tab and show the pull request in its drawer; `a` and `M` then open the approve confirm or the merge box. On the other tabs they work through a checkout: a pane in the row's repository, whose drawer opens; with none the notice is `no checkout of <host>/<owner>/<name> here; O opens it in the browser`. `a` on your own pull request says `you can't approve your own pull request` and leaves the list open.
 
 ## Checks
 
@@ -81,6 +81,13 @@ To read the description and the timeline, press `i` in the drawer or on a list r
 To approve, press `a` in the drawer or on a list row. A confirm names the pull request and `at head <sha7>, the commit you reviewed`: the approval is sent for that commit, the head the drawer's diff loaded. Press `enter` to approve or `esc` to cancel; no other key works. The toast is `approved #<n>`.
 
 - Once the poll has the pull request, your own says `you can't approve your own pull request` and no confirm opens, and a merged or closed one says `#<n> is merged` or `#<n> is closed`. A merged or closed pull request cannot be merged either, with the same notice.
+
+## Mark ready
+
+To mark a draft ready for review, press `R` in the drawer or on a list row; the key hints show `R ready` only for a draft. It acts on the drawer's pull request, the shown one or else the branch's, or on the row's, and loads no diff. A confirm names the pull request and says `ready for review: GitHub notifies its reviewers`, since that cannot be taken back. Press `enter` to mark it ready or `esc` to cancel; no other key works. The toast is `marked #<n> ready`, and the next poll drops the `draft` label.
+
+- A pull request that is not a draft says `#<n> is not a draft`, a merged or closed one `#<n> is merged` or `#<n> is closed`, and one the poll has not read yet `#<n>: its draft state is unknown`; no confirm opens.
+- Marking ready needs the same token permission as merge (pull requests write). AIM cannot turn a pull request back into a draft.
 
 ## Merge
 

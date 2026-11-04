@@ -128,6 +128,16 @@ func (g ghActions) Approve(ctx context.Context, r github.Repo, number int, sha s
 	return c.Approve(ctx, r, number, sha)
 }
 
+// MarkReady marks the pull request with node id ready for review.
+func (g ghActions) MarkReady(ctx context.Context, r github.Repo, id string) error {
+	c, err := g.client(ctx, r)
+	if err != nil {
+		return err
+	}
+
+	return c.MarkReady(ctx, id)
+}
+
 // Merge merges a pull request at the commit m.SHA.
 func (g ghActions) Merge(ctx context.Context, r github.Repo, pr github.PR, info github.RepoInfo, m github.MergeOptions) (github.Merged, error) {
 	c, err := g.client(ctx, r)
