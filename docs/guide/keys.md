@@ -273,6 +273,7 @@ The table is `[keys.compose]`. These keys apply while the compose box is open.
 | `shift+tab` | `compose.field.prev` | Compose: previous field |
 | `ctrl+s` | `compose.create` | Compose: create the pull request |
 | `ctrl+e` | `compose.editor` | Compose: body in the editor |
+| `ctrl+g` | `compose.generate` | Compose: generate the body |
 | `ctrl+p` | `compose.preview` | Compose: preview or write |
 | `esc` | `compose.cancel` | Compose: cancel |
 

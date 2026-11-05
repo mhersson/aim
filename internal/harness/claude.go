@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,7 +15,11 @@ import (
 )
 
 // Claude is the Claude Code adapter.
-type Claude struct{}
+type Claude struct {
+	// oneOff runs claude in dir with args and stdin and returns its stdout;
+	// nil runs the claude on PATH.
+	oneOff func(ctx context.Context, dir string, args []string, stdin string) (string, error)
+}
 
 // settingsFlag is Claude Code's flag for an extra settings file.
 const settingsFlag = "--settings"

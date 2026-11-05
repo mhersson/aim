@@ -25,6 +25,9 @@ import (
 const (
 	// createTimeout bounds opening the pull request.
 	createTimeout = 60 * time.Second
+	// describeTimeout bounds generating the body: the git reads and the agent's
+	// one-off run, whose process group is killed when it passes.
+	describeTimeout = 2 * time.Minute
 	// maxComposeWidth caps the compose box.
 	maxComposeWidth = 96
 	// maxComposeTitle and maxComposeBody are GitHub's limits.
@@ -53,6 +56,12 @@ const (
 	statusComposeURL      = "%s's push URL changed since you opened this; nothing created"
 	statusComposeExists   = "%s already has an open pull request"
 	statusComposePushBusy = "%s is already being pushed"
+
+	statusComposeGenerating  = "generating the description…"
+	statusComposeGenerateAsk = "replace the body with the generated description?"
+	statusComposeGenerateErr = "could not generate the description: "
+	reasonGenerateEmpty      = "the agent answered nothing"
+	reasonGenerateTimeout    = "timed out"
 )
 
 // composeField is the field of the compose box that has the keyboard.
@@ -77,6 +86,7 @@ type composeTarget struct {
 	unpushed                  int      // commits the remote lacks
 	bases                     []string // the remote's branches, by name
 	pane                      core.PaneID
+	dir                       string   // the directory the box was opened for, which the pane's agent may follow
 	urls                      []string // the remote's push URLs as git has them, to tell a changed destination; never shown
 }
 
@@ -98,6 +108,11 @@ type composeView struct {
 	bodyRev   int         // bumped by every change of the body text
 	held      bool        // the editor came back under another modal; hidden until it closes
 	preview   composePreview
+	template  string             // the pull request template the body started from; "" for none
+	filled    string             // the text the box last put in the body; the body is the user's once it differs
+	generate  context.CancelFunc // stops the description being generated; nil when none is
+	genSeq    int                // the newest generation; an older answer is stale
+	asking    string             // a generated description waiting on the confirm
 }
 
 // composePreviewDelay is how long the body rests before it is rendered again.
@@ -293,6 +308,14 @@ type composePushedMsg struct {
 	err error
 }
 
+// composeGeneratedMsg answers generating the body.
+type composeGeneratedMsg struct {
+	v    *composeView
+	seq  int
+	text string
+	err  error
+}
+
 // composeCreatedMsg answers creating the pull request.
 type composeCreatedMsg struct {
 	v   *composeView
@@ -345,7 +368,7 @@ func (a *App) composeCommand() tea.Cmd {
 		defer cancel()
 
 		msg := resolveCompose(ctx, g, log, resolve, id, cwd, home)
-		msg.seq, msg.pane = seq, id
+		msg.seq, msg.pane, msg.t.dir = seq, id, cwd
 
 		return msg
 	}
@@ -602,6 +625,7 @@ func (a *App) onComposeLog(msg composeLogMsg) {
 	v.body = newTextArea(d.Body, maxComposeBody)
 	v.body.Start()
 	v.bodyRev = 1
+	v.template, v.filled = template, v.body.Value()
 	v.commits = len(msg.commits)
 
 	if msg.err != nil {
@@ -612,8 +636,14 @@ func (a *App) onComposeLog(msg composeLogMsg) {
 	a.compose = v
 }
 
-// closeCompose closes the box.
-func (a *App) closeCompose() { a.compose = nil }
+// closeCompose closes the box and stops a description being generated for it.
+func (a *App) closeCompose() {
+	if a.compose != nil {
+		a.compose.stopGenerating()
+	}
+
+	a.compose = nil
+}
 
 // composeKeys are the default keys of the compose box. [keys.compose] is laid over them.
 var composeKeys = []reviewKey{
@@ -621,6 +651,7 @@ var composeKeys = []reviewKey{
 	{"shift+tab", "compose.field.prev"},
 	{"ctrl+s", "compose.create"},
 	{"ctrl+e", "compose.editor"},
+	{"ctrl+g", "compose.generate"},
 	{"ctrl+p", "compose.preview"},
 	{"esc", "compose.cancel"},
 }
@@ -649,6 +680,7 @@ func composeCommands() []command {
 		}),
 		cmd("compose.create", "create the pull request", func(a *App, v *composeView) tea.Cmd { return a.composeSubmit(v) }),
 		cmd("compose.editor", "body in the editor", func(a *App, _ *composeView) tea.Cmd { return a.composeEditor() }),
+		cmd("compose.generate", "generate the body", func(a *App, v *composeView) tea.Cmd { return a.composeGenerate(v) }),
 		cmd("compose.preview", "preview or write", func(a *App, v *composeView) tea.Cmd { return a.composePreviewToggle(v) }),
 		cmd("compose.cancel", "cancel", func(a *App, _ *composeView) tea.Cmd {
 			a.closeCompose()
@@ -670,6 +702,10 @@ func (a *App) handleComposeKey(msg tea.KeyPressMsg) tea.Cmd {
 	}
 
 	v.status, v.statusErr = "", false
+
+	if v.asking != "" {
+		return a.answerGenerated(v, msg.String())
+	}
 
 	if key := bindingKey(msg); a.keys.compose.has(key) {
 		return a.runKey(a.keys.compose, key)
@@ -736,7 +772,7 @@ func (a *App) handleComposePaste(msg tea.PasteMsg) tea.Cmd {
 	v := a.compose
 
 	switch {
-	case v.busy:
+	case v.busy, v.asking != "":
 	case v.field == composeTitle:
 		var cmd tea.Cmd
 
@@ -774,6 +810,7 @@ func (a *App) composeSubmit(v *composeView) tea.Cmd {
 
 	pr := github.NewPR{Title: title, Body: v.body.Value(), Base: t.bases[v.base], Head: t.branch, Draft: v.draft}
 	v.busy = true
+	v.stopGenerating()
 
 	v.status = statusComposeOpening
 	if t.unpushed > 0 {
@@ -1091,7 +1128,13 @@ func (a *App) onBodyRead(msg bodyReadMsg) tea.Cmd {
 		return nil
 	}
 
-	v.body = newTextArea(msg.text, maxComposeBody)
+	return a.setBody(v, msg.text)
+}
+
+// setBody replaces the body with text, the cursor at its start, and renders
+// the preview of it when that shows.
+func (a *App) setBody(v *composeView, text string) tea.Cmd {
+	v.body = newTextArea(text, maxComposeBody)
 	v.body.Start()
 	v.preview.top, v.preview.anchor = 0, 1
 

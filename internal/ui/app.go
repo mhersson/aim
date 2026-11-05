@@ -693,6 +693,8 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, a.onComposePushed(msg)
 	case composeCreatedMsg:
 		a.onComposeCreated(msg)
+	case composeGeneratedMsg:
+		return a, a.onComposeGenerated(msg)
 	case bodyWrittenMsg:
 		return a, a.onBodyWritten(msg)
 	case bodyReadMsg:

@@ -25,6 +25,28 @@ type Harness interface {
 	// CustomName reads the name the user gave the session from its transcript
 	// file; empty when it has none. The name is untrusted text. It does file IO.
 	CustomName(ctx context.Context, transcript string) (string, error)
+	// Describe writes the body of a pull request in a one-off run of the agent
+	// that saves nothing. It can take minutes; ctx bounds it.
+	Describe(ctx context.Context, req DescribeRequest) (string, error)
+}
+
+// DescribeRequest is the branch a pull request body is asked for.
+type DescribeRequest struct {
+	// Session is the agent's session to fork, which knows why the changes were
+	// made; empty runs without one. Dir is where the run starts: the session's
+	// launch directory, else the worktree.
+	Session core.SessionID
+	Dir     string
+
+	Branch, Base string
+	Commits      []Commit // oldest first
+	Stat         string   // the diff summary, as git diff --stat prints it
+	Template     string   // the repository's pull request template; empty for none
+}
+
+// Commit is one commit of the branch a body is asked for.
+type Commit struct {
+	Subject, Body string
 }
 
 // RateWindow is one usage window as the agent reports it: Used is the percent

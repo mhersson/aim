@@ -178,6 +178,18 @@ line to `AIM_SOCK`, within 2 s (1 s for the status line). Both always exit 0
 and print nothing: Claude adds the stdout of `SessionStart` and
 `UserPromptSubmit` hooks to the model's context.
 
+**The one-off.** The compose box's `ctrl+g` asks the harness for a pull
+request body (`Harness.Describe`, `internal/harness/describe.go`). The Claude
+adapter runs `claude --print --no-session-persistence --tools ""
+--strict-mcp-config` with the prompt on stdin (`--tools ""` alone leaves the MCP
+servers' tools). When the box is for the worktree the pane's agent follows, it
+adds `--resume <id> --fork-session` and runs in the session's launch directory,
+so the run has the conversation and the live session stays as it is. It runs
+the first `claude` on PATH that is not AIM's own binary, without `--settings`,
+so AIM's hooks never hear of it while the user's own hooks still run. It starts
+in a new session, with no controlling terminal, and `describeTimeout`
+(`internal/ui/compose.go`) kills its process group.
+
 **The socket.** `<state dir>/run/<pid>.sock` is 0600 in a 0700 directory
 (`internal/harness/socket.go`). A connection carries one line of at most
 64 KiB, answered `ok` once queued, except a prompt or an edit's `PreToolUse`,

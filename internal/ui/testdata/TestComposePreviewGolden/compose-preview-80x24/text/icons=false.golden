@@ -19,5 +19,5 @@
  │  ╰──────────────────────────────────────────────────────────────────────╯  │
  │                                                                            │
  │                                                                            │
- │  tab next field    ctrl+e body in $EDITOR    ctrl+s create    esc cancel   │
+ │  ctrl+e body in $EDITOR    ctrl+g generate    ctrl+s create    esc cancel  │
  ╰────────────────────────────────────────────────────────────────────────────╯
