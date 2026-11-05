@@ -20,6 +20,7 @@ type Git interface {
 	Ahead(ctx context.Context, r git.Repo) (n int, ok bool, err error)
 	DefaultBranch(ctx context.Context, r git.Repo) (string, error)
 	Log(ctx context.Context, r git.Repo, base string) ([]git.Commit, error)
+	DiffStat(ctx context.Context, r git.Repo, base string) (string, error)
 
 	ListWorktrees(ctx context.Context, r git.Repo) ([]git.Worktree, error)
 	CreateWorktree(ctx context.Context, r git.Repo, nw git.NewWorktree) (git.Created, error)
@@ -118,6 +119,16 @@ func (SystemGit) Log(ctx context.Context, r git.Repo, base string) ([]git.Commit
 	}
 
 	return cs, err
+}
+
+// DiffStat maps a missing base to errNoBaseRef, as Log does.
+func (SystemGit) DiffStat(ctx context.Context, r git.Repo, base string) (string, error) {
+	stat, err := git.DiffStat(ctx, r, base)
+	if err != nil && baseRefMissing(err) {
+		return "", fmt.Errorf("%w: %w", errNoBaseRef, err)
+	}
+
+	return stat, err
 }
 
 func (SystemGit) ListWorktrees(ctx context.Context, r git.Repo) ([]git.Worktree, error) {

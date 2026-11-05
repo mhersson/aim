@@ -93,7 +93,14 @@ func (a *App) composeBox(lk look, w, room int) (lines []string, curX, curY int, 
 
 	head = append(head, blank, titleLine, blank, baseLine, blank, draftLine, blank, plain(label(composeBody, "body")))
 
-	tail := []composeLine{blank, plain(run(printable(v.status), statusColor(v, ui), false)), plain(composeHints(cw, v.preview.on, a.keys.compose, st))}
+	status, isErr := v.statusRow()
+	hints := composeHints(cw, v.preview.on, a.keys.compose, st)
+
+	if v.asking != "" {
+		hints = hintLine([][2]string{{"enter", "replace"}, {"esc", "keep"}}, cw, st)
+	}
+
+	tail := []composeLine{blank, plain(run(printable(status), statusColor(isErr, ui), false)), plain(hints)}
 
 	// The frame is two lines, the body box two more around its rows.
 	rows := composeBodyRowCount(v, room)
@@ -137,8 +144,8 @@ func (a *App) composeBox(lk look, w, room int) (lines []string, curX, curY int, 
 	return append(out, bottom), curX, curY, pics
 }
 
-func statusColor(v *composeView, ui theme.UI) theme.Hex {
-	if v.statusErr {
+func statusColor(isErr bool, ui theme.UI) theme.Hex {
+	if isErr {
 		return ui.Error
 	}
 
@@ -273,8 +280,8 @@ func composeHints(cw int, preview bool, kt keyTable, st styles) string {
 	}
 
 	return hintLine(hintPairs([][2]string{
-		{kt.hint("compose.field.next"), "next field"},
 		{kt.hint("compose.editor"), "body in $EDITOR"},
+		{kt.hint("compose.generate"), "generate"},
 		{kt.hint("compose.create"), "create"},
 		{kt.hint("compose.cancel"), "cancel"},
 		{kt.hint("compose.preview"), toggle},

@@ -1127,6 +1127,53 @@ func (f *fakeGit) Log(ctx context.Context, gr git.Repo, base string) ([]git.Comm
 	return out, nil
 }
 
+// DiffStat lists, one per line, the paths HEAD changes since its merge base
+// with base.
+func (f *fakeGit) DiffStat(ctx context.Context, gr git.Repo, base string) (string, error) {
+	r, end, err := f.enterRepo(ctx, "DiffStat", gr, base)
+	if err != nil {
+		return "", err
+	}
+	defer end()
+
+	tip, ok := r.c.resolve(base)
+	if !ok {
+		return "", fmt.Errorf("resolve base %q: %w", base, errNoBaseRef)
+	}
+
+	head := r.headOID()
+
+	mb, ok := f.mergeBase(tip, head)
+	if !ok {
+		return "", fmt.Errorf("diff summary since %q: no merge base", base)
+	}
+
+	from, to := f.commits[mb].tree, f.commits[head].tree
+
+	all := fakeTree{}
+	maps.Copy(all, from)
+	maps.Copy(all, to)
+
+	var paths []string
+
+	for p := range all {
+		if from[p] != to[p] {
+			paths = append(paths, p)
+		}
+	}
+
+	slices.Sort(paths)
+
+	var b strings.Builder
+	for _, p := range paths {
+		fmt.Fprintf(&b, " %s | changed\n", p)
+	}
+
+	fmt.Fprintf(&b, " %d files changed\n", len(paths))
+
+	return b.String(), nil
+}
+
 func (f *fakeGit) wtEntry(r *fakeRepo) git.Worktree {
 	head := r.headOID()
 	if head == "" {

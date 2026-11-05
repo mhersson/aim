@@ -40,6 +40,11 @@ The box's top row names the repository, the branch, the base and the number of c
 
 - `ctrl+e` edits the body in `$VISUAL`, else `$EDITOR`, else `vi`, in a pane beside the focused one. The box hides until the editor exits; then the file replaces the body. If another overlay is open by then, the box comes back once it closes. Without agent hooks the notice is `the editor needs the run directory, which is off with agent hooks`.
 - `ctrl+p` switches the body between Write and Preview. In Preview `up`, `down`, `pgup` and `pgdown` scroll, and other body keys do nothing.
+- `ctrl+g` generates the body with a one-off `claude --print` on Sonnet that has no tools and saves no session. Its prompt carries the commits, the diff summary (`git diff --stat`) and the template, whose sections it follows when there is one. When the box is for the worktree the focused agent works in, the run forks that agent's session, so it also knows why the changes were made; the live session is left as it is. Otherwise it starts fresh in the worktree.
+  - While it runs the status row says `generating the description…` and the box stays editable. Closing the box stops the run, and so does `ctrl+s`, which creates with the body as it is.
+  - An empty body, or one still as the box filled it, takes the description at once. A body you changed asks `replace the body with the generated description?`: `enter` replaces it, `esc` keeps it, and no other key answers.
+  - A failure, or no answer within two minutes, reads `could not generate the description: <reason>` and leaves the body alone.
+  - The run uses Sonnet whatever your default model is. A fork sends the session's whole conversation to Sonnet, so on a long session one press can cost as many Sonnet input tokens as the session holds. The run reads your Claude Code settings, so your own hooks run for it too.
 - `ctrl+s` creates the pull request. An empty title says `enter a title`. When the remote lacks commits, the box says `↑<n> not pushed yet: creating the PR pushes <branch> to <remote> first`, and creating pushes first, without force. The status row reads `pushing <branch> to <remote>…`, then `opening the pull request…`. On success the toast is `opened #<n>`.
 - `esc` cancels. A failure stays in the box with its reason; while it runs only the leader keys work.
 

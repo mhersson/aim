@@ -133,3 +133,46 @@ func TestLogRefusesOptionBase(t *testing.T) {
 		}
 	}
 }
+
+func TestDiffStat(t *testing.T) {
+	t.Parallel()
+
+	dir := newRepo(t)
+	writeFile(t, dir, "a.txt", "a\n")
+	commitAll(t, dir, "init")
+	gitOut(t, dir, "switch", "-q", "-c", "feat")
+	writeFile(t, dir, "lexer.go", "package lexer\n")
+	commitAll(t, dir, "add the lexer")
+	gitOut(t, dir, "switch", "-q", "main")
+	writeFile(t, dir, "main-only.txt", "m\n")
+	commitAll(t, dir, "main moves on")
+	gitOut(t, dir, "switch", "-q", "feat")
+	writeFile(t, dir, "uncommitted.txt", "u\n")
+
+	got, err := DiffStat(context.Background(), openRepo(t, dir), "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(got, "lexer.go") || !strings.Contains(got, "1 file changed") {
+		t.Errorf("stat = %q, want the branch's one file", got)
+	}
+
+	for _, other := range []string{"main-only.txt", "uncommitted.txt"} {
+		if strings.Contains(got, other) {
+			t.Errorf("stat = %q, names %s, which the branch's commits do not change", got, other)
+		}
+	}
+
+	// A missing base is a git failure: its error keeps git's exit status.
+	_, err = DiffStat(context.Background(), openRepo(t, dir), "nope")
+
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+		t.Errorf("DiffStat with an unknown base: err = %v, want an exit status 1", err)
+	}
+
+	if _, err := DiffStat(context.Background(), openRepo(t, dir), "--all"); err == nil {
+		t.Error("DiffStat with an option for a base succeeded")
+	}
+}

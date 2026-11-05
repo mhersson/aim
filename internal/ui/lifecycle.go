@@ -536,10 +536,14 @@ func (a *App) onCwd(msg paneCwdMsg) tea.Cmd {
 	return kind
 }
 
-// harnessOf is the harness that recognises the pane's agent: its own, else the
-// app's when the saved id is unknown.
+// harnessOf is the harness that recognises the pane's agent: the app's when it
+// has the pane's id, else its own, else the app's when the saved id is unknown.
 func (a *App) harnessOf(m core.Pane) harness.Harness {
-	if h, ok := harness.ByID(m.Harness); ok && m.Kind == core.KindAgent {
+	if m.Kind != core.KindAgent || m.Harness == a.harness.ID() {
+		return a.harness
+	}
+
+	if h, ok := harness.ByID(m.Harness); ok {
 		return h
 	}
 
