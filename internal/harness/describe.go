@@ -7,12 +7,15 @@ import (
 	"strings"
 )
 
+// describeModel is the model of the one-off, whatever the user's default.
+const describeModel = "sonnet"
+
 // Describe forks the agent's session when req names one, so the run knows why
 // the changes were made, and otherwise runs fresh on the commits and the diff
 // summary. The run has no tools: --tools "" leaves the MCP servers' tools,
 // which --strict-mcp-config drops.
 func (c Claude) Describe(ctx context.Context, req DescribeRequest) (string, error) {
-	args := []string{"--print"}
+	args := []string{"--print", "--model", describeModel}
 	if req.Session != "" {
 		args = append(args, "--resume", string(req.Session), "--fork-session")
 	}

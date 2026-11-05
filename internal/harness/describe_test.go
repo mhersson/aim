@@ -50,11 +50,11 @@ func TestDescribe(t *testing.T) {
 		{
 			name:     "a fork of the agent's session",
 			session:  testSession,
-			wantArgs: append([]string{"--print", "--resume", string(testSession), "--fork-session"}, noTools...),
+			wantArgs: append([]string{"--print", "--model", "sonnet", "--resume", string(testSession), "--fork-session"}, noTools...),
 		},
 		{
 			name:     "a fresh run without a session",
-			wantArgs: append([]string{"--print"}, noTools...),
+			wantArgs: append([]string{"--print", "--model", "sonnet"}, noTools...),
 		},
 	}
 
