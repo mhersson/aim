@@ -2,6 +2,10 @@ package github
 
 import (
 	"context"
+	"errors"
+	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	graphql "github.com/cli/shurcooL-graphql"
@@ -253,4 +257,30 @@ func rollupState(s string) CheckState {
 	default:
 		return CheckNone
 	}
+}
+
+// MergeBase is the sha of the commit where head branched from base. per_page=1
+// pages only the commits; the file list still comes whole.
+func (c *Client) MergeBase(ctx context.Context, r Repo, base, head string) (string, error) {
+	segs := strings.Split(base, "/")
+	for i, s := range segs {
+		segs[i] = url.PathEscape(s)
+	}
+
+	var out struct {
+		MergeBaseCommit struct {
+			SHA string `json:"sha"`
+		} `json:"merge_base_commit"`
+	}
+
+	path := repoPath(r) + "/compare/" + strings.Join(segs, "/") + "..." + url.PathEscape(head) + "?per_page=1"
+	if err := c.rest(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return "", err
+	}
+
+	if out.MergeBaseCommit.SHA == "" {
+		return "", errors.New("github: compare " + base + "..." + head + " has no merge base")
+	}
+
+	return out.MergeBaseCommit.SHA, nil
 }

@@ -164,6 +164,15 @@ func readBranch(ctx context.Context, t *testing.T, c *Client, counter *statusCou
 		t.Errorf("PRForBranch returned #%d, want #%d", pr.Number, wantNumber)
 	}
 
+	if pr.BaseBranch != "" {
+		mb, err := c.MergeBase(ctx, repo, pr.BaseBranch, pr.HeadOID)
+		if err != nil {
+			t.Fatalf("MergeBase %s..%s: %v", pr.BaseBranch, head, err)
+		}
+
+		t.Logf("merge base of %q and %s: %s", pr.BaseBranch, head, mb)
+	}
+
 	first, err := c.Checks(ctx, repo, pr.HeadOID)
 	if err != nil {
 		t.Fatalf("Checks (first): %v", err)

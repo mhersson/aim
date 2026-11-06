@@ -289,3 +289,79 @@ func TestPRForBranchNone(t *testing.T) {
 		})
 	}
 }
+
+func TestMergeBase(t *testing.T) {
+	t.Parallel()
+
+	var got *http.Request
+
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Clone(r.Context())
+
+		_, _ = w.Write(readFixture(t, "compare.json"))
+	})
+	c, _ := newTestClient(t, "github.com", h)
+
+	sha, err := c.MergeBase(t.Context(), Repo{Host: "github.com", Owner: "o", Name: "r"}, "main", "abc123")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want := "91c32c2bbd92976fe0d36f3a3e7b36db8a39c640"; sha != want {
+		t.Errorf("merge base = %q, want %q", sha, want)
+	}
+
+	if got.Method != http.MethodGet || got.URL.EscapedPath() != "/repos/o/r/compare/main...abc123" {
+		t.Errorf("request = %s %s", got.Method, got.URL.EscapedPath())
+	}
+
+	if q := got.URL.Query().Get("per_page"); q != "1" {
+		t.Errorf("per_page = %q, want 1", q)
+	}
+}
+
+func TestMergeBaseBranchWithSlash(t *testing.T) {
+	t.Parallel()
+
+	c, reqs := setup(t, step{body: `{"merge_base_commit":{"sha":"deadbeef"}}`})
+
+	if _, err := c.MergeBase(t.Context(), Repo{Host: "github.com", Owner: "o", Name: "r"}, "release/1.0", "abc123"); err != nil {
+		t.Fatal(err)
+	}
+
+	got := reqs()
+	if len(got) != 1 || got[0].path != "/repos/o/r/compare/release/1.0...abc123" {
+		t.Errorf("requests = %+v", got)
+	}
+}
+
+func TestMergeBaseRefuses(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		step step
+		api  bool
+	}{
+		{"not found", step{status: http.StatusNotFound, body: `{"message":"Not Found"}`}, true},
+		{"no sha", step{body: `{"status":"ahead"}`}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c, _ := setup(t, tt.step)
+
+			_, err := c.MergeBase(t.Context(), Repo{Host: "github.com", Owner: "o", Name: "r"}, "main", "abc123")
+			if err == nil {
+				t.Fatal("want an error")
+			}
+
+			var he *api.HTTPError
+			if errors.As(err, &he) != tt.api {
+				t.Errorf("error = %v, API error wanted: %v", err, tt.api)
+			}
+		})
+	}
+}
