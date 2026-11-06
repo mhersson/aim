@@ -582,7 +582,9 @@ the followed place back, and one after a session change records nothing.
 - **A pull request copy** is AIM's cache, not one of the user's worktrees, and
   its HEAD is unborn. Nothing that writes or reads a branch resolves to it: the
   drawer's edit refuses, and push, the compose box and the finder start from
-  the pane's own place (`drawerShows`).
+  the pane's own place (`drawerShows`). The one read on it is the merge's
+  clean-up check, which lists the copy's worktrees (read-only) and finds none
+  of the branch.
 - **Deleting a branch.** `git branch -d` refuses a squash-merged branch, so AIM
   uses `-D` after its own check: the tip is still the one the confirm showed
   and has no commit past the merged head (`git.BranchAhead`,
