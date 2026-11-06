@@ -434,7 +434,8 @@ the followed place back, and one after a session change records nothing.
   polled: each agent's followed place, the focused shell's, and whatever the
   drawer, merge box or checks overlay shows.
 - **The poller** (`internal/github/poller.go`) runs one goroutine per watched
-  repository and one GraphQL query per poll. The focused pull request's checks
+  repository and one GraphQL query per poll for the 100 newest open pull
+  requests, plus one more for the focused one while it is past them. The focused pull request's checks
   come over REST through an ETag cache (`internal/github/etag.go`), since
   GraphQL has no conditional requests and a `304` costs no rate limit. Polls
   come every 10 s while a shown pull request has pending checks, else every

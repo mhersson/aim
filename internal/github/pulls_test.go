@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -287,6 +288,40 @@ func TestPRForBranchNone(t *testing.T) {
 				t.Fatalf("err = %v, want ErrNoPR", err)
 			}
 		})
+	}
+}
+
+func TestPullRequestDecodes(t *testing.T) {
+	rec := &gqlRecorder{body: []byte(`{"data":{"repository":{"pullRequest":` + branchNode(150, "OPEN", false) + `}}}`)}
+	c, _ := newTestClient(t, "github.com", rec)
+
+	pr, err := c.PullRequest(context.Background(), testRepo, 150)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var n pullNode
+	if err := json.Unmarshal([]byte(branchNode(150, "OPEN", false)), &n); err != nil {
+		t.Fatal(err)
+	}
+
+	if pr != n.pr() || pr.Number != 150 {
+		t.Errorf("pr = %+v, want %+v", pr, n.pr())
+	}
+
+	body := strings.Join(strings.Fields(rec.requests()[0]), "")
+	if !strings.Contains(body, "pullRequest(number:$number)") || !strings.Contains(body, `"number":150`) {
+		t.Errorf("query = %s", body)
+	}
+}
+
+func TestPullRequestNotFound(t *testing.T) {
+	rec := &gqlRecorder{body: []byte(`{"data":{"repository":{"pullRequest":null}},"errors":[{"type":"NOT_FOUND","path":["repository","pullRequest"],"message":"Could not resolve to a PullRequest with the number of 99."}]}`)}
+	c, _ := newTestClient(t, "github.com", rec)
+
+	_, err := c.PullRequest(context.Background(), testRepo, 99)
+	if !errors.Is(err, ErrNoPR) {
+		t.Fatalf("err = %v, want ErrNoPR", err)
 	}
 }
 

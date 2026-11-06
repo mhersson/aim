@@ -1,7 +1,9 @@
 package github
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -35,6 +37,13 @@ var (
 type pollServer struct {
 	pendingPR atomic.Int64 // the PR number whose checks are pending; 0 = none
 	gql, rest atomic.Int64
+	single    atomic.Int64 // the by-number queries, which gql counts too
+
+	// past maps a PR number outside the list to its state; any other number
+	// asked by number is not found. singleFails answers every such query with
+	// a GraphQL error instead.
+	past        map[int]string
+	singleFails bool
 
 	// handle, when set, may answer the nth GraphQL request itself, and
 	// restHandle the nth REST request.
@@ -60,7 +69,9 @@ func (s *pollServer) restPaths() []string {
 	return append([]string(nil), s.restPath...)
 }
 
-func (s *pollServer) node(n int) string {
+func (s *pollServer) node(n int) string { return s.nodeIn(n, "OPEN") }
+
+func (s *pollServer) nodeIn(n int, prState string) string {
 	counts := `{"state":"SUCCESS","count":2}`
 	state := "SUCCESS"
 
@@ -69,16 +80,17 @@ func (s *pollServer) node(n int) string {
 		state = "PENDING"
 	}
 
-	return fmt.Sprintf(`{"number":%d,"title":"pr","url":"u","state":"OPEN","headRefName":"b%d",
+	return fmt.Sprintf(`{"number":%d,"title":"pr","url":"u","state":%q,"headRefName":"b%d",
 "headRefOid":"aaa%d","baseRefName":"main","updatedAt":"2026-10-27T09:30:00Z",
 "commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":%q,"contexts":{
 "checkRunCount":2,"checkRunCountsByState":[%s],"statusContextCount":0,"statusContextCountsByState":[]}}}}]}}`,
-		n, n, n, state, counts)
+		n, prState, n, n, state, counts)
 }
 
 func (s *pollServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// The server only notices a closed connection once the body is read.
-	_, _ = io.Copy(io.Discard, r.Body)
+	body, _ := io.ReadAll(r.Body)
+	r.Body = io.NopCloser(bytes.NewReader(body))
 
 	w.Header().Set("Content-Type", "application/json")
 
@@ -90,6 +102,13 @@ func (s *pollServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.mu.Unlock()
 
 		if s.handle != nil && s.handle(n, w, r) {
+			return
+		}
+
+		if bytes.Contains(body, []byte("pullRequest(number")) {
+			s.single.Add(1)
+			s.serveSingle(w, body)
+
 			return
 		}
 
@@ -119,6 +138,27 @@ func (s *pollServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprint(w, `{"total_count":1,"check_runs":[{"id":1,"name":"ci","status":"completed","conclusion":"success",
 "html_url":"h","details_url":"d"}]}`)
+}
+
+func (s *pollServer) serveSingle(w http.ResponseWriter, body []byte) {
+	var req struct {
+		Variables struct {
+			Number int `json:"number"`
+		} `json:"variables"`
+	}
+
+	_ = json.Unmarshal(body, &req)
+
+	state, ok := s.past[req.Variables.Number]
+
+	switch {
+	case s.singleFails:
+		fmt.Fprint(w, `{"errors":[{"type":"INTERNAL","message":"boom"}]}`)
+	case !ok:
+		fmt.Fprint(w, `{"data":{"repository":{"pullRequest":null}},"errors":[{"type":"NOT_FOUND","path":["repository","pullRequest"],"message":"Could not resolve to a PullRequest."}]}`)
+	default:
+		fmt.Fprintf(w, `{"data":{"repository":{"pullRequest":%s}}}`, s.nodeIn(req.Variables.Number, state))
+	}
 }
 
 // collector drains Updates in a goroutine it owns.
@@ -417,6 +457,99 @@ func TestPollerFocusedMissingPR(t *testing.T) {
 
 	if n := srv.rest.Load(); n != 0 {
 		t.Errorf("%d checks requests for a PR that is not open", n)
+	}
+}
+
+func TestPollerFocusedPastFirstPage(t *testing.T) {
+	srv := &pollServer{past: map[int]string{150: "OPEN"}}
+	p, col := startPoller(t, srv, PollerOptions{}, nil)
+
+	p.Set([]Watch{{Repo: repoA, Focused: 150}})
+
+	s := col.waitFor(5*time.Second, "poll", anySnap)
+	if s.Err != nil || len(s.PRs) != 3 || s.PRs[2].Number != 150 {
+		t.Fatalf("snapshot = %+v, want the 2 listed and #150", s)
+	}
+
+	if s.Focused == nil || s.Focused.Number != 150 || s.Focused.HeadOID != "aaa150" || len(s.Focused.Checks) != 1 {
+		t.Fatalf("Focused = %+v", s.Focused)
+	}
+
+	var sawHead bool
+
+	for _, p := range srv.restPaths() {
+		sawHead = sawHead || strings.Contains(p, "/commits/aaa150/")
+	}
+
+	if !sawHead {
+		t.Errorf("no checks request for the focused head: %v", srv.restPaths())
+	}
+}
+
+func TestPollerFocusedOnFirstPageAsksNothingMore(t *testing.T) {
+	srv := &pollServer{}
+	p, col := startPoller(t, srv, PollerOptions{}, nil)
+
+	p.Set([]Watch{{Repo: repoA, Focused: 2}})
+	col.waitFor(5*time.Second, "poll", anySnap)
+
+	if n := srv.single.Load(); n != 0 {
+		t.Errorf("%d by-number queries for a PR on the first page", n)
+	}
+}
+
+func TestPollerFocusedPastFirstPageNotOpen(t *testing.T) {
+	srv := &pollServer{past: map[int]string{150: "MERGED"}}
+	p, col := startPoller(t, srv, PollerOptions{}, nil)
+
+	p.Set([]Watch{{Repo: repoA, Focused: 150}})
+
+	s := col.waitFor(5*time.Second, "poll", anySnap)
+	if s.Err != nil || s.Focused != nil || len(s.PRs) != 2 {
+		t.Errorf("snapshot = %+v, want the listed PRs and no focused checks", s)
+	}
+
+	if n := srv.rest.Load(); n != 0 {
+		t.Errorf("%d checks requests for a PR that is not open", n)
+	}
+}
+
+func TestPollerFocusedQueryFailureKeepsThePoll(t *testing.T) {
+	srv := &pollServer{singleFails: true}
+	p, col := startPoller(t, srv, PollerOptions{}, nil)
+
+	p.Set([]Watch{{Repo: repoA, Focused: 150}})
+
+	s := col.waitFor(5*time.Second, "poll", anySnap)
+	if s.Err != nil || len(s.PRs) != 2 {
+		t.Fatalf("snapshot = %+v, want the poll kept", s)
+	}
+
+	if s.Focused == nil || s.Focused.Number != 150 || s.Focused.Err == nil {
+		t.Errorf("Focused = %+v, want #150 with its error", s.Focused)
+	}
+}
+
+func TestPollerSnapshotSaysWhatItAsked(t *testing.T) {
+	for name, fail := range map[string]bool{"good": false, "failed": true} {
+		t.Run(name, func(t *testing.T) {
+			srv := &pollServer{}
+			if fail {
+				srv.handle = func(_ int64, w http.ResponseWriter, _ *http.Request) bool {
+					fmt.Fprint(w, `{"errors":[{"type":"INTERNAL","message":"boom"}]}`)
+
+					return true
+				}
+			}
+
+			p, col := startPoller(t, srv, PollerOptions{}, nil)
+			p.Set([]Watch{{Repo: repoA, Focused: 2}})
+
+			s := col.waitFor(5*time.Second, "poll", anySnap)
+			if (s.Err != nil) != fail || s.Asked != 2 {
+				t.Errorf("Err = %v, Asked = %d, want Asked 2", s.Err, s.Asked)
+			}
+		})
 	}
 }
 
