@@ -34,6 +34,8 @@ const (
 	noticePRFetching    = "fetching #%d…"
 	noticePRNotOnRemote = "#%d is not on %s"
 	noticePRLoaded      = "#%d loaded"
+	noticePRsFailed     = "pull requests for %s: %s"
+	noticePRGone        = "#%d is no longer open"
 )
 
 // prThen is what the drawer does once the shown pull request's diff has loaded.
@@ -244,6 +246,8 @@ func (a *App) reviewReload() tea.Cmd {
 	}
 
 	a.retryPictures(v)
+
+	v.pollThen = thenNothing
 
 	// A drawer still opening for a pull request shows it but no longer acts on it.
 	if n := a.drawer.prNext; n != nil {
@@ -669,6 +673,10 @@ func (a *App) prThenRun(then prThen) tea.Cmd {
 		return nil
 	}
 
+	if a.prPollHolds(v, then) {
+		return nil
+	}
+
 	switch then {
 	case thenConversation:
 		info, _ := prInfoByNumber(a.store.State(), v.pr.Repo, v.pr.Number)
@@ -686,6 +694,101 @@ func (a *App) prThenRun(then prThen) tea.Cmd {
 	}
 
 	return nil
+}
+
+// prPollHolds holds an approve or merge of a copy's pull request until its
+// repository's poll knows it: the box freezes what it knows when it opens, and a
+// copy's repository is watched only once the drawer shows it. It reports whether
+// then was held or refused, so the caller runs nothing.
+func (a *App) prPollHolds(v *reviewView, then prThen) bool {
+	if !v.pr.Copy || (then != thenApprove && then != thenMerge) || a.prs.src == nil {
+		return false
+	}
+
+	repo, ok := repoOfKey(v.pr.Repo)
+	if !ok {
+		return false
+	}
+
+	st := a.store.State()
+
+	if _, known := prInfoByNumber(st, v.pr.Repo, v.pr.Number); known && a.prs.polled[repo] {
+		return false
+	}
+
+	if reason := st.PRs[v.pr.Repo].Err; reason != "" {
+		a.notice = fmt.Sprintf(noticePRsFailed, v.pr.Repo, reason)
+
+		return true
+	}
+
+	v.pollThen = then
+	a.notice = fmt.Sprintf(noticePRFetching, v.pr.Number)
+	a.prs.src.Refresh(repo)
+
+	return true
+}
+
+// prPollAnswered ends the holds of s's repository that the poll answered: a
+// failed poll says why, an answer for another pull request leaves the hold, and
+// one that knows the pull request runs what was held.
+func (a *App) prPollAnswered(s github.Snapshot) tea.Cmd {
+	var (
+		cmds   []tea.Cmd
+		repo   = s.Repo.String()
+		active = a.drawer.views[a.store.State().Tab().ID]
+	)
+
+	for _, v := range a.drawer.views {
+		then := v.pollThen
+		if then == thenNothing || v.pr.Repo != repo {
+			continue
+		}
+
+		switch {
+		case s.Err != nil:
+			v.pollThen = thenNothing
+
+			if v == active {
+				a.notice = fmt.Sprintf(noticePRsFailed, repo, prReason(s.Err))
+			}
+		case s.Asked != v.pr.Number:
+		case v != active:
+			v.pollThen = thenNothing
+		default:
+			v.pollThen = thenNothing
+
+			if a.notice == fmt.Sprintf(noticePRFetching, v.pr.Number) {
+				a.notice = ""
+			}
+
+			cmds = append(cmds, a.prPollRun(v, s, then))
+		}
+	}
+
+	return tea.Batch(cmds...)
+}
+
+// prPollRun runs the held then once the poll answered for v's pull request, or
+// says why it cannot.
+func (a *App) prPollRun(v *reviewView, s github.Snapshot, then prThen) tea.Cmd {
+	if _, known := prInfoByNumber(a.store.State(), v.pr.Repo, v.pr.Number); !known {
+		if f := s.Focused; f != nil && f.Number == v.pr.Number && f.Err != nil {
+			a.notice = fmt.Sprintf(noticePRsFailed, v.pr.Repo, prReason(f.Err))
+		} else {
+			a.notice = fmt.Sprintf(noticePRGone, v.pr.Number)
+		}
+
+		return nil
+	}
+
+	if a.modalOpen() || !a.drawerHasKeys() {
+		a.notice = a.prLoadedNotice(v.pr.Number, then)
+
+		return nil
+	}
+
+	return a.prThenRun(then)
 }
 
 // prLink is the page of a pull request: the poll's, else the one its repository

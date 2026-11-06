@@ -294,7 +294,7 @@ func (a *App) reviewRetarget(tab core.TabID, v *reviewView, turn int) tea.Cmd {
 	}
 
 	v.epoch = a.drawer.nextEpoch()
-	v.queued, v.after, v.then = nil, nil, thenNothing
+	v.queued, v.after, v.then, v.pollThen = nil, nil, thenNothing, thenNothing
 	v.stopReads()
 	a.dropPages(v)
 

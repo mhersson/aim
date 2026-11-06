@@ -35,6 +35,7 @@ type reviewView struct {
 	prBranch string          // its head branch, for a copy, whose own HEAD means nothing
 	unpushed int             // commits the pull request's worktree has that its remote lacks, read with the place
 	then     prThen          // run once the pull request's diff has loaded
+	pollThen prThen          // a copy's approve or merge held until its repository's poll answers
 	src      git.Source
 	root     string
 	session  string         // the reviewed agent's session; "" for none

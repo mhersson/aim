@@ -689,3 +689,256 @@ func TestCopyTurnKeyOnPaneInNoRepoWithSession(t *testing.T) {
 		t.Errorf("review = %+v, want no pull request in turn mode", rv)
 	}
 }
+
+var copyRepo = github.Repo{Host: "github.com", Owner: "acme", Name: "infra"}
+
+func (c *copyRig) deliver(s github.Snapshot) { c.run(c.step(prSnapshotMsg{s})) }
+
+// poll delivers a poll of the copy's repository, asked for pull request asked,
+// that lists prs.
+func (c *copyRig) poll(asked int, prs ...github.PR) {
+	c.deliver(github.Snapshot{
+		Repo: copyRepo, Asked: asked, PRs: prs,
+		Info: github.RepoInfo{DefaultBranch: "main", Methods: []github.MergeMethod{github.Squash}},
+	})
+}
+
+func copyPR88() github.PR {
+	return github.PR{Number: 88, HeadBranch: copyBranch, BaseBranch: "main", State: prOpenState}
+}
+
+// pressOnRow presses key on the row of #88 and waits for the diff to load.
+func (c *copyRig) pressOnRow(t *testing.T, key rune) {
+	t.Helper()
+
+	c.selectRow(t, "github.com/acme/infra")
+	c.keys(keyRune(key))
+	c.until(t, "PR mode on #88", c.inPRMode(88))
+}
+
+func (c *copyRig) noBox(t *testing.T) {
+	t.Helper()
+
+	if c.merge != nil || c.confirm != nil {
+		t.Errorf("a box is open: merge %v, confirm %v", c.merge != nil, c.confirm != nil)
+	}
+}
+
+func TestCopyActionWaitsForThePoll(t *testing.T) {
+	t.Parallel()
+
+	for _, key := range []rune{'M', 'a'} {
+		t.Run(string(key), func(t *testing.T) {
+			t.Parallel()
+
+			c := newCopyRig(t)
+			c.pressOnRow(t, key)
+			c.noBox(t)
+
+			if want := fmt.Sprintf(noticePRFetching, 88); c.notice != want {
+				t.Errorf("notice = %q, want %q", c.notice, want)
+			}
+
+			c.rec.rmu.Lock()
+			refreshed := slices.Contains(c.rec.repos, copyRepo)
+			c.rec.rmu.Unlock()
+
+			if !refreshed {
+				t.Error("the poll was not asked to refresh the repository")
+			}
+
+			c.poll(88, copyPR88())
+
+			head := c.view().res.Head
+
+			if key == 'a' {
+				if c.confirm == nil || c.confirm.approve == nil || c.confirm.approve.sha != head {
+					t.Fatalf("confirm = %+v, want the approve of the loaded head %s", c.confirm, head)
+				}
+
+				return
+			}
+
+			m := c.merge
+			if m == nil {
+				t.Fatal("no merge box after the poll")
+			}
+
+			if m.sha != head || m.pr.HeadBranch != copyBranch || !slices.Equal(m.info.Methods, []github.MergeMethod{github.Squash}) {
+				t.Errorf("merge box = sha %s, branch %q, methods %v; want %s, %q, [squash]", m.sha, m.pr.HeadBranch, m.info.Methods, head, copyBranch)
+			}
+		})
+	}
+}
+
+func TestCopyEnterDoesNotWait(t *testing.T) {
+	t.Parallel()
+
+	c := newCopyRig(t)
+	c.opened88(t)
+
+	if c.view().pollThen != thenNothing {
+		t.Error("enter held for the poll")
+	}
+}
+
+func TestCopyDrawerKeyWaitsToo(t *testing.T) {
+	t.Parallel()
+
+	c := newCopyRig(t)
+	c.opened88(t)
+	c.keys(keyRune('M'))
+	c.noBox(t)
+
+	if c.view().pollThen != thenMerge {
+		t.Fatalf("pollThen = %v, want the merge held", c.view().pollThen)
+	}
+
+	c.poll(88, copyPR88())
+
+	if c.merge == nil {
+		t.Error("no merge box after the poll")
+	}
+}
+
+func TestCopyKnownPRDoesNotWait(t *testing.T) {
+	t.Parallel()
+
+	c := newCopyRig(t)
+	c.poll(88, copyPR88())
+	c.pressOnRow(t, 'M')
+
+	if c.merge == nil {
+		t.Error("the merge box did not open at once")
+	}
+}
+
+func TestCopyWaitIgnoresAnOlderAsk(t *testing.T) {
+	t.Parallel()
+
+	c := newCopyRig(t)
+	c.pressOnRow(t, 'M')
+	c.poll(5)
+
+	if c.view().pollThen != thenMerge {
+		t.Error("an answer for another pull request ended the hold")
+	}
+
+	c.noBox(t)
+}
+
+func TestCopyWaitFailedPoll(t *testing.T) {
+	t.Parallel()
+
+	c := newCopyRig(t)
+	c.pressOnRow(t, 'M')
+	c.deliver(github.Snapshot{Repo: copyRepo, Asked: 88, Err: errors.New("boom")})
+
+	if want := fmt.Sprintf(noticePRsFailed, "github.com/acme/infra", "boom"); c.notice != want {
+		t.Errorf("notice = %q, want %q", c.notice, want)
+	}
+
+	if c.view().pollThen != thenNothing {
+		t.Error("the hold stayed after a failed poll")
+	}
+
+	c.noBox(t)
+}
+
+func TestCopyWaitStandingError(t *testing.T) {
+	t.Parallel()
+
+	c := newCopyRig(t)
+	c.deliver(github.Snapshot{Repo: copyRepo, Err: errors.New("boom")})
+	c.notice = ""
+	c.pressOnRow(t, 'M')
+
+	if want := fmt.Sprintf(noticePRsFailed, "github.com/acme/infra", "boom"); c.notice != want {
+		t.Errorf("notice = %q, want %q", c.notice, want)
+	}
+
+	if c.view().pollThen != thenNothing {
+		t.Error("it held on a standing error")
+	}
+
+	c.noBox(t)
+}
+
+func TestCopyWaitAnswerWithoutIt(t *testing.T) {
+	t.Parallel()
+
+	c := newCopyRig(t)
+	c.pressOnRow(t, 'M')
+	c.poll(88)
+
+	if want := fmt.Sprintf(noticePRGone, 88); c.notice != want {
+		t.Errorf("notice = %q, want %q", c.notice, want)
+	}
+
+	c.noBox(t)
+}
+
+func TestCopyWaitFocusedQueryFailed(t *testing.T) {
+	t.Parallel()
+
+	c := newCopyRig(t)
+	c.pressOnRow(t, 'M')
+	c.deliver(github.Snapshot{
+		Repo: copyRepo, Asked: 88, Focused: &github.FocusedChecks{Number: 88, Err: errors.New("boom")},
+	})
+
+	if want := fmt.Sprintf(noticePRsFailed, "github.com/acme/infra", "boom"); c.notice != want {
+		t.Errorf("notice = %q, want %q", c.notice, want)
+	}
+
+	c.noBox(t)
+}
+
+func TestCopyWaitDroppedByReload(t *testing.T) {
+	t.Parallel()
+
+	c := newCopyRig(t)
+	c.pressOnRow(t, 'M')
+	c.keys(keyRune('r'))
+	c.until(t, "PR mode on #88", c.inPRMode(88))
+	c.poll(88, copyPR88())
+	c.noBox(t)
+}
+
+func TestCopyWaitHiddenTab(t *testing.T) {
+	t.Parallel()
+
+	c := newCopyRig(t)
+	first := c.store.State().Active
+
+	c.pressOnRow(t, 'M')
+
+	if err := c.dispatch(core.NewTab{Kind: core.KindShell, Cwd: c.dir}); err != nil {
+		t.Fatal(err)
+	}
+
+	c.poll(88, copyPR88())
+	c.noBox(t)
+
+	c.run(c.act(core.SelectTab{Index: first}))
+	c.settle()
+	c.noBox(t)
+}
+
+func TestCopyWaitLateModal(t *testing.T) {
+	t.Parallel()
+
+	c := newCopyRig(t)
+	c.pressOnRow(t, 'M')
+
+	c.confirm = &confirm{}
+	c.poll(88, copyPR88())
+
+	if want := c.prLoadedNotice(88, thenMerge); c.notice != want {
+		t.Errorf("notice = %q, want %q", c.notice, want)
+	}
+
+	if c.merge != nil {
+		t.Error("a merge box opened over the modal")
+	}
+}

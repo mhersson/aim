@@ -421,10 +421,10 @@ func (a *App) onPRSnapshot(s github.Snapshot) tea.Cmd {
 
 		if a.prs.shown[key] != reason {
 			a.prs.shown[key] = reason
-			a.notice = fmt.Sprintf("pull requests for %s: %s", key, reason)
+			a.notice = fmt.Sprintf(noticePRsFailed, key, reason)
 		}
 
-		return nil
+		return a.prPollAnswered(s)
 	}
 
 	open := make([]core.PRInfo, len(s.PRs))
@@ -462,6 +462,10 @@ func (a *App) onPRSnapshot(s github.Snapshot) tea.Cmd {
 	}
 
 	if cmd := a.convPoll(st, key); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+
+	if cmd := a.prPollAnswered(s); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 
