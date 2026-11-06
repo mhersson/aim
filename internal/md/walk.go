@@ -121,7 +121,13 @@ func Walk(ctx context.Context, opts WalkOptions, emit func([]WalkEntry)) WalkSto
 		skipAbs[filepath.Clean(p)] = true
 	}
 
-	rootDev, haveDev := device(opts.Root)
+	// The root may be a symlink; its children live on the target's device.
+	devRoot := opts.Root
+	if resolved, err := filepath.EvalSymlinks(opts.Root); err == nil {
+		devRoot = resolved
+	}
+
+	rootDev, haveDev := device(devRoot)
 
 	var (
 		pending []WalkEntry
@@ -154,6 +160,11 @@ func Walk(ctx context.Context, opts WalkOptions, emit func([]WalkEntry)) WalkSto
 
 	for len(queue) > 0 {
 		if stop, done := stopOf(); done {
+			// A cancel has no listener left; a time limit keeps what it found.
+			if stop == WalkTimeLimit {
+				flush()
+			}
+
 			return stop
 		}
 
@@ -245,7 +256,15 @@ func ReadFolder(dir string) ([]FolderEntry, error) {
 		}
 	}
 
-	slices.SortFunc(out, func(a, b FolderEntry) int {
+	sortFolder(out)
+
+	return out, nil
+}
+
+// sortFolder orders folders before files, each by case-folded name, the raw
+// name breaking ties.
+func sortFolder(es []FolderEntry) {
+	slices.SortFunc(es, func(a, b FolderEntry) int {
 		if a.Dir != b.Dir {
 			if a.Dir {
 				return -1
@@ -259,6 +278,4 @@ func ReadFolder(dir string) ([]FolderEntry, error) {
 			strings.Compare(a.Name, b.Name),
 		)
 	})
-
-	return out, nil
 }

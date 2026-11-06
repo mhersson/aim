@@ -101,11 +101,6 @@ func TestWalkSkips(t *testing.T) {
 			paths: []string{"pkg/mod/a.md", "pkg/keep.md", "other/mod/b.md"},
 			want:  []string{"other/", "pkg/", "other/mod/", "pkg/keep.md", "other/mod/b.md"},
 		},
-		{
-			name:  "root is not skipped when named node_modules",
-			paths: []string{"a.md"},
-			want:  []string{"a.md"},
-		},
 	}
 
 	for _, tt := range tests {
@@ -113,19 +108,6 @@ func TestWalkSkips(t *testing.T) {
 			t.Parallel()
 
 			root := makeTree(t, tt.paths...)
-			if tt.name == "root is not skipped when named node_modules" {
-				nm := filepath.Join(root, "node_modules")
-				if err := os.Mkdir(nm, 0o755); err != nil {
-					t.Fatal(err)
-				}
-
-				if err := os.WriteFile(filepath.Join(nm, "a.md"), nil, 0o644); err != nil {
-					t.Fatal(err)
-				}
-
-				root = nm
-			}
-
 			tt.opts.Root = root
 
 			got, stop := collect(t.Context(), tt.opts)
@@ -137,6 +119,18 @@ func TestWalkSkips(t *testing.T) {
 				t.Errorf("got %v, want %v", rels(got), tt.want)
 			}
 		})
+	}
+}
+
+func TestWalkRootNamedNodeModules(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join(makeTree(t, "node_modules/a.md"), "node_modules")
+
+	got, _ := collect(t.Context(), WalkOptions{Root: root})
+
+	if want := []string{"a.md"}; !slices.Equal(rels(got), want) {
+		t.Errorf("got %v, want %v", rels(got), want)
 	}
 }
 
@@ -169,6 +163,74 @@ func TestWalkOtherFilesystem(t *testing.T) {
 	got, _ := collect(t.Context(), WalkOptions{Root: root, device: dev})
 
 	if want := []string{"src/", "src/y.md"}; !slices.Equal(rels(got), want) {
+		t.Errorf("got %v, want %v", rels(got), want)
+	}
+}
+
+func TestWalkSymlinkedRoot(t *testing.T) {
+	t.Parallel()
+
+	target := makeTree(t, "sub/x.md")
+	link := filepath.Join(t.TempDir(), "link")
+
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+
+	// Lstat of the link gives the link's device; the folders below it live on
+	// the target's.
+	dev := func(p string) (uint64, bool) {
+		if p == link {
+			return 1, true
+		}
+
+		return 2, true
+	}
+
+	got, _ := collect(t.Context(), WalkOptions{Root: link, device: dev})
+
+	if want := []string{"sub/", "sub/x.md"}; !slices.Equal(rels(got), want) {
+		t.Errorf("got %v, want %v", rels(got), want)
+	}
+}
+
+// expiring is a context whose deadline passes when expire is called.
+type expiring struct {
+	context.Context
+
+	expired bool
+}
+
+func (c *expiring) Err() error {
+	if c.expired {
+		return context.DeadlineExceeded
+	}
+
+	return nil
+}
+
+func TestWalkTimeLimitKeepsFound(t *testing.T) {
+	t.Parallel()
+
+	root := makeTree(t, "a.md", "sub/b.md")
+	ctx := &expiring{Context: t.Context()}
+
+	// The deadline passes while the root's entries are handled, before sub is read.
+
+	var got []WalkEntry
+
+	stop := Walk(ctx, WalkOptions{Root: root, device: func(p string) (uint64, bool) {
+		if p != root {
+			ctx.expired = true
+		}
+
+		return 1, true
+	}}, func(b []WalkEntry) { got = append(got, b...) })
+	if stop != WalkTimeLimit {
+		t.Fatalf("stop = %v, want time limit", stop)
+	}
+
+	if want := []string{"a.md", "sub/"}; !slices.Equal(rels(got), want) {
 		t.Errorf("got %v, want %v", rels(got), want)
 	}
 }
@@ -353,7 +415,7 @@ func TestWalkSkipsList(t *testing.T) {
 func TestReadFolder(t *testing.T) {
 	t.Parallel()
 
-	root := makeTree(t, "b.md", "B.md", "a.md", "Zed/", "alpha/", ".hidden.md", ".dot/",
+	root := makeTree(t, "B.md", "a.md", "Zed/", "alpha/", ".hidden.md", ".dot/",
 		"node_modules/", "note.txt", "real/")
 
 	if err := os.Symlink("real", filepath.Join(root, "link")); err != nil {
@@ -377,9 +439,21 @@ func TestReadFolder(t *testing.T) {
 
 	// Folders first, then files; each case-folded with the raw name as the tie
 	// break; hidden and node_modules included; the symlinked folder is a folder.
-	want := []string{".dot/", "alpha/", "link/", "node_modules/", "real/", "Zed/", ".hidden.md", "a.md", "B.md", "b.md"}
+	want := []string{".dot/", "alpha/", "link/", "node_modules/", "real/", "Zed/", ".hidden.md", "a.md", "B.md"}
 	if !slices.Equal(names, want) {
 		t.Errorf("got %v, want %v", names, want)
+	}
+}
+
+func TestSortFolder(t *testing.T) {
+	t.Parallel()
+
+	es := []FolderEntry{{"b.md", false}, {"B.md", false}, {"Z", true}, {"a", true}}
+	sortFolder(es)
+
+	want := []FolderEntry{{"a", true}, {"Z", true}, {"B.md", false}, {"b.md", false}}
+	if !slices.Equal(es, want) {
+		t.Errorf("got %v, want %v", es, want)
 	}
 }
 
