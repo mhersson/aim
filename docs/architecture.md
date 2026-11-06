@@ -83,6 +83,13 @@ is not over the finder; it cancels the ask before and gives each a serial, so
 only the latest answer is kept. The preview on show stays until a new one lands,
 so moving fast never blanks it.
 
+**An opened file is laid out off the loop too.** The finder's open and the
+reading box's reload (`openFinderFile`, `mdCheck`) lay a doc without an image
+out in the command, at the width and icons the box will draw with
+(`planTextWidth`, built on the helper `sizePlan` uses), and `withPictures` keeps
+that layout for such a doc. A doc with an image still lays out on the loop: its
+picture sizes live in the `pictures` registry, which only the loop touches.
+
 **Layout.** `core.Arrange` (`internal/core/geometry.go`) is the one function
 that turns a tab into the rects drawn and the PTY sizes. The agents rail
 narrows the body, so it is part of the layout. The review drawer is an overlay

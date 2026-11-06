@@ -191,3 +191,67 @@ func TestFinderPreviewMove(t *testing.T) {
 
 	gateFrames(t, "finder preview move", s.P99, s.Max)
 }
+
+// TestFinderOpenBig opens a document near md.MaxBytes from the finder and
+// reloads it after a change, and measures the frame each answer lands in on the
+// loop. The read, parse and layout run in the command, outside the measure.
+// Run it with:
+//
+//	go test -tags bench -run TestFinderOpenBig -v ./internal/ui
+func TestFinderOpenBig(t *testing.T) {
+	big := bigMarkdown()
+	r := newFinderRig(t, "proj", map[string]string{"proj/big.md": big})
+	r.listed(t)
+	r.finderSelect(t, "big.md")
+
+	var (
+		frames  frameTimes
+		offLoop time.Duration
+		landed  int
+	)
+
+	land := func(what string, msg tea.Msg) {
+		start := time.Now()
+
+		r.Update(msg)
+
+		upd := time.Since(start)
+		_ = r.View()
+
+		frames.add(time.Since(start))
+		t.Logf("%s: Update %s, with View %s", what, fmtMS(upd), fmtMS(time.Since(start)))
+
+		landed++
+	}
+
+	for i := range 10 {
+		r.press(keyEsc) // the reading box, if any, then the finder
+		r.mdOpen()
+		r.finderSelect(t, "big.md")
+
+		start := time.Now()
+		msg := r.openFinderFile(r.at("proj/big.md"))()
+		offLoop += time.Since(start)
+
+		land("open", msg)
+
+		if r.plan == nil {
+			t.Fatalf("round %d: no reading box (notice %q)", i, r.notice)
+		}
+
+		write(t, r.at("proj/big.md"), strings.Replace(big, "Section", fmt.Sprintf("Part%d", i), 1))
+
+		start = time.Now()
+		msg = r.mdCheck(r.plan)()
+		offLoop += time.Since(start)
+
+		land("reload", msg)
+	}
+
+	s := frames.summary()
+	t.Logf("%d KiB document, %d answers: p50 %s, p95 %s, p99 %s (headroom %s), max %s (budget %s)",
+		len(big)>>10, landed, fmtMS(s.P50), fmtMS(s.P95), fmtMS(s.P99), fmtMS(p99Headroom), fmtMS(s.Max), fmtMS(frameBudget))
+	t.Logf("off the loop: %s an answer on average (read, parse and layout)", fmtMS(offLoop/time.Duration(landed)))
+
+	gateFrames(t, "finder open big", s.P99, s.Max)
+}

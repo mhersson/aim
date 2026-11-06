@@ -51,6 +51,8 @@ func (a *App) openFinderFile(path string) tea.Cmd {
 	a.planSeq++
 
 	seq, parent, tok := a.planSeq, a.ctx, a.drawer.hl.HighlightLang
+	tw := planTextWidth(a.width, a.height)
+	icons := a.icons
 
 	return func() tea.Msg {
 		msg := mdFileMsg{seq: seq, root: filepath.Dir(path), path: path}
@@ -82,6 +84,7 @@ func (a *App) openFinderFile(path string) tea.Cmd {
 
 		msg.sum = sha256.Sum256(src)
 		msg.doc = parseMarkdown(src, filepath.Dir(msg.path), tok)
+		msg.doc.layoutAhead(tw, icons)
 
 		return msg
 	}
@@ -138,6 +141,8 @@ func (a *App) mdCheck(pv *planView) tea.Cmd {
 	path, sum := pv.shownFile()
 	msg := mdFileMsg{seq: pv.reloadSeq, reload: true, view: pv, root: pv.root, path: path}
 	known, parent, tok := *sum, a.ctx, a.drawer.hl.HighlightLang
+	tw := planTextWidth(a.width, a.height)
+	icons := a.icons
 
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parent, mdReadTimeout)
@@ -158,6 +163,7 @@ func (a *App) mdCheck(pv *planView) tea.Cmd {
 		}
 
 		msg.doc = parseMarkdown(src, filepath.Dir(msg.path), tok)
+		msg.doc.layoutAhead(tw, icons)
 
 		return msg
 	}

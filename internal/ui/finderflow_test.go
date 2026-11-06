@@ -484,6 +484,65 @@ func TestFinderBackWhileWalking(t *testing.T) {
 	}
 }
 
+func TestFinderLayoutOffLoop(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name, file, text string
+		ahead            bool
+	}{
+		{name: "a doc without an image", file: "plain.md", text: "# Plain\n\nsome text\n", ahead: true},
+		{name: "a doc with an image", file: "pic.md", text: "# Pic\n\n![alt](pic.png)\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := newFinderRig(t, "proj", map[string]string{"proj/" + tt.file: tt.text})
+			r.listed(t)
+			r.finderSelect(t, tt.file)
+
+			held := r.flow(r.step(keyEnter), holdMDFiles)
+			if len(held) != 1 {
+				t.Fatalf("held %d file answers, want 1", len(held))
+			}
+
+			open := held[0].(mdFileMsg)
+			if got := open.doc.gen() > 0; got != tt.ahead {
+				t.Errorf("open: laid out in the command %v, want %v", got, tt.ahead)
+			}
+
+			r.step(open)
+
+			if r.plan == nil {
+				t.Fatalf("no reading box (notice %q)", r.notice)
+			}
+
+			if tt.ahead && open.doc.gen() != 1 {
+				t.Errorf("open: %d layouts, want the command's alone", open.doc.gen())
+			}
+
+			write(t, r.at("proj/"+tt.file), tt.text+"\nmore\n")
+
+			reload := r.mdCheck(r.plan)().(mdFileMsg)
+			if got := reload.doc.gen() > 0; got != tt.ahead {
+				t.Errorf("reload: laid out in the command %v, want %v", got, tt.ahead)
+			}
+
+			r.step(reload)
+
+			if r.plan.view.doc != reload.doc {
+				t.Fatal("the reload was not swapped in")
+			}
+
+			if tt.ahead && reload.doc.gen() != 1 {
+				t.Errorf("reload: %d layouts, want the command's alone", reload.doc.gen())
+			}
+		})
+	}
+}
+
 func TestFinderRoot(t *testing.T) {
 	t.Parallel()
 

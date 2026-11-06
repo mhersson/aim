@@ -52,11 +52,25 @@ func planRows(h int) (rows int, blanks, hint bool) {
 	return max(h-2, 1), false, false
 }
 
+// planViewWidth is the width of the view in a box w cells wide.
+func planViewWidth(w int) int { return min(w-4, planMaxView) }
+
+// planTextWidth is the width the overlay lays a doc out at on a width x height
+// terminal, 0 for a box too small to draw.
+func planTextWidth(width, height int) int {
+	_, _, w, _, ok := planBox(width, height)
+	if !ok {
+		return 0
+	}
+
+	return (&mdView{w: planViewWidth(w)}).textWidth()
+}
+
 // planDoc places the view in a box w x h, in the box's cells: the view's left
 // cell and first row, its width and its rows.
 func planDoc(w, h int) (x, y, vw, rows int) {
 	rows, blanks, _ := planRows(h)
-	vw = min(w-4, planMaxView)
+	vw = planViewWidth(w)
 	x, y = 1+(w-2-vw)/2, 1
 
 	if blanks {

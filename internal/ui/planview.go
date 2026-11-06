@@ -346,7 +346,7 @@ func (a *App) sizePlan() {
 	}
 
 	rows, _, _ := planRows(h)
-	vw := min(w-4, planMaxView)
+	vw := planViewWidth(w)
 
 	views := []*mdView{&v.view}
 	for _, p := range v.pages {
