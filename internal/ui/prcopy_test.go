@@ -374,6 +374,20 @@ func TestCopyFetchesOneAtATime(t *testing.T) {
 	c.run(c.askPR(c.store.State().Tab().ID, c.want88(), "", thenNothing))
 	c.until(t, "both fetches asked", func() bool { return c.drawer.fetching[88] == 2 })
 
+	// The first fetch holds the copy's slot, and the second is not in the fetch.
+	gate := &c.prs.copyGate
+	gate.mu.Lock()
+	held := len(gate.slots[resolvedRoot(c.rootOf(t, "github.com/acme/infra"))])
+	gate.mu.Unlock()
+
+	if held != 1 {
+		t.Errorf("the copy's slot holds %d fetches, want 1: the fetch skipped the gate", held)
+	}
+
+	if got := c.repo.f.inflight("FetchPRCopyHead"); got != 1 {
+		t.Errorf("in-flight FetchPRCopyHead = %d, want 1 while the first is held", got)
+	}
+
 	release()
 	c.until(t, "both fetches to answer", c.fetchHeld(88))
 
