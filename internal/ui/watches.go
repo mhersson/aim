@@ -63,22 +63,35 @@ type pinAcquiredMsg struct {
 	err     error
 }
 
-// mdAcquiredMsg carries the reference the Acquire for the markdown file
-// overlay's root took.
-type mdAcquiredMsg struct {
-	root    string
+// fileWatchRef is the watch on the markdown file the overlay shows: held when w
+// is set, being opened or failed when it is nil.
+type fileWatchRef struct {
+	path    string
+	pv      *planView
+	w       fileWatch
+	release func()
+}
+
+// fileWatchedMsg carries the watch an open for ref's path made.
+type fileWatchedMsg struct {
+	ref     *fileWatchRef
+	w       fileWatch
 	release func()
 	err     error
 }
 
+// fileChangedMsg says the file ref watches changed.
+type fileChangedMsg struct{ ref *fileWatchRef }
+
 type watchState struct {
-	set    watchSet
-	open   func(context.Context, string) (git.Repo, error)
-	panes  map[core.PaneID]*paneWatch
-	pins   map[core.TabID]*pinWatch
-	md     *pinWatch       // the markdown file overlay's reference on its root
-	failed map[string]bool // roots whose failure was already shown
-	holds  holds
+	set      watchSet
+	open     func(context.Context, string) (git.Repo, error)
+	panes    map[core.PaneID]*paneWatch
+	pins     map[core.TabID]*pinWatch
+	file     *fileWatchRef // the markdown file overlay's watch on the shown file
+	openFile fileWatcher
+	failed   map[string]bool // roots whose failure was already shown
+	holds    holds
 }
 
 // holds tracks every reference taken, so App.Close frees those whose message
@@ -390,7 +403,7 @@ func (a *App) onWatch(msg watchMsg) tea.Cmd {
 		}
 	}
 
-	cmds = append(cmds, a.reviewBatch(msg.Root, b), a.mdBatch(msg.Root))
+	cmds = append(cmds, a.reviewBatch(msg.Root, b))
 
 	return tea.Batch(cmds...)
 }
@@ -414,7 +427,7 @@ func (a *App) rootWatched(root string) bool {
 		}
 	}
 
-	return a.watches.md != nil && a.watches.md.release != nil && a.watches.md.root == root
+	return false
 }
 
 // pinSync reconciles the pin watches with the tabs whose open drawer reviews
@@ -519,59 +532,97 @@ func (a *App) onPinAcquired(msg pinAcquiredMsg) {
 	}
 }
 
-// mdWatchSync keeps one reference on the root of the open markdown file
-// overlay when it is in a repository, as pinSync does for a pin: it releases one the overlay no longer
-// wants and starts taking the wanted one off the update loop.
+// mdWatchSync keeps a watch on the file the markdown overlay shows, in or out of
+// a repository, so a followed page retargets it. It closes a watch the overlay no
+// longer wants and opens the wanted one off the update loop.
 func (a *App) mdWatchSync() tea.Cmd {
-	want := ""
-	if a.watches.set != nil && a.plan != nil && a.plan.file != nil && a.plan.file.repo != "" {
-		want = a.plan.root
+	pv := a.plan
+	if pv != nil && pv.file == nil {
+		pv = nil
 	}
 
-	if w := a.watches.md; w != nil {
-		if w.root == want {
+	want := ""
+	if pv != nil {
+		want = pv.shownPath()
+	}
+
+	if r := a.watches.file; r != nil {
+		if r.pv == pv && r.path == want {
 			return nil
 		}
 
-		a.releaseAsync(w.release)
-		a.watches.md = nil
+		a.releaseAsync(r.release)
+		a.watches.file = nil
 	}
 
-	if want == "" {
+	if pv == nil {
 		return nil
 	}
 
-	a.watches.md = &pinWatch{root: want}
-	set, open := a.watches.set, a.watches.open
+	ref := &fileWatchRef{path: want, pv: pv}
+	a.watches.file = ref
+	open, holds := a.watches.openFile, &a.watches.holds
 
 	return func() tea.Msg {
-		rel, err := a.acquireRoot(a.ctx, set, open, want)
+		w, err := open(a.ctx, ref.path)
+		if err != nil {
+			return fileWatchedMsg{ref: ref, err: err}
+		}
 
-		return mdAcquiredMsg{root: want, release: rel, err: err}
+		return fileWatchedMsg{ref: ref, w: w, release: holds.add(func() { _ = w.Close() })}
 	}
 }
 
-// onMDAcquired keeps the new reference while the overlay still wants its root,
-// else releases it. A root that is gone is no failure.
-func (a *App) onMDAcquired(msg mdAcquiredMsg) {
-	w := a.watches.md
-	current := w != nil && w.root == msg.root && w.release == nil
+// onFileWatched keeps a new watch while the overlay still wants it, else closes
+// it. A failed watch keeps the overlay open: r still reads the file.
+func (a *App) onFileWatched(msg fileWatchedMsg) tea.Cmd {
+	ref := a.watches.file
 
-	var gone errWorktreeRemoved
-
-	switch {
-	case msg.err == nil:
-		delete(a.watches.failed, "root "+msg.root)
-
-		if !current {
-			a.releaseAsync(msg.release)
-
-			return
+	if msg.err != nil {
+		if ref == msg.ref && !errors.Is(msg.err, context.Canceled) {
+			a.log.Warn("watch markdown file", "path", ref.path, "err", msg.err)
+			a.noticeOnce("file "+ref.path, filepath.Base(ref.path), msg.err)
 		}
 
-		w.release = msg.release
-	case current && !errors.As(msg.err, &gone):
-		a.log.Warn("watch markdown root", "root", msg.root, "err", msg.err)
-		a.noticeOnce("root "+msg.root, filepath.Base(msg.root), msg.err)
+		return nil
 	}
+
+	if ref != msg.ref {
+		a.releaseAsync(msg.release)
+
+		return nil
+	}
+
+	ref.w, ref.release = msg.w, msg.release
+
+	return a.waitFile(ref)
+}
+
+// waitFile reads the next change signal of ref's watch. It ends when the watch
+// closes or the app's context ends; the update loop re-arms it.
+func (a *App) waitFile(ref *fileWatchRef) tea.Cmd {
+	ch := ref.w.Changes()
+
+	return func() tea.Msg {
+		select {
+		case _, ok := <-ch:
+			if !ok {
+				return nil
+			}
+
+			return fileChangedMsg{ref: ref}
+		case <-a.ctx.Done():
+			return nil
+		}
+	}
+}
+
+// onFileChanged re-reads the shown doc. A signal of a watch the overlay replaced
+// or closed is dropped and not re-armed.
+func (a *App) onFileChanged(msg fileChangedMsg) tea.Cmd {
+	if a.watches.file != msg.ref || a.plan != msg.ref.pv {
+		return nil
+	}
+
+	return tea.Batch(a.mdCheck(msg.ref.pv), a.waitFile(msg.ref))
 }

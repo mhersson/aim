@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -15,7 +16,6 @@ import (
 	"github.com/charmbracelet/x/exp/golden"
 
 	"github.com/mhersson/aim/internal/core"
-	"github.com/mhersson/aim/internal/git"
 	"github.com/mhersson/aim/internal/md"
 )
 
@@ -666,81 +666,227 @@ func TestMDOverlayText(t *testing.T) {
 	}
 }
 
-// mdWatched waits until the overlay's watch reference is held.
+// mdWatched waits until the overlay's file watch is held.
 func (m *pageRig) mdWatched(t *testing.T) {
 	t.Helper()
 
-	m.until(t, "the overlay's watch", func() bool {
-		return m.watches.md != nil && m.watches.md.release != nil && m.watched(m.root)
-	})
+	m.until(t, "the overlay's watch", func() bool { return m.watches.file != nil && m.watches.file.w != nil })
+}
+
+// liveWatch is an option that gives the app a fake file watch whose signal
+// stays open; the test fires it.
+func liveWatch(fw *fakeFileWatches) func(*Options) {
+	fw.live = true
+
+	return func(o *Options) { o.FileWatch = fw.open }
 }
 
 func TestMDOverlayWatch(t *testing.T) {
 	t.Parallel()
 
-	t.Run("held while open", func(t *testing.T) {
+	t.Run("held on the shown file while open", func(t *testing.T) {
 		t.Parallel()
 
-		m := newMDOpenRig(t, nil)
+		fw := &fakeFileWatches{}
+		m := newMDOpenRig(t, nil, func(o *Options) { o.FileWatch = fw.open })
 
-		if m.rootWatched(m.root) {
-			t.Fatal("the root is watched before the overlay opens")
+		if len(fw.opened()) != 0 {
+			t.Fatal("a file is watched before the overlay opens")
 		}
 
 		m.opens(t, "docs/a.md")
 		m.mdWatched(t)
 
-		if !m.rootWatched(m.root) {
-			t.Error("rootWatched is false while only the overlay holds the root")
+		want := filepath.Join(m.root, "docs/a.md")
+		if got := fw.opened(); !slices.Equal(got, []string{want}) {
+			t.Fatalf("watched %q, want the file %q", got, want)
 		}
 
 		m.press(keyEsc)
-		m.until(t, "the watch to be released", func() bool { return !m.watched(m.root) })
+		m.until(t, "the watch to close", func() bool { return len(fw.openWatches()) == 0 })
 
-		if m.watches.md != nil || m.rootWatched(m.root) {
-			t.Errorf("md = %+v after esc, want no reference", m.watches.md)
+		if m.watches.file != nil {
+			t.Errorf("watch = %+v after esc, want none", m.watches.file)
 		}
 	})
 
-	t.Run("shared with an agent", func(t *testing.T) {
+	t.Run("an ignored file the root watcher never names", func(t *testing.T) {
 		t.Parallel()
 
-		m := newMDOpenRig(t, nil)
-		id := m.agent(t, m.dir, "")
-		m.watching(t, id, m.root)
+		fw := &fakeFileWatches{}
+		m := newMDOpenRig(t, nil, func(o *Options) { o.FileWatch = fw.open })
 
-		before := m.holdCount()
+		m.opens(t, "notes/b.md")
 
+		want := filepath.Join(m.root, "notes/b.md")
+		if got := fw.opened(); !slices.Equal(got, []string{want}) {
+			t.Errorf("watched %q, want the ignored file %q", got, want)
+		}
+	})
+
+	t.Run("a followed page retargets it", func(t *testing.T) {
+		t.Parallel()
+
+		fw := &fakeFileWatches{}
+		m := newMDOpenRig(t, nil, func(o *Options) { o.FileWatch = fw.open })
 		m.opens(t, "docs/a.md")
-		m.mdWatched(t)
+		m.plan.view.cursor = viewLine(t, &m.plan.view, "readme")
+		m.flow(m.step(keyEnter), nil)
 
-		if !m.watched(m.root) {
-			t.Fatal("the root stopped being watched")
+		if len(m.plan.pages) != 1 {
+			t.Fatalf("no page followed (notice %q)", m.notice)
 		}
 
-		if got := m.holdCount(); got != before+1 {
-			t.Fatalf("holds = %d with the overlay open, want %d", got, before+1)
+		page, file := filepath.Join(m.root, "README.md"), filepath.Join(m.root, "docs/a.md")
+		if got := fw.opened(); !slices.Equal(got, []string{file, page}) {
+			t.Fatalf("watched %q, want the file then the page", got)
 		}
 
-		m.press(keyEsc)
-		m.until(t, "the overlay's reference to be released", func() bool { return m.holdCount() == before })
+		only := func(path string) func() bool {
+			return func() bool {
+				open := fw.openWatches()
 
-		if m.watches.md != nil || !m.watched(m.root) {
-			t.Errorf("md = %+v, watched %v after esc, want the agent's watch kept", m.watches.md, m.watched(m.root))
+				return len(open) == 1 && open[0].path == path
+			}
 		}
+
+		m.until(t, "only the page to be watched", only(page))
+		m.flow(m.step(keyEsc), nil)
+		m.until(t, "only the file to be watched after the pop", only(file))
 	})
 
-	t.Run("without a watch set", func(t *testing.T) {
+	t.Run("a failed watch keeps the file open", func(t *testing.T) {
 		t.Parallel()
 
-		m := newMDOpenRig(t, nil)
-		m.watches.set = nil
+		fw := &fakeFileWatches{}
+		fw.fail(errors.New("too many open files"))
 
+		m := newMDOpenRig(t, nil, func(o *Options) { o.FileWatch = fw.open })
 		m.opens(t, "docs/a.md")
 		m.settle()
 
-		if m.watches.md != nil {
-			t.Errorf("md = %+v, want none without a watch set", m.watches.md)
+		if m.plan == nil || m.plan.file == nil || m.notice == "" {
+			t.Fatalf("overlay open %v, notice %q, want the file open and the failure shown", m.plan != nil, m.notice)
+		}
+
+		m.notice = ""
+		m.settle()
+		m.settle()
+
+		if got := len(fw.opened()); got != 1 || m.notice != "" {
+			t.Errorf("%d attempts, notice %q after more updates, want one attempt and no second notice", got, m.notice)
+		}
+
+		write(t, filepath.Join(m.dir, "docs/a.md"), "# Alpha\n\nread at once\n")
+		m.press(keyRune('r'))
+
+		if !strings.Contains(m.docText(), "read at once") {
+			t.Errorf("r did not read the file:\n%s", m.docText())
+		}
+	})
+}
+
+// TestMDOverlaySignal runs the wait command off the test goroutine, as the
+// program does: a signal reloads the file, keeping the view's place, and a
+// second one reloads again.
+func TestMDOverlaySignal(t *testing.T) {
+	t.Parallel()
+
+	fw := &fakeFileWatches{}
+	m := newMDOpenRig(t, nil, liveWatch(fw))
+
+	m.listed(t)
+	m.finderSelect(t, "docs")
+	m.press(keyEnter)
+	m.finderSelect(t, "a.md")
+
+	held := m.flow(m.step(keyEnter), holdFileWatched)
+	if len(held) != 1 {
+		t.Fatalf("held %d watch answers, want 1", len(held))
+	}
+
+	m.run(m.step(held[0]))
+	m.mdWatched(t)
+
+	sized(t, m.App, 80, 16)
+
+	v := &m.plan.view
+	v.top = viewLine(t, v, "Gamma")
+	v.cursor = v.top
+
+	write(t, filepath.Join(m.dir, "docs/a.md"), strings.Replace(pageDoc, "intro text", "signalled text", 1)+mdLinks)
+	fw.openWatches()[0].fire()
+
+	m.until(t, "the reload", func() bool { return strings.Contains(m.docText(), "signalled text") })
+
+	if v.top == 0 && v.cursor == 0 {
+		t.Error("the reload lost the view's place")
+	}
+
+	// A second change is read too: the wait was armed again.
+	write(t, filepath.Join(m.dir, "docs/a.md"), "# Alpha\n\nsecond text\n")
+	fw.openWatches()[0].fire()
+
+	m.until(t, "the second reload", func() bool { return strings.Contains(m.docText(), "second text") })
+
+	w := fw.openWatches()[0]
+
+	m.press(keyEsc)
+	m.until(t, "the watch to close", func() bool { return w.isClosed() })
+
+	m.settle()
+
+	if m.plan != nil || len(fw.openWatches()) != 0 {
+		t.Errorf("overlay %v, %d watches open after esc, want none", m.plan != nil, len(fw.openWatches()))
+	}
+}
+
+func holdFileWatched(m tea.Msg) bool {
+	_, ok := m.(fileWatchedMsg)
+
+	return ok
+}
+
+func TestMDOverlayWatchLate(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a create answer after esc closes the watch", func(t *testing.T) {
+		t.Parallel()
+
+		fw := &fakeFileWatches{}
+		m := newMDOpenRig(t, nil, liveWatch(fw))
+
+		m.listed(t)
+		m.finderSelect(t, "docs")
+		m.press(keyEnter)
+		m.finderSelect(t, "a.md")
+
+		held := m.flow(m.step(keyEnter), holdFileWatched)
+		if len(held) != 1 {
+			t.Fatalf("held %d watch answers, want 1", len(held))
+		}
+
+		m.press(keyEsc)
+		m.settle()
+		m.flow(m.step(held[0]), holdFileWatched)
+
+		m.until(t, "the late watch to close", func() bool { return len(fw.openWatches()) == 0 })
+
+		if m.watches.file != nil {
+			t.Errorf("watch = %+v, want none after the file closed", m.watches.file)
+		}
+	})
+
+	t.Run("a signal after esc is dropped and not re-armed", func(t *testing.T) {
+		t.Parallel()
+
+		m := mdLive(t)
+		stale := &fileWatchRef{path: m.watches.file.path, pv: m.plan}
+
+		m.press(keyEsc)
+
+		if cmd := m.onFileChanged(fileChangedMsg{ref: stale}); cmd != nil {
+			t.Error("a signal for a closed file produced a command")
 		}
 	})
 }
@@ -767,9 +913,9 @@ func mdLive(t *testing.T) *pageRig {
 	return m
 }
 
-func (m *pageRig) batchOf(paths ...string) tea.Cmd {
-	return m.batch(m.root, git.Batch{Paths: paths})
-}
+// changed is the signal of the shown file's watch, which the app turns into a
+// re-read.
+func (m *pageRig) changed() tea.Cmd { return m.step(fileChangedMsg{ref: m.watches.file}) }
 
 func (m *pageRig) docText() string { return strings.Join(m.plan.shown().doc.text(), "\n") }
 
@@ -797,7 +943,7 @@ func TestMDOverlayLive(t *testing.T) {
 		}
 
 		write(t, a(m), changed)
-		m.flow(m.batchOf("docs/a.md"), nil)
+		m.flow(m.changed(), nil)
 
 		if v.doc == old || !strings.Contains(m.docText(), "added above") || strings.Contains(m.docText(), "intro text") {
 			t.Fatalf("the doc did not change:\n%s", m.docText())
@@ -813,19 +959,6 @@ func TestMDOverlayLive(t *testing.T) {
 
 		if got := v.cursor - v.top; got != cursorOff {
 			t.Errorf("cursor is %d below the top, want %d as before", got, cursorOff)
-		}
-	})
-
-	t.Run("another path", func(t *testing.T) {
-		t.Parallel()
-
-		m := mdLive(t)
-
-		write(t, a(m), changed)
-		m.flow(m.batchOf("main.go"), nil)
-
-		if !strings.Contains(m.docText(), "added above") {
-			t.Errorf("a batch naming main.go did not re-read:\n%s", m.docText())
 		}
 	})
 
@@ -860,7 +993,7 @@ func TestMDOverlayLive(t *testing.T) {
 			t.Fatalf("primary writes %q, want the word", got)
 		}
 
-		m.flow(m.batchOf("docs/a.md"), nil)
+		m.flow(m.changed(), nil)
 
 		if v.doc != old || !strings.Contains(m.docText(), "hidden text") || m.textSelected() != "last" {
 			t.Errorf("same doc %v, fold open %v, selection %q: an unchanged file reset the view", v.doc == old, strings.Contains(m.docText(), "hidden text"), m.textSelected())
@@ -902,7 +1035,7 @@ func TestMDOverlayLive(t *testing.T) {
 			tt.gone(t, m)
 
 			m.notice = ""
-			m.flow(m.batchOf("docs/a.md"), nil)
+			m.flow(m.changed(), nil)
 
 			if m.plan == nil || m.plan.view.doc != old || m.notice != "" {
 				t.Errorf("overlay open %v, notice %q, want the old text kept in silence", m.plan != nil, m.notice)
@@ -919,9 +1052,9 @@ func TestMDOverlayLive(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		m.flow(m.batchOf("docs/a.md"), nil)
+		m.flow(m.changed(), nil)
 		write(t, a(m), "# Alpha\n\nback again\n")
-		m.flow(m.batchOf("docs/a.md"), nil)
+		m.flow(m.changed(), nil)
 
 		if !strings.Contains(m.docText(), "back again") {
 			t.Errorf("the file came back and the next batch did not show it:\n%s", m.docText())
@@ -942,14 +1075,14 @@ func TestMDOverlayLive(t *testing.T) {
 		old := m.plan.view.doc
 
 		write(t, filepath.Join(m.dir, "README.md"), "# Readme\n\nchanged page\n")
-		m.flow(m.batchOf("README.md"), nil)
+		m.flow(m.changed(), nil)
 
 		if !strings.Contains(m.docText(), "changed page") {
 			t.Fatalf("the page did not change:\n%s", m.docText())
 		}
 
 		write(t, a(m), changed)
-		m.flow(m.batchOf("docs/a.md"), nil)
+		m.flow(m.changed(), nil)
 
 		if m.plan.view.doc != old {
 			t.Fatal("a change under the page was read while the page showed")
@@ -979,7 +1112,7 @@ func TestMDOverlayReloadLate(t *testing.T) {
 			return nil
 		}},
 		{"after a newer check", func(t *testing.T, m *pageRig) []tea.Msg {
-			return m.flow(m.batchOf("docs/a.md"), holdMDFiles)
+			return m.flow(m.changed(), holdMDFiles)
 		}},
 		{"after a page push", func(t *testing.T, m *pageRig) []tea.Msg {
 			m.plan.view.cursor = viewLine(t, &m.plan.view, "readme")
@@ -1008,7 +1141,7 @@ func TestMDOverlayReloadLate(t *testing.T) {
 
 			write(t, filepath.Join(m.dir, "docs/a.md"), changed)
 
-			held := m.flow(m.batchOf("docs/a.md"), holdMDFiles)
+			held := m.flow(m.changed(), holdMDFiles)
 			if len(held) != 1 {
 				t.Fatalf("held %d answers, want 1", len(held))
 			}

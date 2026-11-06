@@ -41,6 +41,7 @@ quitting AIM ends its agents, and the next start resumes their sessions.
 | Pane read loop, one per pane | dirty and exit messages | `App.Close` |
 | Hook server and turn gate | `App.waitEvent` | `hookRuntime.Stop` |
 | Watch set, one watcher per worktree | `App.waitWatch` | `WatchSet.Close` |
+| File watch, one on the shown markdown file | `App.waitFile` | closing the file or the page, `App.Close` |
 | Pull request poller | `App.waitPRs` | `Poller.Close` |
 | State saver and mark files | (writes only) | `Saver.Close`, `MarkFiles.Close` |
 
@@ -377,6 +378,14 @@ copy of fsnotify ([gotchas.md](gotchas.md#file-watching)).
 
 **The watch set** (`internal/git/watchset.go`) shares one reference-counted
 watcher per worktree root, keyed by `Repo.Root`, never by a cwd string.
+
+**The markdown file watch** (`internal/git/filewatch.go`) is separate: the
+overlay on a markdown file holds one `FileWatcher` on the shown file, a
+non-recursive watch on its folder that signals for events naming that file. It
+needs no repository, so it also covers ignored files and files outside any.
+The signal is one slot, so a burst costs one re-read, which hashes the bytes
+and parses only on a change. A followed page retargets the watch, and closing
+the file or quitting ends it; an idle overlay costs nothing.
 
 ## Following the agent
 

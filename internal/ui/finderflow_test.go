@@ -473,8 +473,24 @@ func TestFinderRoot(t *testing.T) {
 
 		r.settle()
 
-		if r.watches.md != nil || r.notice != "" {
-			t.Errorf("md watch = %+v, notice %q, want no watch and no failure outside a repository", r.watches.md, r.notice)
+		if w := r.watches.file; w == nil || w.w == nil || w.path != r.at("proj/docs/guide.md") || r.notice != "" {
+			t.Errorf("file watch = %+v, notice %q, want the file watched and no failure outside a repository", w, r.notice)
+		}
+	})
+
+	t.Run("outside any repository the file reloads on a signal", func(t *testing.T) {
+		t.Parallel()
+
+		r := newFinderRig(t, "proj", finderTree)
+		r.listed(t)
+		r.goTo(t, "docs/guide.md")
+		r.settle()
+
+		write(t, r.at("proj/docs/guide.md"), "# Guide\n\nchanged on disk\n")
+		r.flow(r.step(fileChangedMsg{ref: r.watches.file}), nil)
+
+		if !strings.Contains(r.docText(), "changed on disk") {
+			t.Errorf("the file did not reload:\n%s", r.docText())
 		}
 	})
 

@@ -163,15 +163,6 @@ func (a *App) mdCheck(pv *planView) tea.Cmd {
 	}
 }
 
-// mdBatch re-checks the shown doc when a file overlay is open on root.
-func (a *App) mdBatch(root string) tea.Cmd {
-	if pv := a.plan; pv != nil && pv.file != nil && pv.root == root {
-		return a.mdCheck(pv)
-	}
-
-	return nil
-}
-
 // onMDReload swaps in a re-read doc, keeping the view's place. An answer for
 // an overlay that closed, a check a newer one superseded or a doc no longer
 // shown is dropped; a failed read keeps the old doc, and says why only when the operator asked.

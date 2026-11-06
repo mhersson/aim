@@ -63,7 +63,7 @@ A `/` anywhere else is an ordinary character. While the prompt reads exactly `~`
 
 `esc` in the box goes back to the finder exactly where you were: the folder, the prompt, the results, the cursor and the walk. A page followed from a link steps back first. A second `esc` closes the finder. `e` opens the file in the editor, starting in the root, and closes the finder too.
 
-In a repository the file is read again when the worktree changes; outside one nothing watches it. `r` reads it at once in both cases.
+The file is read again when it changes on disk, in a repository or outside one, and the view keeps its place. `r` reads it at once.
 
 The review drawer's `m` shows a changed markdown file rendered in the drawer instead; see [Review](review.md).
 

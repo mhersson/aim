@@ -73,6 +73,8 @@ type Options struct {
 	// Watches shares one git watcher per worktree among the agent panes in it;
 	// nil means no watches.
 	Watches watchSet
+	// FileWatch watches one markdown file for changes; nil means git.WatchFile.
+	FileWatch fileWatcher
 	// Places answers which worktree an edited file belongs to; nil means a cache
 	// of the app's own over Git.EditPlace.
 	Places placeFinder
@@ -307,7 +309,7 @@ func New(opts Options) (*App, error) {
 		events: opts.Events, notice: opts.Notice, save: opts.Save, marks: opts.Marks,
 		log: opts.Logger, store: opts.Store, themes: themes, reg: reg, keymap: km, keys: tables,
 		panes: map[core.PaneID]*pane{}, outerFocused: true,
-		watches:  watchState{set: opts.Watches, open: opts.Git.Open, panes: map[core.PaneID]*paneWatch{}, pins: map[core.TabID]*pinWatch{}, failed: map[string]bool{}},
+		watches:  watchState{set: opts.Watches, open: opts.Git.Open, openFile: opts.FileWatch, panes: map[core.PaneID]*paneWatch{}, pins: map[core.TabID]*pinWatch{}, failed: map[string]bool{}},
 		pictures: newPictures(nil, getenv, opts.Logger),
 		getenv:   getenv, cwd: cwd, configPath: opts.ConfigPath, recordDir: opts.RecordDir, icons: opts.Icons, clock: realClock{}, start: termStart, sweepRefs: opts.SweepRefs,
 		load:         newSysLoad(opts.Logger),
@@ -316,6 +318,10 @@ func New(opts Options) (*App, error) {
 		edits:        editState{resolve: places.Place},
 		focusFollows: opts.FocusFollowsMouse, copyOnSelect: opts.CopyOnSelect,
 		clip: newClipboard(clipboardConfig{OSC52: !opts.NoOSC52, Native: !opts.NoNativeClipboard}, getenv, runtime.GOOS, opts.Logger),
+	}
+
+	if a.watches.openFile == nil {
+		a.watches.openFile = watchFileOnDisk
 	}
 
 	a.actions = opts.PRActions
@@ -712,8 +718,10 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.onWatchAcquired(msg)
 	case pinAcquiredMsg:
 		a.onPinAcquired(msg)
-	case mdAcquiredMsg:
-		a.onMDAcquired(msg)
+	case fileWatchedMsg:
+		return a, a.onFileWatched(msg)
+	case fileChangedMsg:
+		return a, a.onFileChanged(msg)
 	case agentTickMsg:
 		return a, a.onAgentTick()
 	case clockMsg:
