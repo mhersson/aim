@@ -191,8 +191,13 @@ func (a *App) onReviewOpen(msg reviewOpenMsg) tea.Cmd {
 		a.watches.panes[msg.pane] = w
 	}
 
-	// Leaving the pull request then shows the state of a pane in no repository.
+	// Only a real no-repository answer is the watch's to record: another error
+	// says nothing about the pane, and the watch re-resolves only on a new cwd.
 	if msg.err != nil && msg.anyDir {
+		if !errors.Is(msg.err, git.ErrNotRepo) {
+			return nil
+		}
+
 		w.cwd = msg.cwd
 
 		return a.onPaneRepo(paneRepoMsg{id: msg.pane, cwd: msg.cwd, err: git.ErrNotRepo})

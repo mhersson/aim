@@ -88,7 +88,7 @@ type prNext struct {
 	want *prWant
 	then prThen
 	open bool // the drawer opened; the source is awaited
-	// noRepo: the pane is in no repository, so no source is coming and the ask goes at once.
+	// noRepo: the pane's repository answer failed or found none, so no source is coming and the ask goes at once.
 	noRepo bool
 }
 

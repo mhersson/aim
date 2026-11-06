@@ -647,3 +647,45 @@ func TestCopyFetchFailsOnPaneInNoRepo(t *testing.T) {
 
 	c.until(t, "the not-a-repository state", c.viewHolds(func(v *reviewView) bool { return errors.Is(v.err, errNotRepo) }))
 }
+
+func TestCopyOpenErrorLeavesTheWatch(t *testing.T) {
+	t.Parallel()
+
+	c := newCopyRig(t)
+	c.rootOf(t, "github.com/acme/infra")
+
+	pane, tab := c.focus(), c.store.State().Tab().ID
+	c.watches.panes[pane] = &paneWatch{cwd: c.dir, want: c.root}
+	c.prList = nil
+	c.drawer.prNext = &prNext{tab: tab, pane: pane, want: c.want88(), then: thenNothing}
+
+	// An open that failed for a reason other than "not a repository".
+	c.run(c.step(reviewOpenMsg{tab: tab, pane: pane, cwd: c.dir, focus: true, anyDir: true, err: errors.New("boom")}))
+	c.until(t, "PR mode on #88", c.inPRMode(88))
+
+	if w := c.watches.panes[pane]; w == nil || w.notRepo || w.want != c.root {
+		t.Fatalf("watch = %+v, want it untouched", w)
+	}
+
+	c.keys(keyRune('b'))
+	c.until(t, "the pane's branch", c.viewHolds(func(v *reviewView) bool { return c.review().PR == nil && v.root == c.root }))
+
+	if errors.Is(c.view().err, errNotRepo) {
+		t.Error("leaving the pull request shows not a git repository on a healthy pane")
+	}
+}
+
+func TestCopyTurnKeyOnPaneInNoRepoWithSession(t *testing.T) {
+	t.Parallel()
+
+	c := newCopyRig(t)
+	c.noRepoPane(t, t.TempDir(), testSession)
+	c.opened88(t)
+
+	c.keys(keyRune('t'))
+	c.until(t, "the not-a-repository state", c.viewHolds(func(v *reviewView) bool { return errors.Is(v.err, errNotRepo) }))
+
+	if rv := c.review(); rv.PR != nil || rv.Mode != core.ReviewTurn {
+		t.Errorf("review = %+v, want no pull request in turn mode", rv)
+	}
+}
