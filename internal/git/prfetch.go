@@ -19,6 +19,11 @@ func prRef(number int, name string) string {
 	return "refs/aim/pr/" + strconv.Itoa(number) + "/" + name
 }
 
+// prFetchFlags make a fetch write only the refs it was asked for.
+func prFetchFlags() []string {
+	return []string{"fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--no-recurse-submodules", "--no-prune", "--refmap="}
+}
+
 // FetchPR fetches pull request number's head and its base branch into
 // refs/aim/pr/<number>/. It writes nothing else: no remote-tracking ref,
 // tag, FETCH_HEAD or submodule.
@@ -39,12 +44,11 @@ func FetchPR(ctx context.Context, r Repo, remote string, number int, base string
 	}
 
 	n := strconv.Itoa(number)
-	args := []string{
-		"fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--no-recurse-submodules", "--no-prune", "--refmap=",
+	args := append(prFetchFlags(),
 		remote,
-		"+refs/pull/" + n + "/head:" + prRef(number, "head"),
-		"+refs/heads/" + base + ":" + prRef(number, "base"),
-	}
+		"+refs/pull/"+n+"/head:"+prRef(number, "head"),
+		"+refs/heads/"+base+":"+prRef(number, "base"),
+	)
 
 	if _, err := run(ctx, call{dir: r.Root, args: args, env: []string{"LC_ALL=C"}, net: true}); err != nil {
 		if strings.Contains(err.Error(), "couldn't find remote ref refs/pull/"+n+"/head") {
@@ -118,6 +122,31 @@ func resolvePR(ctx context.Context, r Repo, number int) (prResolved, error) {
 	}
 
 	baseTree, err := revParse(ctx, r, strings.TrimSpace(string(out))+"^{tree}")
+	if err != nil {
+		return prResolved{}, err
+	}
+
+	headTree, err := revParse(ctx, r, head+"^{tree}")
+	if err != nil {
+		return prResolved{}, err
+	}
+
+	return prResolved{head: head, headTree: headTree, baseTree: baseTree}, nil
+}
+
+// resolvePRCopy reads a copy's fetched refs: the base ref is the merge base
+// itself, so no merge-base runs.
+func resolvePRCopy(ctx context.Context, r Repo, number int) (prResolved, error) {
+	head, err := resolvePRRef(ctx, r, number, "head")
+	if err != nil {
+		return prResolved{}, err
+	}
+
+	if _, err := resolvePRRef(ctx, r, number, "base"); err != nil {
+		return prResolved{}, err
+	}
+
+	baseTree, err := revParse(ctx, r, prRef(number, "base")+"^{tree}")
 	if err != nil {
 		return prResolved{}, err
 	}
