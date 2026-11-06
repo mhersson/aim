@@ -660,10 +660,16 @@ func TestPRCopyTokenNotInArgvOrFiles(t *testing.T) {
 	t.Parallel()
 
 	ctx, logPath := wrapGit(t, "")
+	f := newPRRemote(t)
 	dir := copyDir(t)
 
+	// The full head and base fetches, including the blob fetch over stdin.
+	loadCopy(ctx, t, dir, f, 7, f.mergeBase)
+
 	// An unreachable origin, so the error carries git's stderr.
-	c, err := OpenPRCopy(ctx, dir, "file://"+filepath.Join(t.TempDir(), "missing.git"))
+	missing := copyDir(t)
+
+	c, err := OpenPRCopy(ctx, missing, "file://"+filepath.Join(t.TempDir(), "missing.git"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -681,36 +687,43 @@ func TestPRCopyTokenNotInArgvOrFiles(t *testing.T) {
 		t.Errorf("the error holds the token: %v", err)
 	}
 
-	if calls := wrappedCalls(t, logPath); strings.Contains(calls, testToken) {
+	calls := wrappedCalls(t, logPath)
+	if !strings.Contains(calls, "--stdin") {
+		t.Fatalf("the blob fetch did not run:\n%s", calls)
+	}
+
+	if strings.Contains(calls, testToken) {
 		t.Errorf("the token is in an argument:\n%s", calls)
 	}
 
-	gitDir := filepath.Join(dir, ".git")
+	for _, d := range []string{dir, missing} {
+		gitDir := filepath.Join(d, ".git")
 
-	err = filepath.WalkDir(gitDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if d.IsDir() && path == filepath.Join(gitDir, "objects") {
-			return filepath.SkipDir
-		}
-
-		if d.Type().IsRegular() {
-			data, err := os.ReadFile(path) //nolint:gosec // a test temp dir
+		err = filepath.WalkDir(gitDir, func(path string, e fs.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}
 
-			if strings.Contains(string(data), testToken) {
-				t.Errorf("the token is in %s", path)
+			if e.IsDir() && path == filepath.Join(gitDir, "objects") {
+				return filepath.SkipDir
 			}
-		}
 
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
+			if e.Type().IsRegular() {
+				data, err := os.ReadFile(path) //nolint:gosec // a test temp dir
+				if err != nil {
+					return err
+				}
+
+				if strings.Contains(string(data), testToken) {
+					t.Errorf("the token is in %s", path)
+				}
+			}
+
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
