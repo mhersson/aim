@@ -925,6 +925,30 @@ func TestCopyWaitHiddenTab(t *testing.T) {
 	c.noBox(t)
 }
 
+func TestCopyWaitSwitchedAwayAndBack(t *testing.T) {
+	t.Parallel()
+
+	c := newCopyRig(t)
+	first := c.store.State().Active
+
+	c.pressOnRow(t, 'M')
+
+	if err := c.dispatch(core.NewTab{Kind: core.KindShell, Cwd: c.dir}); err != nil {
+		t.Fatal(err)
+	}
+
+	c.settle()
+	c.run(c.act(core.SelectTab{Index: first}))
+	c.settle()
+
+	if c.view().pollThen != thenNothing {
+		t.Error("the hold outlived the tab switch")
+	}
+
+	c.poll(88, copyPR88())
+	c.noBox(t)
+}
+
 func TestCopyWaitLateModal(t *testing.T) {
 	t.Parallel()
 
