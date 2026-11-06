@@ -136,7 +136,9 @@ func (p *finderPreview) loadFile(ctx context.Context, path string, o finderPrevi
 		return
 	}
 
-	if ctx.Err() != nil {
+	if err := ctx.Err(); err != nil {
+		fail(err)
+
 		return
 	}
 

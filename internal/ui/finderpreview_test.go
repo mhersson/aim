@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -11,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -179,6 +179,32 @@ func TestReadFinderPreview(t *testing.T) {
 			t.Error("a cancelled ask parsed the file")
 		}
 	})
+
+	t.Run("a read that timed out says so", func(t *testing.T) {
+		t.Parallel()
+
+		p := readFinderPreview(&timesOutAfterRead{}, at("plain.md"), false, finderPreviewOpts{home: home, width: 40})
+		if p.doc != nil || !p.isErr || p.text == "" || p.file {
+			t.Errorf("a timed out read showed %+v, want the failure line and no document", p)
+		}
+	})
+}
+
+// timesOutAfterRead is a context that is live for the first Err call, which
+// guards the read, and expired from then on.
+type timesOutAfterRead struct {
+	context.Context //nolint:containedctx // a test double that overrides Err
+
+	calls int
+}
+
+func (c *timesOutAfterRead) Err() error {
+	c.calls++
+	if c.calls > 1 {
+		return context.DeadlineExceeded
+	}
+
+	return nil
 }
 
 func TestFinderSize(t *testing.T) {
@@ -562,8 +588,48 @@ func TestFinderBackspaceHint(t *testing.T) {
 	}
 }
 
+// recordHandler keeps the records it is handed, for a test of what was logged.
+type recordHandler struct {
+	mu   *sync.Mutex
+	recs *[]slog.Record
+}
+
+func newRecordHandler() recordHandler {
+	return recordHandler{mu: &sync.Mutex{}, recs: &[]slog.Record{}}
+}
+
+func (recordHandler) Enabled(context.Context, slog.Level) bool { return true }
+func (h recordHandler) WithAttrs([]slog.Attr) slog.Handler     { return h }
+func (h recordHandler) WithGroup(string) slog.Handler          { return h }
+
+func (h recordHandler) Handle(_ context.Context, r slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	*h.recs = append(*h.recs, r)
+
+	return nil
+}
+
+func (h recordHandler) warnings() []slog.Record {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	var out []slog.Record
+
+	for _, r := range *h.recs {
+		if r.Level >= slog.LevelWarn {
+			out = append(out, r)
+		}
+	}
+
+	return out
+}
+
 func TestOpenFinderFileGitError(t *testing.T) {
 	t.Parallel()
+
+	boom := errors.New("git: boom")
 
 	for _, tt := range []struct {
 		name string
@@ -571,17 +637,17 @@ func TestOpenFinderFileGitError(t *testing.T) {
 		warn bool
 	}{
 		{"not a repository", git.ErrNotRepo, false},
-		{"a failed open", errors.New("git: boom"), true},
+		{"the finder closed mid-open", context.Canceled, false},
+		{"a failed open", boom, true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			var logs bytes.Buffer
-
+			logs := newRecordHandler()
 			fake := newFakeGit(t)
 
 			r := newFinderRig(t, "proj", previewTree, gitOf(fake), func(o *Options) {
-				o.Logger = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn}))
+				o.Logger = slog.New(logs)
 			})
 			r.listed(t)
 			fake.fail("Open", tt.err)
@@ -592,8 +658,29 @@ func TestOpenFinderFileGitError(t *testing.T) {
 				t.Fatalf("the file did not open in its own folder: plan %+v, notice %q", r.plan, r.notice)
 			}
 
-			if warned := strings.Contains(logs.String(), "markdown file"); warned != tt.warn {
-				t.Errorf("warning logged = %v, want %v (log %q)", warned, tt.warn, logs.String())
+			warns := logs.warnings()
+			if !tt.warn {
+				if len(warns) != 0 {
+					t.Fatalf("logged %d warnings, want none", len(warns))
+				}
+
+				return
+			}
+
+			if len(warns) != 1 {
+				t.Fatalf("logged %d warnings, want one", len(warns))
+			}
+
+			got := map[string]any{}
+
+			warns[0].Attrs(func(a slog.Attr) bool {
+				got[a.Key] = a.Value.Any()
+
+				return true
+			})
+
+			if got["path"] != r.at("proj/README.md") || got["err"] != boom {
+				t.Errorf("warning attributes %v, want path %q and err %v", got, r.at("proj/README.md"), boom)
 			}
 		})
 	}

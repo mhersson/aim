@@ -69,7 +69,7 @@ func (a *App) openFinderFile(path string) tea.Cmd {
 		switch repo, err := a.git.Open(ctx, msg.root); {
 		case err == nil:
 			msg.root, msg.repo = repo.Root, printable(repo.Name())
-		case !errors.Is(err, git.ErrNotRepo):
+		case !errors.Is(err, git.ErrNotRepo) && !errors.Is(err, context.Canceled):
 			a.log.Warn("find the repository of a markdown file", "path", msg.path, "err", err)
 		}
 
