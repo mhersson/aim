@@ -2,15 +2,24 @@ package git
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"io/fs"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
+
+const testToken = "aim-test-token-4f9c1d"
 
 // prRemote is a bare "GitHub" with partial clone allowed: a merge base on main,
 // main moved past it, and pull request 7 one commit past the merge base that
@@ -87,11 +96,11 @@ func loadCopy(ctx context.Context, t *testing.T, dir string, f prRemote, n int, 
 		t.Fatal(err)
 	}
 
-	if _, err := FetchPRCopyHead(ctx, c, n); err != nil {
+	if _, err := FetchPRCopyHead(ctx, c, n, testToken); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := FetchPRCopyBase(ctx, c, n, base); err != nil {
+	if err := FetchPRCopyBase(ctx, c, n, base, testToken); err != nil {
 		t.Fatal(err)
 	}
 
@@ -405,7 +414,7 @@ func TestFetchPRCopyHeadNoSuchPR(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := FetchPRCopyHead(context.Background(), c, 99); !errors.Is(err, ErrNoPR) {
+	if _, err := FetchPRCopyHead(context.Background(), c, 99, testToken); !errors.Is(err, ErrNoPR) {
 		t.Errorf("err = %v, want ErrNoPR", err)
 	}
 }
@@ -419,11 +428,11 @@ func TestPRCopyHeadMoved(t *testing.T) {
 
 	head := f.pushPR(t, 7, f.mergeBase, func() { writeFile(t, f.author, "changed.txt", "three\n") })
 
-	if _, err := FetchPRCopyHead(ctx, c, 7); err != nil {
+	if _, err := FetchPRCopyHead(ctx, c, 7, testToken); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := FetchPRCopyBase(ctx, c, 7, f.mergeBase); err != nil {
+	if err := FetchPRCopyBase(ctx, c, 7, f.mergeBase, testToken); err != nil {
 		t.Fatal(err)
 	}
 
@@ -441,11 +450,11 @@ func TestPRCopySecondPullRequest(t *testing.T) {
 
 	f.pushPR(t, 8, f.mainTip, func() { writeFile(t, f.author, "later.txt", "later, changed\n") })
 
-	if _, err := FetchPRCopyHead(ctx, c, 8); err != nil {
+	if _, err := FetchPRCopyHead(ctx, c, 8, testToken); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := FetchPRCopyBase(ctx, c, 8, f.mainTip); err != nil {
+	if err := FetchPRCopyBase(ctx, c, 8, f.mainTip, testToken); err != nil {
 		t.Fatal(err)
 	}
 
@@ -469,7 +478,7 @@ func TestFetchPRCopyRefuses(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := FetchPRCopyHead(ctx, c, 0); err == nil {
+	if _, err := FetchPRCopyHead(ctx, c, 0, testToken); err == nil {
 		t.Error("number 0 was accepted")
 	}
 
@@ -482,7 +491,7 @@ func TestFetchPRCopyRefuses(t *testing.T) {
 		{"option", 7, "-x"},
 		{"short id", 7, f.mergeBase[:12]},
 	} {
-		if err := FetchPRCopyBase(ctx, c, tt.number, tt.base); err == nil {
+		if err := FetchPRCopyBase(ctx, c, tt.number, tt.base, testToken); err == nil {
 			t.Errorf("%s was accepted", tt.name)
 		}
 	}
@@ -523,5 +532,308 @@ func TestPRCopyListWorktrees(t *testing.T) {
 
 	if len(list) != 1 || !list[0].Main || list[0].Branch != prCopyBranch {
 		t.Errorf("worktrees = %+v", list)
+	}
+}
+
+// authLog records the Authorization header of every request a test server gets.
+type authLog struct {
+	mu   sync.Mutex
+	auth []string
+}
+
+func (l *authLog) add(r *http.Request) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.auth = append(l.auth, r.Header.Get("Authorization"))
+}
+
+func (l *authLog) seen() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return append([]string(nil), l.auth...)
+}
+
+func basicToken(token string) string {
+	return "Basic " + base64.StdEncoding.EncodeToString([]byte("x-access-token:"+token))
+}
+
+// httpCopy opens a copy whose origin is a pull request path on base.
+func httpCopy(ctx context.Context, t *testing.T, base string) PRCopy {
+	t.Helper()
+
+	c, err := OpenPRCopy(ctx, copyDir(t), base+"/o/r.git")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return c
+}
+
+func TestPRCopyTokenStaysOnItsHost(t *testing.T) {
+	t.Setenv("NO_PROXY", "*")
+	t.Setenv("no_proxy", "*")
+
+	for _, tt := range []struct {
+		name     string
+		signedIn bool
+	}{
+		{"after sign-in", true},
+		{"before sign-in", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var a, b authLog
+
+			bSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				b.add(r)
+				w.Header().Set("WWW-Authenticate", `Basic realm="b"`)
+				w.WriteHeader(http.StatusUnauthorized)
+			}))
+			defer bSrv.Close()
+
+			// A different host name makes B another credential scope.
+			bURL := strings.Replace(bSrv.URL, "127.0.0.1", "localhost", 1)
+
+			aSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				a.add(r)
+
+				if tt.signedIn && r.Header.Get("Authorization") == "" {
+					w.Header().Set("WWW-Authenticate", `Basic realm="a"`)
+					w.WriteHeader(http.StatusUnauthorized)
+
+					return
+				}
+
+				http.Redirect(w, r, bURL+r.URL.RequestURI(), http.StatusFound) //nolint:gosec // a test server on loopback
+			}))
+			defer aSrv.Close()
+
+			ctx := context.Background()
+			c := httpCopy(ctx, t, aSrv.URL)
+
+			_, err := FetchPRCopyHead(ctx, c, 7, testToken)
+			if err == nil {
+				t.Fatal("the fetch through the redirect succeeded")
+			}
+
+			if strings.Contains(err.Error(), testToken) {
+				t.Errorf("the error holds the token: %v", err)
+			}
+
+			if tt.signedIn && !slices.Contains(a.seen(), basicToken(testToken)) {
+				t.Errorf("origin saw %q, want the token as Basic x-access-token", a.seen())
+			}
+
+			if len(b.seen()) == 0 {
+				t.Error("the redirect target saw no request")
+			}
+
+			for _, h := range b.seen() {
+				if h != "" {
+					t.Errorf("the redirect target saw Authorization %q", h)
+				}
+			}
+		})
+	}
+}
+
+func TestPRCopyTokenNotInArgvOrFiles(t *testing.T) {
+	t.Parallel()
+
+	f := newPRRemote(t)
+	ctx, logPath := wrapGit(t, "")
+	dir := copyDir(t)
+	c := loadCopy(ctx, t, dir, f, 7, f.mergeBase)
+
+	_, err := FetchPRCopyHead(ctx, c, 99, testToken)
+	if err == nil {
+		t.Fatal("fetching a missing pull request succeeded")
+	}
+
+	if strings.Contains(err.Error(), testToken) {
+		t.Errorf("the error holds the token: %v", err)
+	}
+
+	if calls := wrappedCalls(t, logPath); strings.Contains(calls, testToken) {
+		t.Errorf("the token is in an argument:\n%s", calls)
+	}
+
+	gitDir := filepath.Join(dir, ".git")
+
+	err = filepath.WalkDir(gitDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if d.IsDir() && path == filepath.Join(gitDir, "objects") {
+			return filepath.SkipDir
+		}
+
+		if d.Type().IsRegular() {
+			data, err := os.ReadFile(path) //nolint:gosec // a test temp dir
+			if err != nil {
+				return err
+			}
+
+			if strings.Contains(string(data), testToken) {
+				t.Errorf("the token is in %s", path)
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPRCopyIgnoresUserRewrite(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "gitconfig")
+	body := "[maintenance]\n\tauto = false\n[url \"file:///nonexistent/\"]\n\tinsteadOf = file://\n"
+
+	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("GIT_CONFIG_GLOBAL", cfg)
+
+	f := newPRRemote(t)
+	loadCopy(context.Background(), t, copyDir(t), f, 7, f.mergeBase)
+}
+
+func TestPRCopyIgnoresUserCredentialHelper(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "helper-ran")
+	cfg := filepath.Join(t.TempDir(), "gitconfig")
+	body := "[maintenance]\n\tauto = false\n[credential]\n\thelper = \"!f() { : > '" + marker + "'; }; f\"\n"
+
+	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("GIT_CONFIG_GLOBAL", cfg)
+	t.Setenv("NO_PROXY", "*")
+	t.Setenv("no_proxy", "*")
+
+	var srv authLog
+
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv.add(r)
+
+		if r.Header.Get("Authorization") == "" {
+			w.Header().Set("WWW-Authenticate", `Basic realm="a"`)
+			w.WriteHeader(http.StatusUnauthorized)
+
+			return
+		}
+
+		http.NotFound(w, r)
+	}))
+	defer s.Close()
+
+	ctx := context.Background()
+	c := httpCopy(ctx, t, s.URL)
+
+	if _, err := FetchPRCopyHead(ctx, c, 7, testToken); err == nil {
+		t.Fatal("the fetch from a server with no repository succeeded")
+	}
+
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("the user's credential helper ran")
+	}
+
+	if !slices.Contains(srv.seen(), basicToken(testToken)) {
+		t.Errorf("server saw %q, want AIM's token", srv.seen())
+	}
+}
+
+func TestPRCopyHidesTokenFromUserHooks(t *testing.T) {
+	root := t.TempDir()
+	hooks := filepath.Join(root, "hooks")
+	marker := filepath.Join(root, "hook-ran")
+	cfg := filepath.Join(root, "gitconfig")
+
+	if err := os.Mkdir(hooks, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	script := "#!/bin/sh\nprintf '%s' \"$AIM_PR_TOKEN\" >> '" + marker + "'\n"
+
+	// A concurrent fork can inherit the write fd and make exec fail with ETXTBSY (go.dev/issue/22315).
+	syscall.ForkLock.RLock()
+
+	err := os.WriteFile(filepath.Join(hooks, "reference-transaction"), []byte(script), 0o755)
+
+	syscall.ForkLock.RUnlock()
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := "[maintenance]\n\tauto = false\n[core]\n\thooksPath = " + hooks + "\n"
+	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("GIT_CONFIG_GLOBAL", cfg)
+
+	f := newPRRemote(t)
+	ctx := context.Background()
+
+	c, err := OpenPRCopy(ctx, copyDir(t), f.origin)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A plain ref write proves the hook fires in this configuration.
+	mktree := exec.Command("git", "mktree")
+	mktree.Dir = c.Repo.Root
+	mktree.Stdin = strings.NewReader("")
+
+	tree, err := mktree.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gitOut(t, c.Repo.Root, "update-ref", "refs/aim/probe", strings.TrimSpace(string(tree)))
+
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("the user's hook did not run for a plain ref write: %v", err)
+	}
+
+	if err := os.Remove(marker); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := FetchPRCopyHead(ctx, c, 7, testToken); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("the user's hook ran during the fetch")
+	}
+}
+
+func TestFetchPRCopyNeedsAToken(t *testing.T) {
+	t.Parallel()
+
+	f := newPRRemote(t)
+	ctx, logPath := wrapGit(t, "")
+
+	c, err := OpenPRCopy(ctx, copyDir(t), f.origin)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := FetchPRCopyHead(ctx, c, 7, ""); !errors.Is(err, errNoToken) {
+		t.Errorf("head err = %v, want errNoToken", err)
+	}
+
+	if err := FetchPRCopyBase(ctx, c, 7, f.mergeBase, ""); !errors.Is(err, errNoToken) {
+		t.Errorf("base err = %v, want errNoToken", err)
+	}
+
+	if calls := wrappedCalls(t, logPath); strings.Contains(calls, "fetch") {
+		t.Errorf("a refused call ran a fetch:\n%s", calls)
 	}
 }

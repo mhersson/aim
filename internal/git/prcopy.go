@@ -2,7 +2,9 @@ package git
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -14,6 +16,8 @@ const (
 	prCopyBranch = "aim-pr-copy"
 	prCopyMarker = "aim-used"
 )
+
+var errNoToken = errors.New("fetch pull request: no token")
 
 // PRCopy is AIM's private repository for reading a repository's pull requests.
 // It is shallow and fetches file contents only when asked, so no clone is needed.
@@ -113,20 +117,33 @@ func touch(path string) error {
 	return os.Chtimes(path, now, now)
 }
 
+// helperScript answers git's credential "get" with the token from the environment.
+const helperScript = `!f() { test "$1" = get && printf "username=x-access-token\npassword=%s\n" "$AIM_PR_TOKEN"; }; f`
+
 // netEnv applies the promisor settings through the environment only: --filter
-// would write them to the config, and a later read would then fetch.
-func (PRCopy) netEnv(extra ...string) []string {
-	kv := [][2]string{
-		{"remote.origin.promisor", "true"},
-		{"remote.origin.partialclonefilter", "blob:none"},
+// would write them to the config, and a later read would then fetch. The token
+// lives only in AIM_PR_TOKEN, read by a helper scoped to the origin's host, so it
+// reaches no other host after a redirect, no argv, no file and no user hook.
+func (c PRCopy) netEnv(token string, extra ...string) []string {
+	kv := [][2]string{{"credential.helper", ""}}
+
+	if u, err := url.Parse(c.Origin); err == nil && u.Host != "" {
+		kv = append(kv, [2]string{"credential." + u.Scheme + "://" + u.Host + ".helper", helperScript})
 	}
+
+	kv = append(kv,
+		[2]string{"url." + c.Origin + ".insteadOf", c.Origin},
+		[2]string{"core.hooksPath", "/dev/null"},
+		[2]string{"remote.origin.promisor", "true"},
+		[2]string{"remote.origin.partialclonefilter", "blob:none"},
+	)
 
 	for _, e := range extra {
 		k, v, _ := strings.Cut(e, "=")
 		kv = append(kv, [2]string{k, v})
 	}
 
-	env := []string{"LC_ALL=C", "GIT_CONFIG_COUNT=" + strconv.Itoa(len(kv))}
+	env := []string{"LC_ALL=C", "AIM_PR_TOKEN=" + token, "GIT_CONFIG_COUNT=" + strconv.Itoa(len(kv))}
 
 	for i, p := range kv {
 		n := strconv.Itoa(i)
@@ -138,15 +155,18 @@ func (PRCopy) netEnv(extra ...string) []string {
 
 // FetchPRCopyHead fetches pull request number's head commit, depth 1, into
 // refs/aim/pr/<number>/head and returns it.
-func FetchPRCopyHead(ctx context.Context, c PRCopy, number int) (head string, err error) {
-	if number < 1 {
+func FetchPRCopyHead(ctx context.Context, c PRCopy, number int, token string) (head string, err error) {
+	switch {
+	case number < 1:
 		return "", fmt.Errorf("fetch pull request: number %d is not positive", number)
+	case token == "":
+		return "", errNoToken
 	}
 
 	n := strconv.Itoa(number)
 	args := append(prFetchFlags(), "--depth=1", "origin", "+refs/pull/"+n+"/head:"+prRef(number, "head"))
 
-	if _, err := run(ctx, call{dir: c.Repo.Root, args: args, env: c.netEnv(), net: true}); err != nil {
+	if _, err := run(ctx, call{dir: c.Repo.Root, args: args, env: c.netEnv(token), net: true}); err != nil {
 		if strings.Contains(err.Error(), "couldn't find remote ref refs/pull/"+n+"/head") {
 			return "", fmt.Errorf("fetch pull request %d: %w", number, ErrNoPR)
 		}
@@ -160,8 +180,10 @@ func FetchPRCopyHead(ctx context.Context, c PRCopy, number int) (head string, er
 // FetchPRCopyBase fetches the merge base commit, depth 1, into
 // refs/aim/pr/<number>/base, then the blobs of every file the pull request
 // changes, so the diff and both sides of each file can be read offline.
-func FetchPRCopyBase(ctx context.Context, c PRCopy, number int, mergeBase string) error {
+func FetchPRCopyBase(ctx context.Context, c PRCopy, number int, mergeBase, token string) error {
 	switch {
+	case token == "":
+		return errNoToken
 	case number < 1:
 		return fmt.Errorf("fetch pull request: number %d is not positive", number)
 	case !isFullOID(mergeBase):
@@ -169,7 +191,7 @@ func FetchPRCopyBase(ctx context.Context, c PRCopy, number int, mergeBase string
 	}
 
 	args := append(prFetchFlags(), "--depth=1", "origin", "+"+mergeBase+":"+prRef(number, "base"))
-	if _, err := run(ctx, call{dir: c.Repo.Root, args: args, env: c.netEnv(), net: true}); err != nil {
+	if _, err := run(ctx, call{dir: c.Repo.Root, args: args, env: c.netEnv(token), net: true}); err != nil {
 		return fmt.Errorf("fetch pull request %d merge base: %w", number, err)
 	}
 
@@ -194,7 +216,7 @@ func FetchPRCopyBase(ctx context.Context, c PRCopy, number int, mergeBase string
 
 	// Without noop, a have that reaches a blob stops git sending it.
 	args = append(prFetchFlags(), "origin", "--stdin")
-	env := c.netEnv("fetch.negotiationAlgorithm=noop")
+	env := c.netEnv(token, "fetch.negotiationAlgorithm=noop")
 
 	in := strings.NewReader(strings.Join(ids, "\n") + "\n")
 	if _, err := run(ctx, call{dir: c.Repo.Root, args: args, env: env, stdin: in, net: true}); err != nil {
