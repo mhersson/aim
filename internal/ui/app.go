@@ -73,6 +73,8 @@ type Options struct {
 	// Watches shares one git watcher per worktree among the agent panes in it;
 	// nil means no watches.
 	Watches watchSet
+	// FileWatch watches one markdown file for changes; nil means git.WatchFile.
+	FileWatch fileWatcher
 	// Places answers which worktree an edited file belongs to; nil means a cache
 	// of the app's own over Git.EditPlace.
 	Places placeFinder
@@ -163,6 +165,7 @@ type App struct {
 	merge                  *mergeView   // the merge box; owns every key while open
 	conv                   *convView    // a pull request's conversation; owns every key while open
 	plan                   *planView    // an agent's plan; owns every key while open
+	finder                 *finderView  // the markdown finder; stays set while a file it opened shows over it
 	planSeq                int          // plan read counter; an answer for another read is stale
 	prList                 *prListView  // the agents' pull requests; owns every key while open
 	compose                *composeView // the compose box; owns every key while open
@@ -306,7 +309,7 @@ func New(opts Options) (*App, error) {
 		events: opts.Events, notice: opts.Notice, save: opts.Save, marks: opts.Marks,
 		log: opts.Logger, store: opts.Store, themes: themes, reg: reg, keymap: km, keys: tables,
 		panes: map[core.PaneID]*pane{}, outerFocused: true,
-		watches:  watchState{set: opts.Watches, open: opts.Git.Open, panes: map[core.PaneID]*paneWatch{}, pins: map[core.TabID]*pinWatch{}, failed: map[string]bool{}},
+		watches:  watchState{set: opts.Watches, open: opts.Git.Open, openFile: opts.FileWatch, panes: map[core.PaneID]*paneWatch{}, pins: map[core.TabID]*pinWatch{}, failed: map[string]bool{}},
 		pictures: newPictures(nil, getenv, opts.Logger),
 		getenv:   getenv, cwd: cwd, configPath: opts.ConfigPath, recordDir: opts.RecordDir, icons: opts.Icons, clock: realClock{}, start: termStart, sweepRefs: opts.SweepRefs,
 		load:         newSysLoad(opts.Logger),
@@ -315,6 +318,10 @@ func New(opts Options) (*App, error) {
 		edits:        editState{resolve: places.Place},
 		focusFollows: opts.FocusFollowsMouse, copyOnSelect: opts.CopyOnSelect,
 		clip: newClipboard(clipboardConfig{OSC52: !opts.NoOSC52, Native: !opts.NoNativeClipboard}, getenv, runtime.GOOS, opts.Logger),
+	}
+
+	if a.watches.openFile == nil {
+		a.watches.openFile = watchFileOnDisk
 	}
 
 	a.actions = opts.PRActions
@@ -506,6 +513,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	if c := a.prNextAfterSync(); c != nil {
+		a.later = append(a.later, c)
+	}
+
+	if c := a.finderPreviewSync(); c != nil {
 		a.later = append(a.later, c)
 	}
 
@@ -707,8 +718,10 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.onWatchAcquired(msg)
 	case pinAcquiredMsg:
 		a.onPinAcquired(msg)
-	case mdAcquiredMsg:
-		a.onMDAcquired(msg)
+	case fileWatchedMsg:
+		return a, a.onFileWatched(msg)
+	case fileChangedMsg:
+		return a, a.onFileChanged(msg)
 	case agentTickMsg:
 		return a, a.onAgentTick()
 	case clockMsg:
@@ -765,8 +778,14 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, a.onLinkEdit(msg)
 	case mdPageMsg:
 		a.onMDPage(msg)
-	case mdListMsg:
-		a.onMDList(msg)
+	case finderListMsg:
+		return a, a.onFinderList(msg)
+	case finderWalkMsg:
+		return a, a.onFinderWalk(msg)
+	case finderFilterMsg:
+		return a, a.onFinderFilter(msg)
+	case finderPreviewMsg:
+		a.onFinderPreview(msg)
 	case mdFileMsg:
 		a.onMDFile(msg)
 	case planReadMsg:
@@ -814,6 +833,8 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.overlay != nil {
 			return a, a.updateOverlay(msg)
 		}
+
+		return a, a.finderPrompt(msg)
 	}
 
 	return a, nil
@@ -953,6 +974,10 @@ func (a *App) View() tea.View {
 
 	if a.merge != nil {
 		content = a.overlayMerge(f, content, lk)
+	}
+
+	if a.finder != nil && a.plan == nil {
+		content = a.overlayFinder(f, content, lk)
 	}
 
 	if a.plan != nil {

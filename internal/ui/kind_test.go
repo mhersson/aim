@@ -23,6 +23,8 @@ func kindApp(t *testing.T, opts ...func(*Options)) (*App, *starts, *fakeClock) {
 		Getenv: testGetenv,
 		Cwd:    testCwd,
 		Icons:  true,
+
+		FileWatch: (&fakeFileWatches{}).open,
 	}
 	for _, f := range opts {
 		f(&o)

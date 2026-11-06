@@ -115,11 +115,7 @@ func (v *mdView) end(bottom bool) {
 	v.clamp()
 }
 
-func isHeadingLine(l md.Line) bool {
-	return slices.ContainsFunc(l, func(r md.Run) bool {
-		return r.Role == md.RoleHeading1 || r.Role == md.RoleHeading2 || r.Role == md.RoleHeading3
-	})
-}
+func isHeadingLine(l md.Line) bool { return l.IsHeading() }
 
 // heading moves to the first line of the next (dir > 0) or previous heading and
 // stays put when there is none.

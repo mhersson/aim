@@ -52,11 +52,25 @@ func planRows(h int) (rows int, blanks, hint bool) {
 	return max(h-2, 1), false, false
 }
 
+// planViewWidth is the width of the view in a box w cells wide.
+func planViewWidth(w int) int { return min(w-4, planMaxView) }
+
+// planTextWidth is the width the overlay lays a doc out at on a width x height
+// terminal, 0 for a box too small to draw.
+func planTextWidth(width, height int) int {
+	_, _, w, _, ok := planBox(width, height)
+	if !ok {
+		return 0
+	}
+
+	return (&mdView{w: planViewWidth(w)}).textWidth()
+}
+
 // planDoc places the view in a box w x h, in the box's cells: the view's left
 // cell and first row, its width and its rows.
 func planDoc(w, h int) (x, y, vw, rows int) {
 	rows, blanks, _ := planRows(h)
-	vw = min(w-4, planMaxView)
+	vw = planViewWidth(w)
 	x, y = 1+(w-2-vw)/2, 1
 
 	if blanks {
@@ -188,6 +202,14 @@ func (a *App) planHead(v *planView) (lead, path, tag string) {
 		lead = " " + icon + " " + name + " · "
 	}
 
+	// A file outside every repository is titled by its path alone.
+	if v.file != nil && v.file.repo == "" {
+		lead = " "
+		if a.icons {
+			lead = " " + icon + " "
+		}
+	}
+
 	if v.file == nil {
 		tag = " " + planKindWord(v.plan.Kind)
 		if v.rewritten {
@@ -228,7 +250,12 @@ func (a *App) planLines(lk look, w, h int) (out []string, pics []picRow) {
 
 	lead, path, tag := a.planHead(v)
 
-	title, tag := planTop(lead, shortPath(path, v.root, a.getenv("HOME")), tag, w)
+	main := v.root
+	if v.file != nil && v.file.repo == "" {
+		main = ""
+	}
+
+	title, tag := planTop(lead, shortPath(path, main, a.getenv("HOME")), tag, w)
 	top := border.Render("╭─") + on(ui.Info).Bold(true).Render(title)
 
 	if tag != "" {
@@ -310,6 +337,10 @@ func (a *App) planHintRow(ui theme.UI, w int) string {
 	var b strings.Builder
 
 	for i, p := range planHints(a.keys.reader, w) {
+		if p[1] == "close" && a.finder != nil {
+			p[1] = "back"
+		}
+
 		if i > 0 {
 			b.WriteString(on(ui.Fg).Render(strings.Repeat(" ", planHintGap)))
 		}

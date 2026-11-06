@@ -5,42 +5,19 @@ import (
 	"crypto/sha256"
 	"errors"
 	"path/filepath"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/mhersson/aim/internal/core"
 	"github.com/mhersson/aim/internal/git"
-	"github.com/mhersson/aim/internal/ui/palette"
-)
-
-const (
-	// mdListTimeout bounds the listing of a worktree's markdown files.
-	mdListTimeout = 5 * time.Second
-
-	noticeNoMarkdown = "no markdown files in this worktree"
 )
 
 // mdOpenFile is the markdown file the centred overlay shows: repo is the
-// repository's printable name and path the file's absolute path.
+// repository's printable name, empty outside any, and path the file's absolute
+// path.
 type mdOpenFile struct {
 	repo, path string
 	sum        [sha256.Size]byte // of the bytes the doc was parsed from
-}
-
-// mdPick names the worktree a markdown list was made for: its root and the
-// repository's printable name.
-type mdPick struct {
-	root, repo string
-}
-
-// mdListMsg answers the listing of a worktree's markdown files. dir is the
-// directory md.open listed from and seq the serial of the ask.
-type mdListMsg struct {
-	seq             int
-	dir, root, repo string
-	files           []string
-	err             error
 }
 
 // mdFileMsg answers the read and parse of a picked file, or with reload the
@@ -56,7 +33,7 @@ type mdFileMsg struct {
 	err              error
 }
 
-// mdOpenDir is the directory md.open lists from: what the open drawer shows
+// mdOpenDir is the directory md.open starts in: what the open drawer shows
 // while it has the keyboard, else the focused pane's followed place.
 func (a *App) mdOpenDir(st core.State) string {
 	tab := st.Tab()
@@ -67,105 +44,39 @@ func (a *App) mdOpenDir(st core.State) string {
 	return st.Panes[tab.Focus].FollowDir()
 }
 
-// mdOpenCommand is md.open: it lists the markdown files of the repository the
-// operator is looking at in the palette. It leaves any drawer as it is.
-func (a *App) mdOpenCommand() tea.Cmd {
-	dir := a.mdOpenDir(a.store.State())
-	if dir == "" {
-		a.notice = noticeNotRepo
-
-		return nil
-	}
-
+// openFinderFile reads the file picked in the finder off the update loop; the
+// reading box shows when the answer lands. The file's root is the repository it
+// is in, else its own folder, found after resolving symlinks in the path.
+func (a *App) openFinderFile(path string) tea.Cmd {
 	a.planSeq++
 
-	seq, parent := a.planSeq, a.ctx
+	seq, parent, tok := a.planSeq, a.ctx, a.drawer.hl.HighlightLang
+	tw := planTextWidth(a.width, a.height)
+	icons := a.icons
 
 	return func() tea.Msg {
-		msg := mdListMsg{seq: seq, dir: dir}
+		msg := mdFileMsg{seq: seq, root: filepath.Dir(path), path: path}
 
-		ctx, cancel := context.WithTimeout(parent, reviewOpenTimeout)
+		ctx, cancel := context.WithTimeout(parent, mdReadTimeout)
 		defer cancel()
 
-		repo, err := a.git.Open(ctx, dir)
+		resolved, err := filepath.EvalSymlinks(path)
 		if err != nil {
 			msg.err = err
-			if !usableDir(dir) {
-				msg.err = errWorktreeRemoved{root: dir}
-			}
 
 			return msg
 		}
 
-		msg.root, msg.repo = repo.Root, printable(repo.Name())
-
-		lctx, lcancel := context.WithTimeout(parent, mdListTimeout)
-		defer lcancel()
-
-		msg.files, msg.err = git.MarkdownFiles(lctx, repo.Root)
-
-		return msg
-	}
-}
-
-// onMDList opens the palette on the files listed. An answer after a newer ask,
-// after the place md.open lists from changed, or under the compose box or
-// another modal above the drawer is dropped.
-func (a *App) onMDList(msg mdListMsg) {
-	if msg.seq != a.planSeq || a.mdOpenDir(a.store.State()) != msg.dir || a.composeShown() || a.aboveDrawerModalOpen() {
-		return
-	}
-
-	var gone errWorktreeRemoved
-
-	switch {
-	case errors.Is(msg.err, context.Canceled):
-		return
-	case errors.As(msg.err, &gone):
-		a.notice = noticeRemoved + shortPath(gone.root, "", a.getenv("HOME"))
-
-		return
-	case errors.Is(msg.err, git.ErrNotRepo):
-		a.notice = noticeNotRepo
-
-		return
-	case msg.err != nil:
-		a.log.Warn("markdown files", "dir", msg.dir, "err", msg.err)
-		a.notice = "markdown files: " + printable(msg.err.Error())
-
-		return
-	case len(msg.files) == 0:
-		a.notice = noticeNoMarkdown
-
-		return
-	}
-
-	items := make([]palette.Item, len(msg.files))
-	for i, f := range msg.files {
-		items[i] = palette.Item{ID: f, Title: printable(f)}
-	}
-
-	o := a.openOverlay(overlayMarkdown, a.titled(iconMarkdown, "Markdown files"), items)
-	o.pal = o.pal.WithEnterLabel("open")
-	o.pick = &mdPick{root: msg.root, repo: msg.repo}
-}
-
-// pickMarkdown reads the file picked from the list, off the update loop; the
-// overlay shows when the answer lands.
-func (a *App) pickMarkdown(pick *mdPick, rel string) tea.Cmd {
-	if pick == nil {
-		return nil
-	}
-
-	a.planSeq++
-
-	path := filepath.Join(pick.root, filepath.FromSlash(rel))
-	msg := mdFileMsg{seq: a.planSeq, root: pick.root, repo: pick.repo, path: path}
-	parent, tok := a.ctx, a.drawer.hl.HighlightLang
-
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(parent, mdReadTimeout)
-		defer cancel()
+		msg.path, msg.root = resolved, filepath.Dir(resolved)
+		switch repo, err := a.git.Open(ctx, msg.root); {
+		case err == nil:
+			// On a case-insensitive disk git's toplevel can spell the path in another case.
+			if _, ok := within(repo.Root, msg.path); ok {
+				msg.root, msg.repo = repo.Root, printable(repo.Name())
+			}
+		case !errors.Is(err, git.ErrNotRepo) && !errors.Is(err, context.Canceled):
+			a.log.Warn("find the repository of a markdown file", "path", msg.path, "err", err)
+		}
 
 		src, err := readLocalMarkdown(ctx, msg.root, msg.path)
 		if err != nil {
@@ -176,14 +87,15 @@ func (a *App) pickMarkdown(pick *mdPick, rel string) tea.Cmd {
 
 		msg.sum = sha256.Sum256(src)
 		msg.doc = parseMarkdown(src, filepath.Dir(msg.path), tok)
+		msg.doc.layoutAhead(tw, icons)
 
 		return msg
 	}
 }
 
 // onMDFile shows the file once it was read, or hands a re-read to onMDReload.
-// An answer for an ask a newer one superseded, or one that lands under the
-// compose box or another modal, is dropped.
+// An answer for an ask a newer one or an esc superseded, one for a finder that
+// closed, or one that lands under the compose box or another modal, is dropped.
 func (a *App) onMDFile(msg mdFileMsg) {
 	if msg.reload {
 		a.onMDReload(msg)
@@ -191,7 +103,7 @@ func (a *App) onMDFile(msg mdFileMsg) {
 		return
 	}
 
-	if msg.seq != a.planSeq || a.composeShown() || a.aboveDrawerModalOpen() {
+	if msg.seq != a.planSeq || a.finder == nil || a.composeShown() || a.modalOverFinder() {
 		return
 	}
 
@@ -232,6 +144,8 @@ func (a *App) mdCheck(pv *planView) tea.Cmd {
 	path, sum := pv.shownFile()
 	msg := mdFileMsg{seq: pv.reloadSeq, reload: true, view: pv, root: pv.root, path: path}
 	known, parent, tok := *sum, a.ctx, a.drawer.hl.HighlightLang
+	tw := planTextWidth(a.width, a.height)
+	icons := a.icons
 
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parent, mdReadTimeout)
@@ -252,18 +166,10 @@ func (a *App) mdCheck(pv *planView) tea.Cmd {
 		}
 
 		msg.doc = parseMarkdown(src, filepath.Dir(msg.path), tok)
+		msg.doc.layoutAhead(tw, icons)
 
 		return msg
 	}
-}
-
-// mdBatch re-checks the shown doc when a file overlay is open on root.
-func (a *App) mdBatch(root string) tea.Cmd {
-	if pv := a.plan; pv != nil && pv.file != nil && pv.root == root {
-		return a.mdCheck(pv)
-	}
-
-	return nil
 }
 
 // onMDReload swaps in a re-read doc, keeping the view's place. An answer for

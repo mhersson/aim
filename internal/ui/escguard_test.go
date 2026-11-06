@@ -9,7 +9,6 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 
 	"github.com/mhersson/aim/internal/core"
-	"github.com/mhersson/aim/internal/ui/palette"
 )
 
 const escByte = "\x1b"
@@ -153,14 +152,6 @@ func TestEscGuardCloses(t *testing.T) {
 
 			return a, clk
 		}, func(a *App) bool { return a.plan == nil }},
-		{"markdown file", func(t *testing.T) (*App, *fakeClock) {
-			t.Helper()
-
-			a, clk := escApp(t)
-			a.Update(mdFileMsg{seq: a.planSeq, root: "/w", repo: "/w", path: "/w/a.md", doc: parseNow("# A\n\nText.\n", nil)})
-
-			return a, clk
-		}, func(a *App) bool { return a.plan == nil }},
 		{"conversation", func(t *testing.T) (*App, *fakeClock) {
 			t.Helper()
 
@@ -220,14 +211,14 @@ func TestEscGuardCloses(t *testing.T) {
 
 			return a, clk
 		}, func(a *App) bool { return a.overlay == nil }},
-		{"markdown picker", func(t *testing.T) (*App, *fakeClock) {
+		{"markdown finder", func(t *testing.T) (*App, *fakeClock) {
 			t.Helper()
 
 			a, clk := escApp(t)
-			a.openOverlay(overlayMarkdown, "Markdown", []palette.Item{{ID: "a.md", Title: "a.md"}})
+			a.mdOpenCommand()
 
 			return a, clk
-		}, func(a *App) bool { return a.overlay == nil }},
+		}, func(a *App) bool { return a.finder == nil }},
 		{"confirm", func(t *testing.T) (*App, *fakeClock) {
 			t.Helper()
 

@@ -69,6 +69,24 @@ type watchSet interface {
 	Batches() <-chan git.RootBatch
 }
 
+// fileWatch signals when one file changes; *git.FileWatcher is the real one.
+type fileWatch interface {
+	Changes() <-chan struct{}
+	Close() error
+}
+
+// fileWatcher starts a fileWatch on a path.
+type fileWatcher func(ctx context.Context, path string) (fileWatch, error)
+
+func watchFileOnDisk(ctx context.Context, path string) (fileWatch, error) {
+	w, err := git.WatchFile(ctx, path)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // WatchFile names the path
+	}
+
+	return w, nil
+}
+
 // placeFinder answers which worktree an edited file belongs to;
 // *git.PlaceCache is the real one.
 type placeFinder interface {

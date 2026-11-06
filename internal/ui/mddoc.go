@@ -130,10 +130,26 @@ func (d *mdDoc) withFoldKey(key *string) *mdDoc {
 
 // withPictures lends d the pictures of its view and returns d.
 func (d *mdDoc) withPictures(p docPictures) *mdDoc {
-	d.pics, d.have = p, false
+	d.pics = p
 	d.hasPrev = false
 
+	// A doc without an image lays out the same with or without pictures, so a
+	// layout made off the loop stays.
+	if d.hasImages {
+		d.have = false
+	}
+
 	return d
+}
+
+// layoutAhead lays a doc without an image out at the width and icons its view
+// will ask for, so the update loop finds the layout made. It blocks, so it runs
+// only inside a tea.Cmd. A doc with an image lays out on the loop, where the
+// pictures are known.
+func (d *mdDoc) layoutAhead(width int, icons bool) {
+	if !d.hasImages && width > 0 {
+		d.layout(width, icons)
+	}
 }
 
 // pictureMove returns the layout a relayout caused by the pictures replaced, once;

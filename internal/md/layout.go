@@ -100,6 +100,16 @@ type Layout struct {
 	Links  []Link
 	Images []Image
 	Folds  []Fold
+	// Headings holds the index of each line that holds a heading, in order; a
+	// wrapped heading lists each of its lines.
+	Headings []int
+}
+
+// IsHeading reports whether the line holds a heading.
+func (l Line) IsHeading() bool {
+	return slices.ContainsFunc(l, func(r Run) bool {
+		return r.Role == RoleHeading1 || r.Role == RoleHeading2 || r.Role == RoleHeading3
+	})
 }
 
 // Line is one screen line, never wider than the width laid out for.
@@ -214,6 +224,12 @@ func (d *Doc) Layout(o LayoutOptions) Layout {
 
 	l.out.Lines, l.out.Source, l.out.Images, l.out.Folds = f.lines, f.src, f.images, f.folds
 	l.dropUnusedLinks()
+
+	for i, line := range l.out.Lines {
+		if line.IsHeading() {
+			l.out.Headings = append(l.out.Headings, i)
+		}
+	}
 
 	return l.out
 }

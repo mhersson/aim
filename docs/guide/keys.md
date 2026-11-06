@@ -108,6 +108,7 @@ Keys pressed after the leader key. Remap them under `[keys.leader]`.
 | --- | --- | --- |
 | `:` | `palette.open` | Open command palette |
 | `t` | `theme.pick` | Pick theme |
+| `m` | `md.open` | Open a markdown file |
 | `u` | `usage.toggle` | Claude usage |
 | `q` | `app.quit` | Quit AIM |
 
@@ -286,7 +287,6 @@ These commands are in the command palette. Bind one under a table that takes it.
 | `layout.set.bsp` | Layout: BSP | `[keys.leader]` |
 | `layout.set.master-stack` | Layout: master-stack | `[keys.leader]` |
 | `layout.set.scrolling` | Layout: scrolling | `[keys.leader]` |
-| `md.open` | Open a markdown file | `[keys.leader]` |
 | `worktree.cleanup` | Clean up a merged worktree | `[keys.leader]` |
 | `theme.set.catppuccin-latte` | Theme: Catppuccin Latte | `[keys.leader]` |
 | `theme.set.catppuccin-frappe` | Theme: Catppuccin Frappé | `[keys.leader]` |

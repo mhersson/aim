@@ -65,7 +65,7 @@ make release-dry  # the GoReleaser dry run: archives, checksums, binaries, chang
 | `internal/harness` | `Harness` interface; Claude Code adapter                          |
 | `internal/git`     | Worktrees, turn snapshots, watcher, diff engine                   |
 | `internal/github`  | Auth via `go-gh`, GraphQL and REST client, poller, PR actions     |
-| `internal/md`      | Markdown to styled cells plus image references                    |
+| `internal/md`      | Markdown to styled cells plus image references; the folder walk   |
 | `internal/store`   | `state.json`, reviewed hunks and the config's `theme` line        |
 | `spikes/`          | Throwaway experiments; nothing outside `spikes/` imports them     |
 | `scripts/`         | POSIX shell helpers for the Makefile                              |

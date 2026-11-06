@@ -41,6 +41,7 @@ quitting AIM ends its agents, and the next start resumes their sessions.
 | Pane read loop, one per pane | dirty and exit messages | `App.Close` |
 | Hook server and turn gate | `App.waitEvent` | `hookRuntime.Stop` |
 | Watch set, one watcher per worktree | `App.waitWatch` | `WatchSet.Close` |
+| File watch, one on the shown markdown file | `App.waitFile` | closing the file or the page, `App.Close` |
 | Pull request poller | `App.waitPRs` | `Poller.Close` |
 | State saver and mark files | (writes only) | `Saver.Close`, `MarkFiles.Close` |
 
@@ -56,6 +57,38 @@ the same id, a newer request gone out, the session changed or the overlay
 closed. Messages carry what they answer (the `*pane`, a request counter, the
 source, the session), and the handler drops a stale one before it dispatches.
 New async work must do the same.
+
+**The markdown finder's walk** (`internal/ui/finder.go`, `md.Walk`) is the one
+off-loop job that streams. The finder owns at most one walk per folder and per
+reach of hidden entries, started at the first typed letter in a goroutine under
+a context cancelled by closing the finder or changing folder (and by quit,
+through the app's). Its batches and its end reach the loop as `finderWalkMsg`s
+that a `tea.Cmd` reads one at a time and the handler re-arms, so no tick drives
+it; the time limit is a second context whose expiry the walk reports as its
+stop reason. It is one walk per folder because every later letter only filters
+what the walk found: a keystroke costs no disk reads, and a walk of `/` can
+meet tens of thousands of folders. The filter runs on the loop
+below `finderFilterInline` names and past it as a `tea.Cmd`, at most one at a
+time; a change that lands while it runs marks it dirty and its answer starts
+the next. Walk, filter and folder-read messages carry the finder, and a folder
+generation where a folder change makes them stale; a stale one is dropped, and
+a dropped walk message is not waited on again.
+
+**The finder's preview** (`internal/ui/finderpreview.go`) is one more off-loop
+read: the file or folder of the selected row is read, parsed with no pictures
+and laid out at the column's width in a `tea.Cmd`, so the draw on the loop hits
+the layout cache. A sync step after every update asks when the selected path
+changes, the terminal is at least `finderPreviewMin` columns and the reading box
+is not over the finder; it cancels the ask before and gives each a serial, so
+only the latest answer is kept. The preview on show stays until a new one lands,
+so moving fast never blanks it.
+
+**An opened file is laid out off the loop too.** The finder's open and the
+reading box's reload (`openFinderFile`, `mdCheck`) lay a doc without an image
+out in the command, at the width and icons the box will draw with
+(`planTextWidth`, built on the helper `sizePlan` uses), and `withPictures` keeps
+that layout for such a doc. A doc with an image still lays out on the loop: its
+picture sizes live in the `pictures` registry, which only the loop touches.
 
 **Layout.** `core.Arrange` (`internal/core/geometry.go`) is the one function
 that turns a tab into the rects drawn and the PTY sizes. The agents rail
@@ -352,6 +385,14 @@ copy of fsnotify ([gotchas.md](gotchas.md#file-watching)).
 
 **The watch set** (`internal/git/watchset.go`) shares one reference-counted
 watcher per worktree root, keyed by `Repo.Root`, never by a cwd string.
+
+**The markdown file watch** (`internal/git/filewatch.go`) is separate: the
+overlay on a markdown file holds one `FileWatcher` on the shown file, a
+non-recursive watch on its folder that signals for events naming that file. It
+needs no repository, so it also covers ignored files and files outside any.
+The signal is one slot, so a burst costs one re-read, which hashes the bytes
+and parses only on a change. A followed page retargets the watch, and closing
+the file or quitting ends it; an idle overlay costs nothing.
 
 ## Following the agent
 

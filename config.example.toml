@@ -116,9 +116,13 @@
 # root = "inside"
 
 [plans]
-## Folders, relative to a worktree root, whose markdown files count as plans.
-## An empty list keeps only the plans from plan mode. An absolute path, an
-## empty one, "." or one that leaves the root is an error.
+## Folders whose markdown files count as plans. Each is a relative folder path
+## matched against the whole path of the file the agent edited, anywhere in it
+## and in a repository or not, so "Development/plans/" works too. The deepest
+## match sets how far the plan's links reach: they stop at the directory above
+## it, so a short name such as "plans/" cuts the links of
+## "docs/superpowers/plans/". An empty list keeps only the plans from plan mode.
+## An absolute path, an empty one, "." or one starting with ".." is an error.
 # paths = ["docs/superpowers/plans/", "docs/superpowers/specs/"]
 
 [pull_requests]

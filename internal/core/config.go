@@ -217,18 +217,18 @@ func (c WorktreesConfig) Validate() error {
 // root style.
 func (c WorktreesConfig) Sibling() bool { return c.Root == "sibling" }
 
-// PlansConfig is the [plans] section: the folders, relative to a worktree
-// root, whose markdown files count as plans.
+// PlansConfig is the [plans] section: folder paths matched anywhere in the path
+// of an edited file; markdown files under one count as plans.
 type PlansConfig struct {
 	Paths []string `toml:"paths"`
 }
 
-// Validate names the first entry that is not a relative path inside a worktree.
+// Validate names the first entry that is not a relative folder path.
 func (c PlansConfig) Validate() error {
 	for _, p := range c.Paths {
 		clean := filepath.Clean(p)
 		if p == "" || filepath.IsAbs(p) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-			return fmt.Errorf("plans.paths: %q is not a relative path inside a worktree", p)
+			return fmt.Errorf("plans.paths: %q is not a relative folder path", p)
 		}
 	}
 

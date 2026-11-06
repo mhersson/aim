@@ -258,19 +258,23 @@ func keepPlace(old, next md.Layout, top, cursor int) (newTop, newCursor int) {
 	return newTop, max(min(newTop+cursor-top, last), 0)
 }
 
-// headings lists the first line of each heading in lay with its text.
+// headings lists the first line of each heading in lay with its text. It reads
+// only lay.Headings, which md fills when it lays a doc out.
 func headings(lay md.Layout) (at []int, text []string) {
-	for i, l := range lay.Lines {
-		if !isHeadingLine(l) || i > 0 && isHeadingLine(lay.Lines[i-1]) && lay.Source[i] == lay.Source[i-1] {
-			continue
-		}
+	hs := lay.Headings
+
+	for k := 0; k < len(hs); {
+		i := hs[k]
 
 		var b strings.Builder
 
-		for j := i; j < len(lay.Lines) && isHeadingLine(lay.Lines[j]) && lay.Source[j] == lay.Source[i]; j++ {
-			for _, r := range lay.Lines[j] {
+		// A heading's lines are consecutive entries from one source range.
+		for j := k; j < len(hs) && hs[j] == i+(j-k) && lay.Source[hs[j]] == lay.Source[i]; j++ {
+			for _, r := range lay.Lines[hs[j]] {
 				b.WriteString(r.Text)
 			}
+
+			k = j + 1
 		}
 
 		at, text = append(at, i), append(text, b.String())
@@ -346,7 +350,7 @@ func (a *App) sizePlan() {
 	}
 
 	rows, _, _ := planRows(h)
-	vw := min(w-4, planMaxView)
+	vw := planViewWidth(w)
 
 	views := []*mdView{&v.view}
 	for _, p := range v.pages {
