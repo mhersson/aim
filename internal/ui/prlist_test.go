@@ -689,10 +689,10 @@ func TestPRListText(t *testing.T) {
 
 // otherTabsRig is the PR drawer rig with searches that answer o/r#7 (base main)
 // and acme/infra#88 on the Requested tab, and the rig's pane resolved to o/r.
-func otherTabsRig(t *testing.T) *prDrawer {
+func otherTabsRig(t *testing.T, opts ...func(*Options)) *prDrawer {
 	t.Helper()
 
-	r := newPRDrawer(t)
+	r := newPRDrawer(t, opts...)
 	r.openLink = (&fakeOpen{}).open
 	r.actions = &fakeActions{}
 	r.reads = &fakeReads{fail: map[string]error{}, mine: map[string]github.MyPRs{
@@ -702,10 +702,13 @@ func otherTabsRig(t *testing.T) *prDrawer {
 			}),
 			searched("github.com/acme/infra", 88, "Bump", "kari-dev", 2*time.Hour, func(p *github.PR) {
 				p.Draft, p.ID = true, "PR_88"
+				p.BaseBranch, p.HeadBranch, p.HeadOID = "main", "feat/infra", "listed-head"
 			}),
 		}},
 		"ghe.example.com": {Requested: []github.SearchPR{
-			searched("ghe.example.com/acme/infra", 4, "Svc", "li", time.Hour),
+			searched("ghe.example.com/acme/infra", 4, "Svc", "li", time.Hour, func(p *github.PR) {
+				p.BaseBranch, p.HeadBranch = "main", "feat/svc"
+			}),
 		}},
 	}}
 
@@ -738,46 +741,6 @@ func (p *prDrawer) selectRow(t *testing.T, repo string) {
 	}
 
 	t.Fatalf("no row of %s", repo)
-}
-
-func TestPRListNoCheckout(t *testing.T) {
-	t.Parallel()
-
-	for _, tc := range []struct {
-		name, repo, want string
-		key              rune
-	}{
-		{"github enter", "github.com/acme/infra", fmt.Sprintf(noticePRNoCheckout, "acme/infra"), '\r'},
-		{"github a", "github.com/acme/infra", fmt.Sprintf(noticePRNoCheckout, "acme/infra"), 'a'},
-		{"github M", "github.com/acme/infra", fmt.Sprintf(noticePRNoCheckout, "acme/infra"), 'M'},
-		{"enterprise enter", "ghe.example.com/acme/infra", fmt.Sprintf(noticePRNoCheckout, "ghe.example.com/acme/infra"), '\r'},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			r := otherTabsRig(t)
-
-			r.selectRow(t, tc.repo)
-
-			if tc.key == '\r' {
-				r.keys(keyEnter)
-			} else {
-				r.keys(keyRune(tc.key))
-			}
-
-			if r.notice != tc.want {
-				t.Errorf("notice = %q, want %q", r.notice, tc.want)
-			}
-
-			if r.prList == nil {
-				t.Error("the list closed")
-			}
-
-			if r.review() != nil {
-				t.Error("a drawer opened")
-			}
-		})
-	}
 }
 
 func TestPRListCheckout(t *testing.T) {

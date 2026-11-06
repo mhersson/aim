@@ -39,6 +39,9 @@ type Git interface {
 	Unpushed(ctx context.Context, r git.Repo, remote string) (int, error)
 	Push(ctx context.Context, r git.Repo, branch string) (git.PushResult, error)
 	FetchPR(ctx context.Context, r git.Repo, remote string, number int, base string) (git.PRRefs, error)
+	OpenPRCopy(ctx context.Context, dir, origin string) (git.PRCopy, error)
+	FetchPRCopyHead(ctx context.Context, c git.PRCopy, number int, token string) (string, error)
+	FetchPRCopyBase(ctx context.Context, c git.PRCopy, number int, mergeBase, token string) error
 
 	ListAimRefs(ctx context.Context, r git.Repo) (StaleRefs, error)
 	DeleteRefs(ctx context.Context, r git.Repo, refs []git.Ref) (int, error)
@@ -211,6 +214,18 @@ func (SystemGit) Push(ctx context.Context, r git.Repo, branch string) (git.PushR
 
 func (SystemGit) FetchPR(ctx context.Context, r git.Repo, remote string, number int, base string) (git.PRRefs, error) {
 	return git.FetchPR(ctx, r, remote, number, base)
+}
+
+func (SystemGit) OpenPRCopy(ctx context.Context, dir, origin string) (git.PRCopy, error) {
+	return git.OpenPRCopy(ctx, dir, origin)
+}
+
+func (SystemGit) FetchPRCopyHead(ctx context.Context, c git.PRCopy, number int, token string) (string, error) {
+	return git.FetchPRCopyHead(ctx, c, number, token)
+}
+
+func (SystemGit) FetchPRCopyBase(ctx context.Context, c git.PRCopy, number int, mergeBase, token string) error {
+	return git.FetchPRCopyBase(ctx, c, number, mergeBase, token)
 }
 
 func (SystemGit) ListAimRefs(ctx context.Context, r git.Repo) (StaleRefs, error) {

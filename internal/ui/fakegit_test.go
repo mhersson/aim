@@ -86,6 +86,9 @@ type fakeGit struct {
 	seq     int
 	results map[git.Source]git.Result
 
+	// copyPRs is the heads the remote holds for pull requests, by origin URL and number.
+	copyPRs map[string]map[int]string
+
 	failAll  map[string]error
 	failRoot map[string]error // op + NUL + root
 	holds    map[string]*fakeHold
@@ -103,6 +106,7 @@ func newFakeGit(t *testing.T) *fakeGit {
 		commits:  map[string]*fakeCommit{},
 		blobs:    map[string]string{},
 		results:  map[git.Source]git.Result{},
+		copyPRs:  map[string]map[int]string{},
 		failAll:  map[string]error{},
 		failRoot: map[string]error{},
 		holds:    map[string]*fakeHold{},
@@ -1661,6 +1665,77 @@ func (f *fakeGit) FetchPR(ctx context.Context, gr git.Repo, remote string, numbe
 	r.c.aimRefs[fmt.Sprintf("refs/aim/pr/%d/base", number)] = baseOID
 
 	return git.PRRefs{Head: head, Base: baseOID}, nil
+}
+
+// OpenPRCopy makes the copy's folder and a fake repository there, once.
+func (f *fakeGit) OpenPRCopy(ctx context.Context, dir, origin string) (git.PRCopy, error) {
+	end, err := f.begin(ctx, "OpenPRCopy", dir, origin)
+	if err != nil {
+		return git.PRCopy{}, err
+	}
+	defer end()
+
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+		return git.PRCopy{}, err
+	}
+
+	root, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return git.PRCopy{}, err
+	}
+
+	r, ok := f.roots[root]
+	if !ok {
+		c := &fakeCommon{
+			f: f, main: root, deflt: "main",
+			branches: map[string]string{}, remotes: map[string]*fakeRemote{}, tracking: map[string]string{},
+			upstream: map[string]string{}, aimRefs: map[string]string{}, turns: map[string][]*fakeTurn{},
+		}
+		r = &fakeRepo{f: f, c: c, root: root, gitDir: filepath.Join(root, ".git"), cur: "main"}
+		c.trees = []*fakeRepo{r}
+		f.roots[root] = r
+	}
+
+	return git.PRCopy{Repo: r.Repo(), Origin: origin}, nil
+}
+
+func (f *fakeGit) FetchPRCopyHead(ctx context.Context, c git.PRCopy, number int, token string) (string, error) {
+	end, err := f.begin(ctx, "FetchPRCopyHead", c.Repo.Root, strconv.Itoa(number), token)
+	if err != nil {
+		return "", err
+	}
+	defer end()
+
+	r, ok := f.roots[c.Repo.Root]
+	if !ok {
+		return "", fmt.Errorf("fetch pull request: %w", git.ErrNotRepo)
+	}
+
+	head, ok := f.copyPRs[c.Origin][number]
+	if !ok {
+		return "", fmt.Errorf("fetch pull request %d: %w", number, git.ErrNoPR)
+	}
+
+	r.c.aimRefs[fmt.Sprintf("refs/aim/pr/%d/head", number)] = head
+
+	return head, nil
+}
+
+func (f *fakeGit) FetchPRCopyBase(ctx context.Context, c git.PRCopy, number int, mergeBase, token string) error {
+	end, err := f.begin(ctx, "FetchPRCopyBase", c.Repo.Root, strconv.Itoa(number), mergeBase, token)
+	if err != nil {
+		return err
+	}
+	defer end()
+
+	r, ok := f.roots[c.Repo.Root]
+	if !ok {
+		return fmt.Errorf("fetch pull request: %w", git.ErrNotRepo)
+	}
+
+	r.c.aimRefs[fmt.Sprintf("refs/aim/pr/%d/base", number)] = mergeBase
+
+	return nil
 }
 
 // fakeStale is a listing of refs/aim.

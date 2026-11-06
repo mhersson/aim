@@ -31,11 +31,13 @@ type Review struct {
 }
 
 // ReviewPR is the pull request a drawer in PR mode shows: its repository keyed
-// "host/owner/name", its number and the worktree root it was opened from.
+// "host/owner/name", its number and the worktree root it was opened from. Copy
+// marks a root that is AIM's private copy of the repository, not a worktree.
 type ReviewPR struct {
 	Repo   string
 	Number int
 	Root   string
+	Copy   bool
 }
 
 // Pin holds a tab's drawer on one worktree while it reviews Pane; not persisted.
@@ -121,6 +123,7 @@ type ShowReviewPR struct {
 	Repo   string
 	Number int
 	Root   string
+	Copy   bool
 }
 
 func (a ShowReviewPR) apply(s *State) error {
@@ -133,7 +136,7 @@ func (a ShowReviewPR) apply(s *State) error {
 		return errors.New("core: ShowReviewPR needs a repository, a root and a pull request number")
 	}
 
-	t.Review.PR = &ReviewPR{Repo: a.Repo, Number: a.Number, Root: a.Root}
+	t.Review.PR = &ReviewPR{Repo: a.Repo, Number: a.Number, Root: a.Root, Copy: a.Copy}
 
 	return nil
 }

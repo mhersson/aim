@@ -44,6 +44,7 @@ type fakeReads struct {
 	convCalls []convCall
 
 	gitToken   string
+	tokenErr   error
 	mergeBases map[string]string // by head
 	mergeErr   error
 }
@@ -87,7 +88,7 @@ func (f *fakeReads) GitToken(_ context.Context, host string) (string, error) {
 
 	f.calls = append(f.calls, "gittoken "+host)
 
-	return f.gitToken, nil
+	return f.gitToken, f.tokenErr
 }
 
 func (f *fakeReads) convReads() []convCall {

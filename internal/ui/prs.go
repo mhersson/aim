@@ -92,6 +92,8 @@ type prState struct {
 	sent   bool                 // the source was given a set
 	ver    uint64               // the store version the last sync read
 	dirty  bool                 // a head result arrived since the last sync
+
+	copyGate prCopyGate // one copy fetch at a time per copy
 }
 
 func newPRState(src prSource, lookup PRLookup, g Git) prState {

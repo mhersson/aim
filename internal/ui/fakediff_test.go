@@ -462,9 +462,14 @@ func (e *fakeEngine) diffPR(s git.PRSource) (git.Result, error) {
 		return git.Result{}, fmt.Errorf("diff pull request %d: %w", s.Number, git.ErrNotFetched)
 	}
 
-	mb, ok := f.mergeBase(base, head)
-	if !ok {
-		return git.Result{}, fmt.Errorf("diff pull request %d: merge base: none", s.Number)
+	mb := base
+
+	if !s.Copy {
+		var ok bool
+
+		if mb, ok = f.mergeBase(base, head); !ok {
+			return git.Result{}, fmt.Errorf("diff pull request %d: merge base: none", s.Number)
+		}
 	}
 
 	res := e.compare(f.commits[mb].tree, f.commits[head].tree, nil)

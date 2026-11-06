@@ -57,6 +57,11 @@ type prWant struct {
 	number int
 	root   string
 	base   string // the base branch when the caller knows it, else the state's
+
+	// inCopy reads the pull request from the private copy at root, whose HEAD
+	// means nothing; branch is its head branch, for the drawer's title.
+	inCopy bool
+	branch string
 }
 
 // prPlace is the worktree a pull request is read from: its root, branch, the
@@ -254,7 +259,7 @@ func (a *App) reviewReload() tea.Cmd {
 		a.prs.src.Refresh(repo)
 	}
 
-	return a.askPR(tab.ID, &prWant{repo: v.pr.Repo, number: v.pr.Number, root: v.pr.Root}, v.prBase, thenNothing)
+	return a.askPR(tab.ID, v.heldWant(v.pr.Root), v.prBase, thenNothing)
 }
 
 // retryPictures forgets the failed images of the rendered files v shows, so
@@ -291,6 +296,17 @@ func (a *App) askPR(tab core.TabID, want *prWant, base string, then prThen) tea.
 	}
 
 	dir := a.drawerDir(st, t, t.Review.Pane)
+
+	// A copy's HEAD means nothing, so a pull request it shows is asked for as itself.
+	if want == nil && t.Review.PR != nil && t.Review.PR.Copy {
+		want = a.reviewViewOf(tab).heldWant(t.Review.PR.Root)
+	}
+
+	if want != nil && want.inCopy && a.reads == nil {
+		a.notice = noticePRsOff
+
+		return nil
+	}
 
 	switch {
 	case want != nil:
@@ -342,6 +358,16 @@ func (a *App) askPR(tab core.TabID, want *prWant, base string, then prThen) tea.
 		defer cancel()
 
 		msg := prPlaceMsg{prAsk: ask, number: number}
+
+		if want != nil && want.inCopy {
+			if repo, ok := repoOfKey(want.repo); ok {
+				msg.place = prPlace{root: want.root, remote: "origin", repo: repo}
+			} else {
+				msg.err = errPRNone
+			}
+
+			return msg
+		}
 
 		if want != nil {
 			msg.place, msg.err = localPRPlace(ctx, g, dir)
@@ -477,6 +503,10 @@ func (a *App) onPRPlace(msg prPlaceMsg) tea.Cmd {
 
 	a.drawer.fetching[number]++
 
+	if ask.want != nil && ask.want.inCopy {
+		return a.fetchCopyCmd(ask, place, number)
+	}
+
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(appCtx, prFetchTimeout)
 		defer cancel()
@@ -542,7 +572,14 @@ func (a *App) onPRFetched(msg prFetchedMsg) tea.Cmd {
 	epoch := v.epoch
 	v.prBase, v.unpushed = msg.base, msg.unpushed
 
-	show := core.ShowReviewPR{Repo: msg.place.repo.String(), Number: msg.number, Root: msg.place.root}
+	inCopy := msg.want != nil && msg.want.inCopy
+
+	v.prBranch = ""
+	if inCopy {
+		v.prBranch = msg.want.branch
+	}
+
+	show := core.ShowReviewPR{Repo: msg.place.repo.String(), Number: msg.number, Root: msg.place.root, Copy: inCopy}
 	if err := a.dispatch(show); err != nil {
 		return nil
 	}
@@ -676,7 +713,7 @@ func (a *App) prAct(then prThen) tea.Cmd {
 	// The held pull request is asked for again as itself: resolving the worktree's
 	// branch could pick another.
 	if v.pr != (core.ReviewPR{}) && v.root != "" {
-		return a.askPR(tab.ID, &prWant{repo: v.pr.Repo, number: v.pr.Number, root: v.root}, v.prBase, then)
+		return a.askPR(tab.ID, v.heldWant(v.root), v.prBase, then)
 	}
 
 	return a.showPR(tab.ID, then)

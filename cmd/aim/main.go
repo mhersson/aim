@@ -242,6 +242,7 @@ func run(ctx context.Context, env core.Env, configPath, recordDir string, fresh 
 		SweepRefs:    saver != nil,
 		Pictures:     github.NewImageFetcher(github.ImageOptions{}),
 		ImageCache:   imageCacheDir(indexCache),
+		PRCopies:     prCopyDir(indexCache),
 		Git:          ui.SystemGit{},
 		Watches:      watches,
 		Places:       places,

@@ -376,6 +376,21 @@ func TestShowReviewPR(t *testing.T) {
 	}
 }
 
+func TestShowReviewPRKeepsCopy(t *testing.T) {
+	t.Parallel()
+
+	st := NewStore(dispatch(t, reviewState(t), OpenReview{Pane: "p1", Mode: ReviewTurn}))
+
+	if err := st.Dispatch(ShowReviewPR{Repo: repoKey, Number: 3, Root: "/c", Copy: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	want := &ReviewPR{Repo: repoKey, Number: 3, Root: "/c", Copy: true}
+	if got := st.State().Tabs[0].Review.PR; !reflect.DeepEqual(got, want) {
+		t.Errorf("PR = %+v, want %+v", got, want)
+	}
+}
+
 func TestReviewPRLeavesWithModeChangesAndPins(t *testing.T) {
 	t.Parallel()
 

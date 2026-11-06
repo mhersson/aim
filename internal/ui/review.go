@@ -32,6 +32,7 @@ type reviewView struct {
 	mode     core.ReviewMode // the mode the view follows, as core holds it
 	pr       core.ReviewPR   // the pull request the view shows, as core holds it; zero for none
 	prBase   string          // the shown pull request's base branch
+	prBranch string          // its head branch, for a copy, whose own HEAD means nothing
 	unpushed int             // commits the pull request's worktree has that its remote lacks, read with the place
 	then     prThen          // run once the pull request's diff has loaded
 	src      git.Source
