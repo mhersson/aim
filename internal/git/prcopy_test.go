@@ -837,3 +837,177 @@ func TestFetchPRCopyNeedsAToken(t *testing.T) {
 		t.Errorf("a refused call ran a fetch:\n%s", calls)
 	}
 }
+
+func TestSweepPRCopies(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
+	old := now.Add(-prCopyStaleAge - time.Hour)
+	fresh := now.Add(-prCopyStaleAge + time.Hour)
+
+	mkCopy := func(t *testing.T, root, rel string, used time.Time) string {
+		t.Helper()
+
+		dir := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+
+		marker := filepath.Join(dir, ".git", prCopyMarker)
+		if err := os.WriteFile(marker, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := os.Chtimes(marker, used, used); err != nil {
+			t.Fatal(err)
+		}
+
+		return dir
+	}
+
+	exists := func(p string) bool {
+		_, err := os.Lstat(p)
+
+		return err == nil
+	}
+
+	tests := []struct {
+		name    string
+		setup   func(t *testing.T, root string)
+		removed int
+		gone    []string
+		kept    []string
+	}{
+		{
+			name:    "stale marker is removed with its empty owner and host",
+			setup:   func(t *testing.T, root string) { mkCopy(t, root, "h/o/n", old) },
+			removed: 1,
+			gone:    []string{"h/o/n", "h/o", "h"},
+		},
+		{
+			name: "fresh marker is kept",
+			setup: func(t *testing.T, root string) {
+				mkCopy(t, root, "h/o/n", fresh)
+			},
+			kept: []string{"h/o/n"},
+		},
+		{
+			name: "owner with a kept copy stays",
+			setup: func(t *testing.T, root string) {
+				mkCopy(t, root, "h/o/old", old)
+				mkCopy(t, root, "h/o/new", fresh)
+			},
+			removed: 1,
+			gone:    []string{"h/o/old"},
+			kept:    []string{"h/o/new", "h/o", "h"},
+		},
+		{
+			name: "interrupted creation older than the limit is removed",
+			setup: func(t *testing.T, root string) {
+				dir := filepath.Join(root, "h", "o", "n")
+				if err := os.MkdirAll(dir, 0o700); err != nil {
+					t.Fatal(err)
+				}
+
+				if err := os.Chtimes(dir, old, old); err != nil {
+					t.Fatal(err)
+				}
+			},
+			removed: 1,
+			gone:    []string{"h/o/n"},
+		},
+		{
+			name: "interrupted creation newer than the limit is kept",
+			setup: func(t *testing.T, root string) {
+				dir := filepath.Join(root, "h", "o", "n")
+				if err := os.MkdirAll(dir, 0o700); err != nil {
+					t.Fatal(err)
+				}
+
+				if err := os.Chtimes(dir, fresh, fresh); err != nil {
+					t.Fatal(err)
+				}
+			},
+			kept: []string{"h/o/n"},
+		},
+		{
+			name: "symlink in place of a copy is left and not followed",
+			setup: func(t *testing.T, root string) {
+				outside := mkCopy(t, t.TempDir(), "x", old)
+				if err := os.MkdirAll(filepath.Join(root, "h", "o"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+
+				if err := os.Symlink(outside, filepath.Join(root, "h", "o", "n")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			kept: []string{"h/o/n", "h/o/n/.git"},
+		},
+		{
+			name: "regular file in place of a copy is left",
+			setup: func(t *testing.T, root string) {
+				if err := os.MkdirAll(filepath.Join(root, "h", "o"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+
+				p := filepath.Join(root, "h", "o", "n")
+				if err := os.WriteFile(p, nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+
+				if err := os.Chtimes(p, old, old); err != nil {
+					t.Fatal(err)
+				}
+			},
+			kept: []string{"h/o/n"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			tc.setup(t, root)
+
+			n, err := SweepPRCopies(root, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if n != tc.removed {
+				t.Errorf("removed = %d, want %d", n, tc.removed)
+			}
+
+			for _, p := range tc.gone {
+				if exists(filepath.Join(root, filepath.FromSlash(p))) {
+					t.Errorf("%s should be gone", p)
+				}
+			}
+
+			for _, p := range tc.kept {
+				if !exists(filepath.Join(root, filepath.FromSlash(p))) {
+					t.Errorf("%s should be kept", p)
+				}
+			}
+		})
+	}
+
+	t.Run("missing root", func(t *testing.T) {
+		t.Parallel()
+
+		n, err := SweepPRCopies(filepath.Join(t.TempDir(), "none"), now)
+		if n != 0 || err != nil {
+			t.Errorf("got %d, %v; want 0, nil", n, err)
+		}
+	})
+
+	t.Run("empty root", func(t *testing.T) {
+		t.Parallel()
+
+		if n, err := SweepPRCopies("", now); n != 0 || err != nil {
+			t.Errorf("got %d, %v; want 0, nil", n, err)
+		}
+	})
+}

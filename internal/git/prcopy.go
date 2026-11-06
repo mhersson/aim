@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -15,6 +16,8 @@ import (
 const (
 	prCopyBranch = "aim-pr-copy"
 	prCopyMarker = "aim-used"
+
+	prCopyStaleAge = 30 * 24 * time.Hour
 )
 
 var errNoToken = errors.New("fetch pull request: no token")
@@ -100,6 +103,86 @@ func initPRCopy(ctx context.Context, dir, origin string) error {
 	}
 
 	return nil
+}
+
+// SweepPRCopies removes the copies under root (host/owner/name) unused for
+// prCopyStaleAge, and the owner and host directories that end up empty. A copy
+// without a marker (an interrupted creation) ages by its directory's mtime.
+// Symlinks and files are never entered. It returns the copies removed.
+func SweepPRCopies(root string, now time.Time) (int, error) {
+	if root == "" {
+		return 0, nil
+	}
+
+	var (
+		removed int
+		errs    []error
+	)
+
+	subdirs := func(dir string) []string {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			if !errors.Is(err, fs.ErrNotExist) {
+				errs = append(errs, fmt.Errorf("sweep pull request copies: %w", err))
+			}
+
+			return nil
+		}
+
+		var names []string
+
+		for _, e := range entries {
+			if e.IsDir() {
+				names = append(names, e.Name())
+			}
+		}
+
+		return names
+	}
+
+	for _, host := range subdirs(root) {
+		hostDir := filepath.Join(root, host)
+
+		for _, owner := range subdirs(hostDir) {
+			ownerDir := filepath.Join(hostDir, owner)
+
+			for _, name := range subdirs(ownerDir) {
+				dir := filepath.Join(ownerDir, name)
+
+				used, err := prCopyLastUsed(dir)
+				if err != nil || now.Sub(used) <= prCopyStaleAge {
+					continue
+				}
+
+				if err := os.RemoveAll(dir); err != nil {
+					errs = append(errs, fmt.Errorf("sweep pull request copies: %w", err))
+
+					continue
+				}
+
+				removed++
+			}
+
+			// Fails when not empty, which is the point.
+			_ = os.Remove(ownerDir)
+		}
+
+		_ = os.Remove(hostDir)
+	}
+
+	return removed, errors.Join(errs...)
+}
+
+func prCopyLastUsed(dir string) (time.Time, error) {
+	info, err := os.Stat(filepath.Join(dir, ".git", prCopyMarker))
+	if err != nil {
+		info, err = os.Stat(dir)
+		if err != nil {
+			return time.Time{}, err
+		}
+	}
+
+	return info.ModTime(), nil
 }
 
 func touch(path string) error {
