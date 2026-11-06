@@ -1056,3 +1056,42 @@ func TestFoldHintKey(t *testing.T) {
 		})
 	}
 }
+
+func TestLayoutHeadings(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		src   string
+		width int
+		want  []string // the text of each line in Headings
+	}{
+		{name: "none", src: "plain text\n\n- item\n", width: 40, want: nil},
+		{name: "one per level", src: "# One\n\ntext\n\n## Two\n\n### Three\n", width: 40, want: []string{"One", "Two", "Three"}},
+		{name: "a wrapped heading lists each of its lines", src: "# aaa bbb ccc ddd\n\ntext\n", width: 10, want: []string{"aaa bbb", "ccc ddd"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			lay := layoutOf(tt.src, tt.width, "")
+
+			var got []string
+
+			for _, i := range lay.Headings {
+				got = append(got, strings.TrimSpace(plainLine(lay.Lines[i])))
+			}
+
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("heading lines %q, want %q", got, tt.want)
+			}
+
+			for i, l := range lay.Lines {
+				if l.IsHeading() != slices.Contains(lay.Headings, i) {
+					t.Errorf("line %d: IsHeading %v disagrees with Headings %v", i, l.IsHeading(), lay.Headings)
+				}
+			}
+		})
+	}
+}
