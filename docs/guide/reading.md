@@ -11,7 +11,7 @@ To read the focused agent's plan, press `ctrl+space p`. From the agents rail, pr
 AIM records a plan from the agent's own work:
 
 - the file Claude Code writes when it leaves plan mode, if it is a markdown file (the box tag reads `plan mode`);
-- a markdown file under one of the folders in `[plans] paths` (the tag reads `plan file`) that the agent edited, or that a finished shell command of the agent changed. The folders are in [`config.example.toml`](../../config.example.toml).
+- a markdown file under one of the folders in `[plans] paths` (the tag reads `plan file`) that the agent edited, or that a finished shell command of the agent changed. Each folder is matched anywhere in the file's path, and the plan's links reach up to the directory above the deepest match; see [`config.example.toml`](../../config.example.toml).
 
 The latest plan wins, and only the agent's edits count, not yours. While a new plan is unread, the agent's card on the rail shows the plan mark; opening the plan clears it. A plan that the agent rewrites while you read it reloads in place and the tag reads `rewritten` until your next key. A new conversation in the pane (`/clear`, or a fresh start) drops the plan.
 
