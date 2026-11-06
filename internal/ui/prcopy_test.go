@@ -1223,7 +1223,7 @@ func TestCopyMergeFindsNoWorktree(t *testing.T) {
 		t.Errorf("confirm = %v, notice = %q, want no clean-up offer or notice", c.confirm, c.notice)
 	}
 
-	reads := []string{"Open", "Head", "ListWorktrees"}
+	reads := []string{"Open", "ListWorktrees"}
 
 	for _, call := range c.callsOn(root, from) {
 		if !slices.Contains(reads, call.Op) {
