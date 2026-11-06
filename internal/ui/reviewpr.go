@@ -344,7 +344,7 @@ func (a *App) askPR(tab core.TabID, want *prWant, base string, then prThen) tea.
 	}
 
 	v := a.reviewViewOf(tab)
-	v.then = thenNothing
+	v.then, v.pollThen = thenNothing, thenNothing
 
 	a.drawer.prSeq++
 	ask := prAsk{tab: tab, pane: t.Review.Pane, seq: a.drawer.prSeq, epoch: v.epoch, then: then, want: want, base: base}

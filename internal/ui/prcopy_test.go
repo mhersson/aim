@@ -911,6 +911,22 @@ func TestCopyWaitIgnoresAnOlderAsk(t *testing.T) {
 	c.noBox(t)
 }
 
+func TestCopyNewerAskDropsTheHeldAction(t *testing.T) {
+	t.Parallel()
+
+	c := newCopyRig(t)
+	c.pressOnRow(t, 'M')
+
+	other := c.want88()
+	other.number = 89
+
+	c.repo.f.edit(func() { c.repo.f.copyPRs[copyOrigin("github.com")][89] = c.head })
+	c.run(c.askPR(c.store.State().Tab().ID, other, "", thenNothing))
+
+	c.poll(88, copyPR88())
+	c.noBox(t)
+}
+
 func TestCopyWaitFailedPoll(t *testing.T) {
 	t.Parallel()
 
