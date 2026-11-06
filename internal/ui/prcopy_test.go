@@ -1196,3 +1196,38 @@ func TestCopyCleanUpSaysNoWorktree(t *testing.T) {
 		t.Errorf("git ran on the copy: %+v", calls)
 	}
 }
+
+func TestCopyMergeFindsNoWorktree(t *testing.T) {
+	t.Parallel()
+
+	c := newCopyRig(t)
+	root := c.rootOf(t, "github.com/acme/infra")
+	c.pressOnRow(t, 'M')
+	c.poll(88, copyPR88())
+
+	if c.merge == nil {
+		t.Fatal("no merge box after the poll")
+	}
+
+	from := c.logLen()
+	c.keys(keyEnter)
+	c.until(t, "the clean-up check on the copy", func() bool { return len(c.callsOn(root, from)) > 0 })
+	c.until(t, "the merged state", func() bool {
+		info, _ := prInfoByNumber(c.store.State(), "github.com/acme/infra", 88)
+
+		return info.State == prMergedState
+	})
+
+	// A merge finding no worktree is silent, as for a checkout with none: no clean-up box, and no notice but the merge's own.
+	if c.confirm != nil || c.notice == noticeNoCleanupWorktree(copyBranch) {
+		t.Errorf("confirm = %v, notice = %q, want no clean-up offer or notice", c.confirm, c.notice)
+	}
+
+	reads := []string{"Open", "Head", "ListWorktrees"}
+
+	for _, call := range c.callsOn(root, from) {
+		if !slices.Contains(reads, call.Op) {
+			t.Errorf("%s ran on the copy; want only reads %v", call.Op, reads)
+		}
+	}
+}
