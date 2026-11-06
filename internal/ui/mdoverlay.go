@@ -70,7 +70,10 @@ func (a *App) openFinderFile(path string) tea.Cmd {
 		msg.path, msg.root = resolved, filepath.Dir(resolved)
 		switch repo, err := a.git.Open(ctx, msg.root); {
 		case err == nil:
-			msg.root, msg.repo = repo.Root, printable(repo.Name())
+			// On a case-insensitive disk git's toplevel can spell the path in another case.
+			if _, ok := within(repo.Root, msg.path); ok {
+				msg.root, msg.repo = repo.Root, printable(repo.Name())
+			}
 		case !errors.Is(err, git.ErrNotRepo) && !errors.Is(err, context.Canceled):
 			a.log.Warn("find the repository of a markdown file", "path", msg.path, "err", err)
 		}

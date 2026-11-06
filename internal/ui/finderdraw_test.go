@@ -131,6 +131,11 @@ func TestFinderText(t *testing.T) {
 
 	for _, icons := range []bool{true, false} {
 		for _, sc := range finderScenes() {
+			// One scene pair shows the icons = false fallback; the rest are layout.
+			if !icons && !slices.Contains([]string{"browse", "search"}, sc.name) {
+				continue
+			}
+
 			t.Run(fmt.Sprintf("icons=%v/%s", icons, sc.name), func(t *testing.T) {
 				t.Parallel()
 				golden.RequireEqual(t, []byte(ansi.Strip(finderSceneApp(t, icons, sc).View().Content)))

@@ -833,6 +833,8 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.overlay != nil {
 			return a, a.updateOverlay(msg)
 		}
+
+		return a, a.finderPrompt(msg)
 	}
 
 	return a, nil

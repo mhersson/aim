@@ -1,9 +1,11 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -11,6 +13,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/mhersson/aim/internal/git"
 	"github.com/mhersson/aim/internal/md"
 )
 
@@ -543,8 +546,81 @@ func TestFinderLayoutOffLoop(t *testing.T) {
 	}
 }
 
+// foreignRootGit answers Open for one folder with a repository whose root does
+// not hold it, as git's toplevel can on a case-insensitive disk.
+type foreignRootGit struct {
+	*fakeGit
+	dir *string
+}
+
+func (g foreignRootGit) Open(ctx context.Context, dir string) (git.Repo, error) {
+	if dir == *g.dir {
+		return git.Repo{Root: filepath.Join(dir, "elsewhere")}, nil
+	}
+
+	return g.fakeGit.Open(ctx, dir)
+}
+
+// TestFinderClipboardPaste gives the prompt the answer to the read ctrl+v starts.
+// The answer's type is private to the input, so the test keeps whatever type the
+// read returned and, for a text answer, swaps in its own text; a failed read
+// leaves the input's error, which shows the answer reached it too.
+func TestFinderClipboardPaste(t *testing.T) {
+	t.Parallel()
+
+	r := newFinderRig(t, "proj", finderTree)
+	r.listed(t)
+
+	f, dir := r.finder, r.finder.dir
+	cmd := r.step(tea.KeyPressMsg{Code: 'v', Mod: tea.ModCtrl})
+
+	if cmd == nil {
+		t.Fatal("ctrl+v started no clipboard read")
+	}
+
+	const text = "docs/gu"
+
+	pasted := false
+
+	for _, m := range flatten(cmd) {
+		if m == nil {
+			continue
+		}
+
+		if v := reflect.ValueOf(m); v.Kind() == reflect.String {
+			ans := reflect.New(v.Type()).Elem()
+			ans.SetString(text)
+			m, pasted = ans.Interface(), true
+		}
+
+		r.step(m)
+	}
+
+	switch {
+	case pasted && (f.input.Value() != text || f.dir != dir):
+		t.Errorf("prompt %q in %s, want %q pasted without a jump from %s", f.input.Value(), f.dir, text, dir)
+	case !pasted && f.input.Err == nil:
+		t.Error("the read's answer did not reach the prompt")
+	}
+}
+
 func TestFinderRoot(t *testing.T) {
 	t.Parallel()
+
+	t.Run("a repository root that does not hold the file is not used", func(t *testing.T) {
+		t.Parallel()
+
+		var dir string
+
+		r := newFinderRig(t, "proj", finderTree, func(o *Options) { o.Git = foreignRootGit{fakeGit: o.Git.(*fakeGit), dir: &dir} })
+		dir = r.at("proj/docs")
+		r.listed(t)
+		r.goTo(t, "docs/guide.md")
+
+		if r.plan == nil || r.plan.root != r.at("proj/docs") || r.plan.file.repo != "" {
+			t.Fatalf("plan = %+v (notice %q), want the file's folder as the root and no repository", r.plan, r.notice)
+		}
+	})
 
 	t.Run("outside any repository the file's own folder", func(t *testing.T) {
 		t.Parallel()

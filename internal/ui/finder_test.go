@@ -1,8 +1,10 @@
 package ui
 
 import (
+	"fmt"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/mhersson/aim/internal/md"
 )
@@ -194,9 +196,9 @@ func TestFinderCount(t *testing.T) {
 		{name: "no walk", sel: 1, n: 10, want: "2 of 10"},
 		{name: "nothing listed", sel: 0, n: 0, want: "0 of 0"},
 		{name: "a walk that finished", sel: 2, n: 37, walk: &finderWalk{}, want: "3 of 37"},
-		{name: "a walk running", sel: 2, n: 37, walk: &finderWalk{running: true}, want: "3 of 37 · searching…"},
-		{name: "the file limit", sel: 2, n: 37, walk: &finderWalk{stop: md.WalkFileLimit}, want: "3 of 37 · stopped at 20,000 files"},
-		{name: "the time limit", sel: 2, n: 37, walk: &finderWalk{stop: md.WalkTimeLimit}, want: "3 of 37 · stopped after 10 s"},
+		{name: "a walk running", sel: 2, n: 37, walk: &finderWalk{running: true}, want: "3 of 37 · " + finderSearching},
+		{name: "the file limit", sel: 2, n: 37, walk: &finderWalk{stop: md.WalkFileLimit}, want: "3 of 37 · " + fmt.Sprintf(finderStoppedFiles, thousands(md.WalkMaxFiles))},
+		{name: "the time limit", sel: 2, n: 37, walk: &finderWalk{stop: md.WalkTimeLimit}, want: "3 of 37 · " + fmt.Sprintf(finderStoppedTime, int(md.WalkMaxTime/time.Second))},
 	}
 
 	for _, tt := range tests {

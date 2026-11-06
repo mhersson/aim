@@ -423,7 +423,7 @@ func TestReadFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := ReadFolder(root)
+	got, err := ReadFolder(context.Background(), root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -458,10 +458,21 @@ func TestSortFolder(t *testing.T) {
 	}
 }
 
+func TestReadFolderEnded(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := ReadFolder(ctx, t.TempDir()); !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want the context's", err)
+	}
+}
+
 func TestReadFolderError(t *testing.T) {
 	t.Parallel()
 
-	_, err := ReadFolder(filepath.Join(t.TempDir(), "missing"))
+	_, err := ReadFolder(context.Background(), filepath.Join(t.TempDir(), "missing"))
 
 	if _, ok := errors.AsType[*fs.PathError](err); !ok {
 		t.Fatalf("err = %v, want a *fs.PathError inside", err)

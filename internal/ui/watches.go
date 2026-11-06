@@ -90,7 +90,7 @@ type watchState struct {
 	pins     map[core.TabID]*pinWatch
 	file     *fileWatchRef // the markdown file overlay's watch on the shown file
 	openFile fileWatcher
-	failed   map[string]bool // roots whose failure was already shown
+	failed   map[string]bool // roots and file paths whose failure was already shown
 	holds    holds
 }
 

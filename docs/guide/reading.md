@@ -118,6 +118,7 @@ Other keys, and a paste, are dropped while the chooser is open. These keys are f
 - A link to a markdown file inside the worktree opens as a page over the plan or file; the title shows the page's path. A page's links open further pages, and `esc` goes back one page.
 - Any other file inside the worktree opens in the editor at line 1, in a new shell pane beside the focused one, and closes the box. The editor is `$VISUAL`, else `$EDITOR`, else `vi`.
 - A path outside the worktree says `not opening <path>: outside the worktree`, a missing one `not opening <path>: no such file` and a folder `not opening <path>: it is a folder`; the box stays open.
+- Outside a repository the limit for these links is the file's own folder, in place of the worktree.
 - In the conversation only web links are offered.
 
 `esc` steps back one level: the chooser, then the search prompt, then a page, then the box.
@@ -128,7 +129,7 @@ AIM draws an image in the text as a picture only when the terminal answers AIM's
 
 Otherwise an image is one line holding the image icon (or `image: ` when `icons = false`), its alt text and its host (a local image shows its file name instead). While a picture's size loads the line ends in `loading…`, and a picture that fails to load stays a line.
 
-Only some images load as pictures: an `https` image on `github.com`, a `.githubusercontent.com` host or the pull request's own GitHub host, and, in a plan or file, a local image inside the worktree (for a plan-mode plan, the agent's working directory). An `.svg` never loads. A picture is at most 100 cells wide, 20 rows tall and 5 MiB. The cursor steps through a picture a row at a time, and `enter` on it follows the image's link.
+Only some images load as pictures: an `https` image on `github.com`, a `.githubusercontent.com` host or the pull request's own GitHub host, and, in a plan or file, a local image inside the worktree (outside a repository, the file's folder; for a plan-mode plan, the agent's working directory). An `.svg` never loads. A picture is at most 100 cells wide, 20 rows tall and 5 MiB. The cursor steps through a picture a row at a time, and `enter` on it follows the image's link.
 
 ## Copy, edit, read again, close
 

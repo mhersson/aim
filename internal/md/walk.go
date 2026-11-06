@@ -239,10 +239,14 @@ type FolderEntry struct {
 	Dir  bool
 }
 
-// ReadFolder lists dir for browsing: folders and markdown files with the walk's
-// classification, hidden ones and node_modules included, folders first, each
-// group by case-folded name with the raw name breaking ties.
-func ReadFolder(dir string) ([]FolderEntry, error) {
+// ReadFolder lists dir for browsing, unless ctx has ended: folders and markdown
+// files with the walk's classification, hidden ones and node_modules included,
+// folders first, each group by case-folded name with the raw name breaking ties.
+func ReadFolder(ctx context.Context, dir string) ([]FolderEntry, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("read folder: %w", err)
+	}
+
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("read folder: %w", err)

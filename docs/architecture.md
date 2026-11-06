@@ -66,8 +66,8 @@ through the app's). Its batches and its end reach the loop as `finderWalkMsg`s
 that a `tea.Cmd` reads one at a time and the handler re-arms, so no tick drives
 it; the time limit is a second context whose expiry the walk reports as its
 stop reason. It is one walk per folder because every later letter only filters
-what the walk found: a keystroke costs no disk reads, and a walk of `/` finds
-about 8,800 markdown files among 77,000 folders. The filter runs on the loop
+what the walk found: a keystroke costs no disk reads, and a walk of `/` can
+meet tens of thousands of folders. The filter runs on the loop
 below `finderFilterInline` names and past it as a `tea.Cmd`, at most one at a
 time; a change that lands while it runs marks it dirty and its answer starts
 the next. Walk, filter and folder-read messages carry the finder, and a folder

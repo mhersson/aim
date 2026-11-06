@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"path/filepath"
 	"runtime"
@@ -146,6 +147,12 @@ type finderWalk struct {
 	ch      <-chan finderWalkMsg
 }
 
+// The count's words for a walk that hit a limit.
+const (
+	finderStoppedFiles = "stopped at %s files"
+	finderStoppedTime  = "stopped after %d s"
+)
+
 // tail is what the count says of the walk, after the numbers; nothing for a
 // walk that ran to its end.
 func (w *finderWalk) tail() string {
@@ -155,9 +162,9 @@ func (w *finderWalk) tail() string {
 	case w.running:
 		return " · " + finderSearching
 	case w.stop == md.WalkFileLimit:
-		return " · stopped at " + thousands(md.WalkMaxFiles) + " files"
+		return " · " + fmt.Sprintf(finderStoppedFiles, thousands(md.WalkMaxFiles))
 	case w.stop == md.WalkTimeLimit:
-		return " · stopped after " + strconv.Itoa(int(md.WalkMaxTime/time.Second)) + " s"
+		return " · " + fmt.Sprintf(finderStoppedTime, int(md.WalkMaxTime/time.Second))
 	}
 
 	return ""
@@ -398,10 +405,10 @@ func (a *App) finderGo(f *finderView, dir, want string) tea.Cmd {
 	f.query, f.moved, f.fresh = "", false, false
 	f.setRows(finderRows(f.in()), "")
 
-	gen := f.gen
+	gen, ctx := f.gen, a.ctx
 
 	return func() tea.Msg {
-		es, err := md.ReadFolder(dir)
+		es, err := md.ReadFolder(ctx, dir)
 
 		return finderListMsg{view: f, gen: gen, entries: es, err: err}
 	}
@@ -641,11 +648,22 @@ func (a *App) handleFinderKey(msg tea.KeyPressMsg) tea.Cmd {
 		}
 	}
 
+	return a.finderInput(msg)
+}
+
+// finderInput gives the prompt a message and follows an edit of its text. A
+// paste never jumps.
+func (a *App) finderInput(msg tea.Msg) tea.Cmd {
+	f := a.finder
 	prev := f.input.Value()
 
 	var cmd tea.Cmd
 
 	f.input, cmd = f.input.Update(msg)
+
+	if v := f.input.Value(); printable(v) != v {
+		f.input.SetValue(printable(v))
+	}
 
 	if f.input.Value() == prev {
 		return cmd
@@ -654,24 +672,23 @@ func (a *App) handleFinderKey(msg tea.KeyPressMsg) tea.Cmd {
 	return tea.Batch(cmd, a.finderQueryChanged(f))
 }
 
-// finderPaste puts pasted text in the prompt. A paste never jumps.
+// finderPaste puts pasted text in the prompt.
 func (a *App) finderPaste(text string) tea.Cmd {
 	if !a.finderShows() {
 		return nil
 	}
 
-	f := a.finder
-	prev := f.input.Value()
+	return a.finderInput(tea.PasteMsg{Content: printable(text)})
+}
 
-	var cmd tea.Cmd
-
-	f.input, cmd = f.input.Update(tea.PasteMsg{Content: printable(text)})
-
-	if f.input.Value() == prev {
-		return cmd
+// finderPrompt gives the prompt a message of its own, such as the answer to the
+// clipboard read ctrl+v starts, unless a modal is over the finder.
+func (a *App) finderPrompt(msg tea.Msg) tea.Cmd {
+	if a.finder == nil || a.modalOverFinder() || !a.finderShows() {
+		return nil
 	}
 
-	return tea.Batch(cmd, a.finderQueryChanged(f))
+	return a.finderInput(msg)
 }
 
 // finderShows reports whether the box is big enough to draw with a list row.

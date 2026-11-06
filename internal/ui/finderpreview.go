@@ -23,7 +23,6 @@ const finderUnreadableFile = "can't read this file: "
 // file, a folder's contents or one line of text. It is built off the update
 // loop and read-only to it except for the scroll.
 type finderPreview struct {
-	path string // the row's path, which the ask was for
 	head string // the path above the preview; a README's own for a folder
 
 	file bool // a file was read: size and mod are set
@@ -72,7 +71,7 @@ func finderReadme(es []md.FolderEntry) (string, bool) {
 // readFinderPreview makes the preview of path, a folder when dir. It runs off
 // the update loop and stops early when ctx ends.
 func readFinderPreview(ctx context.Context, path string, dir bool, o finderPreviewOpts) *finderPreview {
-	p := &finderPreview{path: path, head: finderTitle(path, o.home)}
+	p := &finderPreview{head: finderTitle(path, o.home)}
 
 	if !dir {
 		p.loadFile(ctx, path, o)
@@ -80,7 +79,7 @@ func readFinderPreview(ctx context.Context, path string, dir bool, o finderPrevi
 		return p
 	}
 
-	es, err := md.ReadFolder(path)
+	es, err := md.ReadFolder(ctx, path)
 	if err != nil {
 		p.text, p.isErr = finderUnreadable+pathErrReason(err), true
 

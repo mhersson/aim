@@ -293,14 +293,14 @@ func TestFinderPreviewFollowsTheCursor(t *testing.T) {
 	r.listed(t)
 
 	f := r.finder
-	if f.preview == nil || f.preview.path != r.at("proj/docs") || len(f.preview.list) != 2 {
+	if f.preview == nil || f.preview.head != finderTitle(r.at("proj/docs"), r.home) || len(f.preview.list) != 2 {
 		t.Fatalf("on the first entry the preview is %+v, want the docs folder's contents", f.preview)
 	}
 
 	r.finderSelect(t, "README.md")
 	r.sync()
 
-	if f.preview.path != r.at("proj/README.md") || f.preview.doc == nil || !f.preview.file {
+	if f.preview.head != finderTitle(r.at("proj/README.md"), r.home) || f.preview.doc == nil || !f.preview.file {
 		t.Fatalf("on README.md the preview is %+v, want that file", f.preview)
 	}
 
@@ -312,8 +312,8 @@ func TestFinderPreviewFollowsTheCursor(t *testing.T) {
 	r.finderSelect(t, "..")
 	r.sync()
 
-	if f.preview.path != r.home || f.preview.head != "~" {
-		t.Errorf("on .. the preview is %q headed %q, want the parent, home", f.preview.path, f.preview.head)
+	if f.preview.head != "~" {
+		t.Errorf("on .. the preview is headed %q, want home", f.preview.head)
 	}
 }
 
@@ -355,7 +355,7 @@ func TestFinderPreviewStale(t *testing.T) {
 		r.step(first[0])
 
 		if want := second[0].(finderPreviewMsg).pv; r.finder.preview != want {
-			t.Errorf("preview is for %q, want the newer ask's %q", r.finder.preview.path, want.path)
+			t.Errorf("preview is headed %q, want the newer ask's %q", r.finder.preview.head, want.head)
 		}
 	})
 
@@ -521,7 +521,7 @@ func TestFinderPreviewWidth(t *testing.T) {
 
 		r.step(held[0])
 
-		if r.finder.preview == nil || r.finder.preview.path != r.at("proj/docs") {
+		if r.finder.preview == nil || r.finder.preview.head != finderTitle(r.at("proj/docs"), r.home) {
 			t.Errorf("preview = %+v, want the selected row's", r.finder.preview)
 		}
 
