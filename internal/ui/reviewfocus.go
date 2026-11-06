@@ -129,7 +129,7 @@ func (a *App) reviewToggle() tea.Cmd {
 
 	switch {
 	case tab.Review == nil:
-		return a.openSliding(tab.Focus)
+		return a.openSliding(tab.Focus, false)
 	case a.drawerHasKeys():
 		return a.closeDrawer(true)
 	}
@@ -146,8 +146,8 @@ func (a *App) reviewToggle() tea.Cmd {
 
 // openSliding opens the drawer on a pane the way openReview does and makes the
 // answer slide it in.
-func (a *App) openSliding(pane core.PaneID) tea.Cmd {
-	cmd := a.openReview(pane, true)
+func (a *App) openSliding(pane core.PaneID, anyDir bool) tea.Cmd {
+	cmd := a.openReviewFor(pane, true, anyDir)
 	if cmd == nil {
 		return nil
 	}

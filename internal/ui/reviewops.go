@@ -53,6 +53,12 @@ func pinnedTo(tab core.Tab, pane core.PaneID) bool {
 // loop; the drawer opens when they answer, in turn mode when the pane has turns
 // and the config allows it, else in branch mode.
 func (a *App) openReview(pane core.PaneID, focus bool) tea.Cmd {
+	return a.openReviewFor(pane, focus, false)
+}
+
+// openReviewFor is openReview; with anyDir a pane in no repository, or with no
+// directory, still opens, for a pull request whose diff needs nothing from it.
+func (a *App) openReviewFor(pane core.PaneID, focus, anyDir bool) tea.Cmd {
 	a.drawer.prNext = nil
 
 	st := a.store.State()
@@ -64,9 +70,17 @@ func (a *App) openReview(pane core.PaneID, focus bool) tea.Cmd {
 
 	cwd := a.drawerDir(st, tab, pane)
 	if cwd == "" {
-		a.notice = noticeNotRepo
+		if !anyDir {
+			a.notice = noticeNotRepo
 
-		return nil
+			return nil
+		}
+
+		tabID := tab.ID
+
+		return func() tea.Msg {
+			return reviewOpenMsg{tab: tabID, pane: pane, focus: focus, anyDir: true, err: git.ErrNotRepo}
+		}
 	}
 
 	session, tabID, pinned, eng := paneSession(st, pane), tab.ID, pinnedTo(tab, pane), a.engine
@@ -75,7 +89,7 @@ func (a *App) openReview(pane core.PaneID, focus bool) tea.Cmd {
 		ctx, cancel := context.WithTimeout(a.ctx, reviewOpenTimeout)
 		defer cancel()
 
-		msg := reviewOpenMsg{tab: tabID, pane: pane, cwd: cwd, focus: focus}
+		msg := reviewOpenMsg{tab: tabID, pane: pane, cwd: cwd, focus: focus, anyDir: anyDir}
 
 		if msg.repo, msg.err = a.git.Open(ctx, cwd); msg.err != nil {
 			// A pinned worktree that went still opens a drawer, which says so.
@@ -131,6 +145,11 @@ func (a *App) onReviewOpen(msg reviewOpenMsg) tea.Cmd {
 		return nil
 	case errors.As(msg.err, &gone):
 		// The drawer opens to show it.
+	case msg.err != nil && msg.anyDir:
+		// The pull request's diff needs nothing from the pane.
+		if next != nil {
+			next.noRepo = true
+		}
 	case errors.Is(msg.err, git.ErrNotRepo):
 		a.notice = noticeNotRepo
 
@@ -170,6 +189,13 @@ func (a *App) onReviewOpen(msg reviewOpenMsg) tea.Cmd {
 	if w == nil {
 		w = &paneWatch{}
 		a.watches.panes[msg.pane] = w
+	}
+
+	// Leaving the pull request then shows the state of a pane in no repository.
+	if msg.err != nil && msg.anyDir {
+		w.cwd = msg.cwd
+
+		return a.onPaneRepo(paneRepoMsg{id: msg.pane, cwd: msg.cwd, err: git.ErrNotRepo})
 	}
 
 	if w.cwd == msg.cwd && w.want == msg.repo.Root {
@@ -233,6 +259,9 @@ func (a *App) setReviewMode(mode core.ReviewMode) tea.Cmd {
 // answer of the probe for the new session runs retry again.
 func (a *App) turnsGate(tab core.TabID, v *reviewView, session string, retry func() tea.Cmd) (bool, tea.Cmd) {
 	switch {
+	case v.pr.Copy && session != "":
+		// The copy's turn count says nothing about the pane's.
+		return true, nil
 	case session == "":
 		a.notice = noticeNoTurns
 	case v.loaded && v.turnsFor != session:

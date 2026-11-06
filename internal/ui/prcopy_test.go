@@ -532,3 +532,118 @@ func TestCopyGateServesOneRootAtATime(t *testing.T) {
 
 	again()
 }
+
+// noRepoPane opens an agent pane that is in no repository: dir "" leaves its
+// follow directory empty.
+func (c *copyRig) noRepoPane(t *testing.T, dir string, session core.SessionID) core.PaneID {
+	t.Helper()
+
+	id := c.agent(t, dir, session)
+	if got := c.store.State().Tab().Focus; got != id {
+		t.Fatalf("focus = %s, want the new pane %s", got, id)
+	}
+
+	return id
+}
+
+// noRepoDirs are the two ways a pane is in no repository.
+var noRepoDirs = []struct {
+	name string
+	dir  func(t *testing.T) string
+}{
+	{"outside any repository", func(t *testing.T) string { return t.TempDir() }},
+	{"empty directory", func(*testing.T) string { return "" }},
+}
+
+func TestCopyOpensOnPaneInNoRepo(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range noRepoDirs {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := newCopyRig(t)
+			root := c.rootOf(t, "github.com/acme/infra")
+			c.noRepoPane(t, tc.dir(t), "")
+
+			c.opened88(t)
+
+			v := c.view()
+			src, ok := v.src.(git.PRSource)
+
+			if !ok || !src.Copy || src.Worktree != root || src.Number != 88 {
+				t.Errorf("src = %+v, want the copy's pull request 88", v.src)
+			}
+
+			if len(v.res.Files) == 0 {
+				t.Error("the diff has no files")
+			}
+		})
+	}
+}
+
+func TestCopyLeavingLandsOnNotRepo(t *testing.T) {
+	t.Parallel()
+
+	c := newCopyRig(t)
+	c.noRepoPane(t, t.TempDir(), "")
+	c.opened88(t)
+
+	c.keys(keyRune('b'))
+	c.until(t, "the not-a-repository state", c.viewHolds(func(v *reviewView) bool { return errors.Is(v.err, errNotRepo) }))
+
+	if c.review().PR != nil {
+		t.Errorf("review PR = %+v, want none", c.review().PR)
+	}
+}
+
+func TestCopyTurnKeyLeavesForThePane(t *testing.T) {
+	t.Parallel()
+
+	c := newCopyRig(t)
+	c.agent(t, c.dir, testSession)
+	c.opened88(t)
+
+	c.keys(keyRune('t'))
+	c.until(t, "the pane's turns", c.viewHolds(func(v *reviewView) bool { return c.review().PR == nil && v.root == c.root }))
+
+	if got := c.review().Mode; got != core.ReviewTurn {
+		t.Errorf("mode = %v, want turn", got)
+	}
+}
+
+func TestCopyTurnKeyNoSession(t *testing.T) {
+	t.Parallel()
+
+	c := newCopyRig(t)
+	c.noRepoPane(t, t.TempDir(), "")
+	c.opened88(t)
+
+	c.keys(keyRune('t'))
+
+	if c.notice != noticeNoTurns {
+		t.Errorf("notice = %q, want %q", c.notice, noticeNoTurns)
+	}
+
+	if pr := c.review().PR; pr == nil || pr.Number != 88 {
+		t.Errorf("review PR = %+v, want #88 kept", pr)
+	}
+}
+
+func TestCopyFetchFailsOnPaneInNoRepo(t *testing.T) {
+	t.Parallel()
+
+	boom := errors.New("boom")
+	c := newCopyRig(t)
+	c.repo.f.fail("OpenPRCopy", boom)
+	c.noRepoPane(t, t.TempDir(), "")
+
+	c.open(t, "github.com/acme/infra")
+	c.until(t, "the failure", func() bool { return c.noticeLevel() == levelError })
+
+	if !strings.Contains(c.notice, prNumberText(88)) {
+		t.Errorf("notice = %q, want #88", c.notice)
+	}
+
+	c.until(t, "the not-a-repository state", c.viewHolds(func(v *reviewView) bool { return errors.Is(v.err, errNotRepo) }))
+}

@@ -50,9 +50,11 @@ type reviewOpenMsg struct {
 	pane  core.PaneID
 	cwd   string
 	focus bool
-	repo  git.Repo
-	turns int // how many turns the pane's session has
-	err   error
+	// anyDir opens the drawer although err says the pane is in no repository.
+	anyDir bool
+	repo   git.Repo
+	turns  int // how many turns the pane's session has
+	err    error
 }
 
 // reviewLoadedMsg answers one load. gen is the view's epoch when it was asked.

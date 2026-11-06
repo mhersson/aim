@@ -88,6 +88,8 @@ type prNext struct {
 	want *prWant
 	then prThen
 	open bool // the drawer opened; the source is awaited
+	// noRepo: the pane is in no repository, so no source is coming and the ask goes at once.
+	noRepo bool
 }
 
 // prAsk is what every answer of one request carries, so a request that was
@@ -730,7 +732,7 @@ func (a *App) openWithPR(pane core.PaneID, want *prWant, then prThen) tea.Cmd {
 		return a.askPR(tab.ID, want, "", then)
 	}
 
-	cmd := a.openSliding(pane)
+	cmd := a.openSliding(pane, want != nil && want.inCopy)
 	if cmd == nil {
 		return nil
 	}
@@ -753,6 +755,12 @@ func (a *App) prNextAfterSync() tea.Cmd {
 		a.drawer.prNext = nil
 
 		return nil
+	}
+
+	if n.noRepo {
+		a.drawer.prNext = nil
+
+		return a.askPR(n.tab, n.want, "", n.then)
 	}
 
 	v := a.drawer.views[t.ID]
