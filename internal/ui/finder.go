@@ -733,6 +733,8 @@ func (a *App) finderEnter(f *finderView, home string) tea.Cmd {
 		return a.finderGo(f, f.target(r, home), "")
 	}
 
+	f.moved, f.fresh = true, false
+
 	return a.openFinderFile(f.target(r, home))
 }
 

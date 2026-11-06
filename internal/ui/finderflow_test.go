@@ -453,6 +453,37 @@ func TestFinderOpenAndBack(t *testing.T) {
 	})
 }
 
+func TestFinderBackWhileWalking(t *testing.T) {
+	t.Parallel()
+
+	r := newFinderRig(t, "proj", finderTree)
+	r.listed(t)
+
+	if held := r.flow(r.step(keyRune('g')), holdWalk); len(held) != 1 {
+		t.Fatalf("typing held %d walk messages, want 1", len(held))
+	}
+
+	r.typeKeys("uide")
+
+	f := r.finder
+	r.Update(finderWalkMsg{view: f, seq: f.walk.seq, batch: []md.WalkEntry{{Rel: "docs/guide.md"}}})
+
+	opened := r.selectedRel(t)
+
+	r.press(keyEnter)
+
+	if r.plan == nil || !f.walk.running {
+		t.Fatalf("plan open %v, walk running %v, want a file open over a running walk (notice %q)", r.plan != nil, f.walk.running, r.notice)
+	}
+
+	r.Update(finderWalkMsg{view: f, seq: f.walk.seq, batch: []md.WalkEntry{{Rel: "guide.md"}}})
+	r.press(keyEsc)
+
+	if got := r.selectedRel(t); got != opened {
+		t.Errorf("esc put the cursor on %q, want the opened %q among %q", got, opened, rowRels(f.rows))
+	}
+}
+
 func TestFinderRoot(t *testing.T) {
 	t.Parallel()
 
