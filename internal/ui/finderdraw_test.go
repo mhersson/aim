@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -47,6 +49,16 @@ func walking(t *testing.T, r *finderRig) {
 	r.flow(r.step(held[0]), holdWalk)
 }
 
+// previewing puts the cursor on rel and delivers the preview it asks for.
+func previewing(rel string) func(t *testing.T, r *finderRig) {
+	return func(t *testing.T, r *finderRig) {
+		t.Helper()
+
+		r.finderSelect(t, rel)
+		r.sync()
+	}
+}
+
 func finderScenes() []finderScene {
 	return []finderScene{
 		{name: "browse", w: 120, h: 30, start: "aim"},
@@ -66,6 +78,19 @@ func finderScenes() []finderScene {
 		{name: "hidden", w: 120, h: 30, start: "aim", setup: func(_ *testing.T, r *finderRig) { r.typeKeys(".") }},
 		{name: "empty-folder", w: 120, h: 30, start: "aim/emptydir"},
 		{name: "unreadable-folder", w: 120, h: 30, start: "aim/gone"},
+		{name: "preview-file", w: 120, h: 30, start: "aim/docs", setup: previewing("architecture.md")},
+		{name: "preview-readme", w: 120, h: 30, start: "aim/internal"},
+		{name: "preview-contents", w: 120, h: 30, start: "aim"},
+		{name: "preview-empty", w: 120, h: 30, start: "aim", setup: previewing("emptydir")},
+		{name: "preview-error", w: 120, h: 30, start: "aim", setup: func(t *testing.T, r *finderRig) {
+			t.Helper()
+
+			if err := os.Remove(r.at("aim/CHANGELOG.md")); err != nil {
+				t.Fatal(err)
+			}
+
+			previewing("CHANGELOG.md")(t, r)
+		}},
 	}
 }
 
@@ -90,7 +115,7 @@ func finderSceneApp(t *testing.T, icons bool, sc finderScene) *App {
 // colours, so it runs serially.
 func TestFinderGolden(t *testing.T) {
 	for _, sc := range finderScenes() {
-		if sc.name != "browse" && sc.name != "search" && sc.name != "unreadable-folder" {
+		if !slices.Contains([]string{"browse", "search", "unreadable-folder", "preview-file"}, sc.name) {
 			continue
 		}
 

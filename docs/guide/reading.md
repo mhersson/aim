@@ -19,7 +19,7 @@ A plan that cannot be read leaves the box closed with a notice such as `not open
 
 ## A markdown file
 
-To read any markdown file, press `ctrl+space m`, or choose "Open a markdown file" (`md.open`) in the command palette (`ctrl+space :`). The finder opens in a box the size of the reading box, with the prompt on top, the folder in the title and the list below it. From 100 terminal columns the box also splits in two, with the list on the left; the right column is empty. In a terminal too small for the box the finder stays open unseen and only `esc` works.
+To read any markdown file, press `ctrl+space m`, or choose "Open a markdown file" (`md.open`) in the command palette (`ctrl+space :`). The finder opens in a box the size of the reading box, with the prompt on top, the folder in the title and the list below it. From 100 terminal columns the box also splits in two, with the list on the left and a preview of the selected row on the right (see [The preview](#the-preview)). In a terminal too small for the box the finder stays open unseen and only `esc` works.
 
 It starts in the folder you are looking at: the one the review drawer shows while the drawer has the keyboard, else the focused pane's followed folder (the worktree of its latest edit, else where it works), then your home folder, then `/`. It needs no repository. A new open always starts there with an empty prompt.
 
@@ -28,6 +28,10 @@ It starts in the folder you are looking at: the one the review drawer shows whil
 The list shows folders and markdown files (`.md` and `.markdown`) only. With nothing typed it shows this folder alone: `..` on top (none at `/`), then the folders, then the files, each by name with case ignored; a folder ends in `/`. The cursor starts on the first entry under `..`, and going up leaves it on the folder you came from. A folder that cannot be read shows `can't read this folder: <reason>` under `..`, and an empty one `no folders or markdown files here`.
 
 Hidden entries (a leading `.`) are not listed or searched. Type `.` alone to list this folder's hidden entries, or start a search with `.` (`.co`) to search with them included.
+
+### The preview
+
+The right column shows the selected row rendered like the reading box, with no pictures. The row above it holds the file's path (`~` for your home folder, cut on the left when it is long), its size and when it changed, as in `~/notes/plan.md · 2.4 KB · 3h`, then a blank row. A folder shows its `README.md` or `README.markdown` rendered, with that file's path above it, else its folders and markdown files as a list; `..` shows the parent the same way, and `~/` shows your home folder. An empty folder reads `no folders or markdown files here`, and a file that cannot be read `can't read this file: <reason>`. A file over 4 MiB shows its first 4 MiB. The preview follows the cursor, and a slow read never holds the cursor back. Under 100 columns there is no preview and nothing is read for it.
 
 ### Search
 
@@ -44,13 +48,14 @@ These keys are fixed, like the palette's, and are not remapped by `[keys]`.
 | Move the cursor | `up` `down`, `ctrl+p` `ctrl+n`, `shift+tab` `tab` |
 | Open the file, go into the folder, go up on `..` | `enter` |
 | Go up a level (on an empty prompt; at `/` nothing) | `backspace` |
+| Scroll the preview | `ctrl+d` `ctrl+u`, `pgdown` `pgup` |
 | Jump to `/` (as the first character) | `/` |
 | Jump home | `~` then `/` |
 | Go up | `..` then `/` |
 | Take the one jump row for `~` or `..` | `enter` |
 | Close the finder | `esc` |
 
-A `/` anywhere else is an ordinary character. While the prompt reads exactly `~` or `..` the list has one row for that jump. Going to another folder clears the prompt. `ctrl+d`, `ctrl+u`, `pgup` and `pgdown` do nothing. A paste goes into the prompt and never jumps.
+A `/` anywhere else is an ordinary character. While the prompt reads exactly `~` or `..` the list has one row for that jump. Going to another folder clears the prompt. `ctrl+d` and `pgdown` scroll the preview down half its height, `ctrl+u` and `pgup` up; a new row starts at the top. A paste goes into the prompt and never jumps.
 
 ### Opening a file
 

@@ -237,6 +237,13 @@ type finderView struct {
 	// gen is bumped at each folder change and at close; an answer for another
 	// generation is stale.
 	gen int
+
+	// The preview column: what is on show, the path last asked for, the serial
+	// of the ask that may still land and the cancel of its read.
+	preview  *finderPreview
+	pvAsked  string
+	pvSeq    int
+	pvCancel context.CancelFunc
 }
 
 // finderListMsg answers the read of a folder.
@@ -365,6 +372,7 @@ func (a *App) closeFinder() {
 
 	f.gen++
 	f.cancelWalk()
+	f.drop()
 
 	a.finder = nil
 	a.planSeq++
@@ -382,6 +390,7 @@ func (f *finderView) cancelWalk() {
 func (a *App) finderGo(f *finderView, dir, want string) tea.Cmd {
 	f.gen++
 	f.cancelWalk()
+	f.drop()
 	f.dir, f.want = dir, want
 	f.listing, f.listErr, f.loaded = nil, nil, false
 	f.filter = finderFilter{}
@@ -612,7 +621,13 @@ func (a *App) handleFinderKey(msg tea.KeyPressMsg) tea.Cmd {
 		f.move(-1)
 
 		return nil
-	case "ctrl+d", "ctrl+u", "pgup", "pgdown":
+	case "ctrl+d", "pgdown":
+		a.finderPreviewScroll(f, 1)
+
+		return nil
+	case "ctrl+u", "pgup":
+		a.finderPreviewScroll(f, -1)
+
 		return nil
 	case "enter":
 		return a.finderEnter(f, home)

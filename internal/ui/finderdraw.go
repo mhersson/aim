@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
@@ -244,7 +245,7 @@ func (a *App) finderLines(lk look, w, h int) []string {
 	lw := inner
 
 	if split {
-		lw = max(finderListMin, (inner*finderListShare+50)/100)
+		lw = finderListWidth(inner)
 	}
 
 	room := inner - 3
@@ -265,9 +266,14 @@ func (a *App) finderLines(lk look, w, h int) []string {
 		lines = append(lines, box.Divider())
 	}
 
-	for _, l := range a.finderBody(box, f, lw, body) {
+	var pv []string
+	if split {
+		pv = a.finderPreviewLines(lk, box, f, inner-lw-1, body)
+	}
+
+	for i, l := range a.finderBody(box, f, lw, body) {
 		if split {
-			l += box.Bar() + panel.Render(strings.Repeat(" ", inner-lw-1))
+			l += box.Bar() + pv[i]
 		}
 
 		lines = append(lines, box.Row(l, panel))
@@ -290,7 +296,8 @@ func (a *App) finderLines(lk look, w, h int) []string {
 		}
 	}
 
-	hints := box.Hints(finderHints(enter, f.input.Value() == "", inner))
+	canUp := f.input.Value() == "" && filepath.Dir(f.dir) != f.dir
+	hints := box.Hints(finderHints(enter, canUp, inner))
 	count := " " + finderCountText(f.sel, len(f.rows), f.countTail()) + " "
 
 	return append(lines, box.Row(hints, panel), box.Bottom(count))

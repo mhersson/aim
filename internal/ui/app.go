@@ -510,6 +510,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.later = append(a.later, c)
 	}
 
+	if c := a.finderPreviewSync(); c != nil {
+		a.later = append(a.later, c)
+	}
+
 	a.worktreesSync()
 	a.linksSync()
 	a.textSelAfterUpdate()
@@ -772,6 +776,8 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, a.onFinderWalk(msg)
 	case finderFilterMsg:
 		return a, a.onFinderFilter(msg)
+	case finderPreviewMsg:
+		a.onFinderPreview(msg)
 	case mdFileMsg:
 		a.onMDFile(msg)
 	case planReadMsg:

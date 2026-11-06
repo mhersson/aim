@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -31,7 +32,11 @@ type finderRig struct {
 	home string
 }
 
-func newFinderRig(t *testing.T, start string, tree map[string]string) *finderRig {
+// finderMod is the time every file of a rig's tree was changed, and the rig's
+// clock reads two hours later, so the preview's age is 2h.
+var finderMod = time.Unix(1_700_000_000, 0)
+
+func newFinderRig(t *testing.T, start string, tree map[string]string, opts ...func(*Options)) *finderRig {
 	t.Helper()
 
 	home, err := filepath.EvalSymlinks(t.TempDir())
@@ -40,18 +45,24 @@ func newFinderRig(t *testing.T, start string, tree map[string]string) *finderRig
 	}
 
 	for name, text := range tree {
-		write(t, filepath.Join(home, name), text)
+		path := filepath.Join(home, name)
+		write(t, path, text)
+
+		if err := os.Chtimes(path, finderMod, finderMod); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	dir := filepath.Join(home, start)
-	r := newKeysRig(t, dir, gitOf(newFakeGit(t)), func(o *Options) {
+	r := newKeysRig(t, dir, append([]func(*Options){gitOf(newFakeGit(t)), func(o *Options) {
 		o.Getenv = func(k string) string {
 			return map[string]string{"SHELL": "/bin/testsh", "EDITOR": "ed", "HOME": home}[k]
 		}
-	})
+	}}, opts...)...)
 	st := &starts{}
 	r.start = st.start
 	r.icons = true
+	r.clock = &fakeClock{t: finderMod.Add(2 * time.Hour)}
 
 	sized(t, r.App, 120, 40)
 
@@ -691,34 +702,5 @@ func TestFinderFedUnderTheBox(t *testing.T) {
 
 	if !slices.Contains(rowRels(f.rows), "-z/guide2.md") {
 		t.Errorf("rows = %q, want a batch under the reading box to reach the finder", rowRels(f.rows))
-	}
-}
-
-func TestFinderPreviewKeysDoNothing(t *testing.T) {
-	t.Parallel()
-
-	keys := map[string]tea.KeyPressMsg{
-		"ctrl+d": {Code: 'd', Mod: tea.ModCtrl},
-		"ctrl+u": {Code: 'u', Mod: tea.ModCtrl},
-		"pgup":   {Code: tea.KeyPgUp},
-		"pgdown": {Code: tea.KeyPgDown},
-	}
-
-	for name, k := range keys {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			r := newFinderRig(t, "proj", finderTree)
-			r.listed(t)
-			r.typeKeys("ab")
-
-			sel := r.finder.sel
-			r.press(k)
-
-			// The prompt's own editing keys would have cut the text.
-			if r.finder == nil || r.finder.input.Value() != "ab" || r.finder.sel != sel {
-				t.Errorf("%s changed the finder: query %q, cursor %d (was %d)", name, r.finder.input.Value(), r.finder.sel, sel)
-			}
-		})
 	}
 }

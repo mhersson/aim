@@ -73,6 +73,15 @@ the next. Walk, filter and folder-read messages carry the finder, and a folder
 generation where a folder change makes them stale; a stale one is dropped, and
 a dropped walk message is not waited on again.
 
+**The finder's preview** (`internal/ui/finderpreview.go`) is one more off-loop
+read: the file or folder of the selected row is read, parsed with no pictures
+and laid out at the column's width in a `tea.Cmd`, so the draw on the loop hits
+the layout cache. A sync step after every update asks when the selected path
+changes, the terminal is at least `finderPreviewMin` columns and the reading box
+is not over the finder; it cancels the ask before and gives each a serial, so
+only the latest answer is kept. The preview on show stays until a new one lands,
+so moving fast never blanks it.
+
 **Layout.** `core.Arrange` (`internal/core/geometry.go`) is the one function
 that turns a tab into the rects drawn and the PTY sizes. The agents rail
 narrows the body, so it is part of the layout. The review drawer is an overlay

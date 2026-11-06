@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/mhersson/aim/internal/core"
+	"github.com/mhersson/aim/internal/git"
 )
 
 // mdOpenFile is the markdown file the centred overlay shows: repo is the
@@ -65,8 +66,11 @@ func (a *App) openFinderFile(path string) tea.Cmd {
 		}
 
 		msg.path, msg.root = resolved, filepath.Dir(resolved)
-		if repo, err := a.git.Open(ctx, msg.root); err == nil {
+		switch repo, err := a.git.Open(ctx, msg.root); {
+		case err == nil:
 			msg.root, msg.repo = repo.Root, printable(repo.Name())
+		case !errors.Is(err, git.ErrNotRepo):
+			a.log.Warn("find the repository of a markdown file", "path", msg.path, "err", err)
 		}
 
 		src, err := readLocalMarkdown(ctx, msg.root, msg.path)

@@ -4,6 +4,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -113,4 +114,80 @@ func TestFinderTyping(t *testing.T) {
 	}
 
 	gateFrames(t, "finder typing", s.P99, s.Max)
+}
+
+// bigMarkdown is a document just under md.MaxBytes: headings, prose with
+// inline marks and links, lists and code, the shapes that cost to parse.
+func bigMarkdown() string {
+	const block = "## Section\n\nSome *prose* with **bold**, `code` and a [link](https://example.com/page) that wraps over " +
+		"more than one line of a narrow column, so the layout has work to do.\n\n- one\n- two\n- three\n\n" +
+		"```go\nfunc main() {\n\tfmt.Println(\"hello\")\n}\n```\n\n"
+
+	return strings.Repeat(block, (md.MaxBytes-1024)/len(block))
+}
+
+// TestFinderPreviewMove moves the cursor down a list of files that holds a
+// document near md.MaxBytes and measures every frame on the loop: the key, which
+// keeps the old preview on show, and the frame the new preview lands in. The
+// read, parse and layout run between frames, off the loop in the app, so they
+// are outside the measure and are timed on their own. Run it with:
+//
+//	go test -tags bench -run TestFinderPreviewMove -v ./internal/ui
+func TestFinderPreviewMove(t *testing.T) {
+	tree := map[string]string{"proj/big.md": bigMarkdown()}
+	for i := range 40 {
+		tree[fmt.Sprintf("proj/f%02d.md", i)] = fmt.Sprintf("# File %d\n\n%s", i, strings.Repeat("A line of text in the file.\n\n", 40))
+	}
+
+	r := newFinderRig(t, "proj", tree)
+	r.listed(t)
+
+	f := r.finder
+
+	var (
+		frames  frameTimes
+		offLoop time.Duration
+		bigAt   time.Duration
+		reads   int
+	)
+
+	frame := func(msg tea.Msg) tea.Cmd {
+		start := time.Now()
+		_, cmd := r.Update(msg)
+		_ = r.View()
+
+		frames.add(time.Since(start))
+
+		return cmd
+	}
+
+	for range 3 * len(f.rows) {
+		cmd := frame(keyDown)
+
+		big := f.rows[f.sel].rel == "big.md"
+		start := time.Now()
+		msgs := flatten(cmd)
+		took := time.Since(start)
+
+		for _, m := range msgs {
+			if pm, ok := m.(finderPreviewMsg); ok {
+				reads++
+				offLoop += took
+
+				if big {
+					bigAt = max(bigAt, took)
+				}
+
+				frame(pm)
+			}
+		}
+	}
+
+	s := frames.summary()
+	t.Logf("%d frames over %d previews: p50 %s, p95 %s, p99 %s (headroom %s), max %s (budget %s)",
+		s.Count, reads, fmtMS(s.P50), fmtMS(s.P95), fmtMS(s.P99), fmtMS(p99Headroom), fmtMS(s.Max), fmtMS(frameBudget))
+	t.Logf("off the loop: %s a preview on average, %s for the %d KiB document (read, parse and layout)",
+		fmtMS(offLoop/time.Duration(max(reads, 1))), fmtMS(bigAt), len(tree["proj/big.md"])>>10)
+
+	gateFrames(t, "finder preview move", s.P99, s.Max)
 }
