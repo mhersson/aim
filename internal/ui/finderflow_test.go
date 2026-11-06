@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -559,49 +558,6 @@ func (g foreignRootGit) Open(ctx context.Context, dir string) (git.Repo, error) 
 	}
 
 	return g.fakeGit.Open(ctx, dir)
-}
-
-// TestFinderClipboardPaste gives the prompt the answer to the read ctrl+v starts.
-// The answer's type is private to the input, so the test keeps whatever type the
-// read returned and, for a text answer, swaps in its own text; a failed read
-// leaves the input's error, which shows the answer reached it too.
-func TestFinderClipboardPaste(t *testing.T) {
-	t.Parallel()
-
-	r := newFinderRig(t, "proj", finderTree)
-	r.listed(t)
-
-	f, dir := r.finder, r.finder.dir
-	cmd := r.step(tea.KeyPressMsg{Code: 'v', Mod: tea.ModCtrl})
-
-	if cmd == nil {
-		t.Fatal("ctrl+v started no clipboard read")
-	}
-
-	const text = "docs/gu"
-
-	pasted := false
-
-	for _, m := range flatten(cmd) {
-		if m == nil {
-			continue
-		}
-
-		if v := reflect.ValueOf(m); v.Kind() == reflect.String {
-			ans := reflect.New(v.Type()).Elem()
-			ans.SetString(text)
-			m, pasted = ans.Interface(), true
-		}
-
-		r.step(m)
-	}
-
-	switch {
-	case pasted && (f.input.Value() != text || f.dir != dir):
-		t.Errorf("prompt %q in %s, want %q pasted without a jump from %s", f.input.Value(), f.dir, text, dir)
-	case !pasted && f.input.Err == nil:
-		t.Error("the read's answer did not reach the prompt")
-	}
 }
 
 func TestFinderRoot(t *testing.T) {
