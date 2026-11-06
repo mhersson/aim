@@ -292,6 +292,8 @@ func TestPRForBranchNone(t *testing.T) {
 }
 
 func TestPullRequestDecodes(t *testing.T) {
+	t.Parallel()
+
 	rec := &gqlRecorder{body: []byte(`{"data":{"repository":{"pullRequest":` + branchNode(150, "OPEN", false) + `}}}`)}
 	c, _ := newTestClient(t, "github.com", rec)
 
@@ -316,6 +318,8 @@ func TestPullRequestDecodes(t *testing.T) {
 }
 
 func TestPullRequestNotFound(t *testing.T) {
+	t.Parallel()
+
 	rec := &gqlRecorder{body: []byte(`{"data":{"repository":{"pullRequest":null}},"errors":[{"type":"NOT_FOUND","path":["repository","pullRequest"],"message":"Could not resolve to a PullRequest with the number of 99."}]}`)}
 	c, _ := newTestClient(t, "github.com", rec)
 

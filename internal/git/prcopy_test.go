@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -71,12 +72,12 @@ func newPRRemote(t *testing.T) prRemote {
 func (f prRemote) pushPR(t *testing.T, n int, base string, mutate func()) string {
 	t.Helper()
 
-	gitOut(t, f.author, "checkout", "-q", "-B", "pr"+string(rune('0'+n)), base)
+	gitOut(t, f.author, "checkout", "-q", "-B", "pr"+strconv.Itoa(n), base)
 	mutate()
 
 	gitOut(t, f.author, "add", "-A")
 	gitOut(t, f.author, "commit", "-q", "--allow-empty", "-m", "pr work")
-	gitOut(t, f.author, "push", "-q", "-f", "origin", "HEAD:refs/pull/"+string(rune('0'+n))+"/head")
+	gitOut(t, f.author, "push", "-q", "-f", "origin", "HEAD:refs/pull/"+strconv.Itoa(n)+"/head")
 
 	return gitOut(t, f.author, "rev-parse", "HEAD")
 }
@@ -478,26 +479,43 @@ func TestFetchPRCopyRefuses(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := FetchPRCopyHead(ctx, c, 0, testToken); err == nil {
-		t.Error("number 0 was accepted")
-	}
-
 	for _, tt := range []struct {
 		name   string
 		number int
-		base   string
+		base   string // empty: a head fetch
 	}{
-		{"number 0", 0, f.mergeBase},
+		{"head number 0", 0, ""},
+		{"base number 0", 0, f.mergeBase},
 		{"option", 7, "-x"},
 		{"short id", 7, f.mergeBase[:12]},
 	} {
-		if err := FetchPRCopyBase(ctx, c, tt.number, tt.base, testToken); err == nil {
+		var err error
+		if tt.base == "" {
+			_, err = FetchPRCopyHead(ctx, c, tt.number, testToken)
+		} else {
+			err = FetchPRCopyBase(ctx, c, tt.number, tt.base, testToken)
+		}
+
+		if err == nil {
 			t.Errorf("%s was accepted", tt.name)
 		}
 	}
 
 	if calls := wrappedCalls(t, logPath); strings.Contains(calls, "fetch") {
 		t.Errorf("a refused call ran a fetch:\n%s", calls)
+	}
+}
+
+func TestPRCopyFileNamedLikeARecord(t *testing.T) {
+	t.Parallel()
+
+	f := newPRRemote(t)
+	f.pushPR(t, 8, f.mergeBase, func() { writeFile(t, f.author, ":foo", "colon\n") })
+
+	c := loadCopy(context.Background(), t, copyDir(t), f, 8, f.mergeBase)
+
+	if res := copyDiff(t, c, 8); len(res.Files) != 1 || res.Files[0].Path != ":foo" {
+		t.Errorf("files = %+v", res.Files)
 	}
 }
 
@@ -641,14 +659,22 @@ func TestPRCopyTokenStaysOnItsHost(t *testing.T) {
 func TestPRCopyTokenNotInArgvOrFiles(t *testing.T) {
 	t.Parallel()
 
-	f := newPRRemote(t)
 	ctx, logPath := wrapGit(t, "")
 	dir := copyDir(t)
-	c := loadCopy(ctx, t, dir, f, 7, f.mergeBase)
 
-	_, err := FetchPRCopyHead(ctx, c, 99, testToken)
+	// An unreachable origin, so the error carries git's stderr.
+	c, err := OpenPRCopy(ctx, dir, "file://"+filepath.Join(t.TempDir(), "missing.git"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = FetchPRCopyHead(ctx, c, 99, testToken)
 	if err == nil {
-		t.Fatal("fetching a missing pull request succeeded")
+		t.Fatal("fetching from a missing origin succeeded")
+	}
+
+	if errors.Is(err, ErrNoPR) || !strings.Contains(err.Error(), "missing.git") {
+		t.Fatalf("the failure does not surface git's stderr: %v", err)
 	}
 
 	if strings.Contains(err.Error(), testToken) {

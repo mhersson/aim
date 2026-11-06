@@ -340,9 +340,15 @@ func (a *App) prSetWatches(st core.State) {
 	// A tab switched away drops its repository from the watch, so its poll is
 	// cancelled and a hold waiting on it would fire on the next poll after return.
 	for id, v := range a.drawer.views {
-		if id != st.Tab().ID {
-			v.pollThen = thenNothing
+		if id == st.Tab().ID {
+			continue
 		}
+
+		if v.pollThen != thenNothing && a.notice == fmt.Sprintf(noticePRFetching, v.pr.Number) {
+			a.notice = ""
+		}
+
+		v.pollThen = thenNothing
 	}
 
 	ws := a.prWatches(st)

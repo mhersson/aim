@@ -795,30 +795,36 @@ func editLine(f git.FileDiff, r reviewRow) int {
 // reviewEdit opens the file at the cursor line in the editor, in a new shell
 // pane beside the drawer's pane, and closes the drawer so the pane shows.
 func (a *App) reviewEdit() tea.Cmd {
-	if v, p := a.activePage(); p != nil {
-		if v.pr.Copy {
-			a.notice = noticeCopyNoEdit
+	v, p := a.activePage()
 
+	var tab core.Tab
+
+	if p == nil {
+		var ok bool
+
+		if tab, v, ok = a.reviewActive(); !ok {
 			return nil
 		}
+	}
 
+	if v.pr.Copy {
+		a.notice = noticeCopyNoEdit
+
+		return nil
+	}
+
+	if p != nil {
 		return a.openEditor(a.store.State().Tab(), v, p.path, p.view.sourceLine())
 	}
 
-	tab, v, ok := a.reviewActive()
-	if !ok || v.cursor < 0 || v.cursor >= len(v.rows) {
+	if v.cursor < 0 || v.cursor >= len(v.rows) {
 		return nil
 	}
 
 	r := v.rows[v.cursor]
 	f := v.res.Files[r.file]
 
-	switch {
-	case v.pr.Copy:
-		a.notice = noticeCopyNoEdit
-
-		return nil
-	case f.Status == git.Deleted:
+	if f.Status == git.Deleted {
 		a.notice = noticeFileDeleted
 
 		return nil

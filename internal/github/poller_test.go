@@ -419,6 +419,8 @@ func TestPollerSlowOtherwise(t *testing.T) {
 }
 
 func TestPollerFocusedFetchesChecks(t *testing.T) {
+	t.Parallel()
+
 	srv := &pollServer{}
 	p, col := startPoller(t, srv, PollerOptions{}, nil)
 
@@ -445,6 +447,8 @@ func TestPollerFocusedFetchesChecks(t *testing.T) {
 }
 
 func TestPollerFocusedMissingPR(t *testing.T) {
+	t.Parallel()
+
 	srv := &pollServer{}
 	p, col := startPoller(t, srv, PollerOptions{}, nil)
 
@@ -461,6 +465,8 @@ func TestPollerFocusedMissingPR(t *testing.T) {
 }
 
 func TestPollerFocusedPastFirstPage(t *testing.T) {
+	t.Parallel()
+
 	srv := &pollServer{past: map[int]string{150: "OPEN"}}
 	p, col := startPoller(t, srv, PollerOptions{}, nil)
 
@@ -487,6 +493,8 @@ func TestPollerFocusedPastFirstPage(t *testing.T) {
 }
 
 func TestPollerFocusedOnFirstPageAsksNothingMore(t *testing.T) {
+	t.Parallel()
+
 	srv := &pollServer{}
 	p, col := startPoller(t, srv, PollerOptions{}, nil)
 
@@ -499,6 +507,8 @@ func TestPollerFocusedOnFirstPageAsksNothingMore(t *testing.T) {
 }
 
 func TestPollerFocusedPastFirstPageNotOpen(t *testing.T) {
+	t.Parallel()
+
 	srv := &pollServer{past: map[int]string{150: "MERGED"}}
 	p, col := startPoller(t, srv, PollerOptions{}, nil)
 
@@ -515,6 +525,8 @@ func TestPollerFocusedPastFirstPageNotOpen(t *testing.T) {
 }
 
 func TestPollerFocusedQueryFailureKeepsThePoll(t *testing.T) {
+	t.Parallel()
+
 	srv := &pollServer{singleFails: true}
 	p, col := startPoller(t, srv, PollerOptions{}, nil)
 
@@ -531,8 +543,12 @@ func TestPollerFocusedQueryFailureKeepsThePoll(t *testing.T) {
 }
 
 func TestPollerSnapshotSaysWhatItAsked(t *testing.T) {
+	t.Parallel()
+
 	for name, fail := range map[string]bool{"good": false, "failed": true} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
 			srv := &pollServer{}
 			if fail {
 				srv.handle = func(_ int64, w http.ResponseWriter, _ *http.Request) bool {
@@ -554,6 +570,8 @@ func TestPollerSnapshotSaysWhatItAsked(t *testing.T) {
 }
 
 func TestPollerFocusChangePollsNow(t *testing.T) {
+	t.Parallel()
+
 	srv := &pollServer{}
 	p, col := startPoller(t, srv, PollerOptions{}, nil)
 

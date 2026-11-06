@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -510,7 +512,7 @@ func TestCopyGateServesOneRootAtATime(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A wait ends with its context, not with the turn.
+	// A wait ends with its context and takes no slot.
 	gone, cancel := context.WithCancel(t.Context())
 	cancel()
 
@@ -524,14 +526,81 @@ func TestCopyGateServesOneRootAtATime(t *testing.T) {
 	}
 
 	other()
-	release()
 
-	again, err := g.acquire(t.Context(), "/c/a")
-	if err != nil {
-		t.Fatalf("acquire after release: %v", err)
+	// A waiter on the held root gets the turn once it is released.
+	var (
+		mu     sync.Mutex
+		events []string
+		done   = make(chan error, 1)
+	)
+
+	note := func(e string) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		events = append(events, e)
 	}
 
-	again()
+	go func() {
+		next, err := g.acquire(t.Context(), "/c/a")
+		if err == nil {
+			note("acquired")
+			next()
+		}
+
+		done <- err
+	}()
+
+	runtime.Gosched()
+	note("released")
+	release()
+
+	if err := <-done; err != nil {
+		t.Fatalf("the waiter: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if !slices.Equal(events, []string{"released", "acquired"}) {
+		t.Errorf("events = %v, want the waiter served after the release", events)
+	}
+}
+
+func TestCopyGateKeysOnTheResolvedRoot(t *testing.T) {
+	t.Parallel()
+
+	target := filepath.Join(t.TempDir(), "prs")
+	link := filepath.Join(t.TempDir(), "link")
+
+	if err := os.MkdirAll(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+
+	var g prCopyGate
+
+	// The copy is not created yet, the way it is on a first open.
+	release, err := g.acquire(t.Context(), filepath.Join(link, "github.com", "o", "n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer release()
+
+	gone, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	if _, err := g.acquire(gone, filepath.Join(target, "github.com", "o", "n")); err == nil {
+		t.Error("the other spelling of the held copy was served")
+	}
+
+	if got := len(g.slots); got != 1 {
+		t.Errorf("%d slots for two spellings of one copy, want 1", got)
+	}
 }
 
 // noRepoPane opens an agent pane that is in no repository: dir "" leaves its
@@ -934,11 +1003,21 @@ func TestCopyWaitSwitchedAwayAndBack(t *testing.T) {
 
 	c.pressOnRow(t, 'M')
 
+	holding := fmt.Sprintf(noticePRFetching, 88)
+	if c.notice != holding {
+		t.Fatalf("notice = %q, want the wait's %q", c.notice, holding)
+	}
+
 	if err := c.dispatch(core.NewTab{Kind: core.KindShell, Cwd: c.dir}); err != nil {
 		t.Fatal(err)
 	}
 
 	c.settle()
+
+	if c.notice == holding {
+		t.Error("the wait's notice outlived the hold on another tab")
+	}
+
 	c.run(c.act(core.SelectTab{Index: first}))
 	c.settle()
 

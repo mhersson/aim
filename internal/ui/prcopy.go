@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync"
 
 	tea "charm.land/bubbletea/v2"
@@ -41,6 +42,8 @@ type prCopyGate struct {
 // acquire waits for root's turn, or for ctx to end. The release it returns
 // hands the turn on.
 func (g *prCopyGate) acquire(ctx context.Context, root string) (release func(), err error) {
+	root = resolvedRoot(root)
+
 	g.mu.Lock()
 
 	if g.slots == nil {
@@ -60,6 +63,27 @@ func (g *prCopyGate) acquire(ctx context.Context, root string) (release func(), 
 		return func() { <-slot }, nil
 	case <-ctx.Done():
 		return nil, fmt.Errorf("wait for the copy: %w", ctx.Err())
+	}
+}
+
+// resolvedRoot is root with the symlinks of its deepest existing part resolved,
+// so the spellings of one copy, before and after it exists, share a slot. It
+// reads the disk, so it runs off the update loop.
+func resolvedRoot(root string) string {
+	var rest []string
+
+	for p := root; ; {
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			return filepath.Join(append([]string{r}, rest...)...)
+		}
+
+		parent := filepath.Dir(p)
+		if parent == p {
+			return root
+		}
+
+		rest = append([]string{filepath.Base(p)}, rest...)
+		p = parent
 	}
 }
 
@@ -115,11 +139,15 @@ func (a *App) fetchCopyCmd(ask prAsk, place prPlace, number int) tea.Cmd {
 		defer cancel()
 
 		out := prFetchedMsg{prAsk: ask, place: place, number: number}
-		out.place.root, out.err = fetchPRCopy(ctx, g, reads, gate, place, number, ask.base)
 
-		if out.err != nil {
-			out.place.root = place.root
+		root, err := fetchPRCopy(ctx, g, reads, gate, place, number, ask.base)
+		if err != nil {
+			out.err = err
+
+			return out
 		}
+
+		out.place.root = root
 
 		return out
 	}

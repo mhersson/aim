@@ -240,10 +240,10 @@ func (c PRCopy) netEnv(token string, extra ...string) []string {
 // refs/aim/pr/<number>/head and returns it.
 func FetchPRCopyHead(ctx context.Context, c PRCopy, number int, token string) (head string, err error) {
 	switch {
-	case number < 1:
-		return "", fmt.Errorf("fetch pull request: number %d is not positive", number)
 	case token == "":
 		return "", errNoToken
+	case number < 1:
+		return "", fmt.Errorf("fetch pull request: number %d is not positive", number)
 	}
 
 	n := strconv.Itoa(number)
@@ -330,13 +330,14 @@ func changedBlobs(ctx context.Context, r Repo, oldTree, newTree string) ([]strin
 		seen = map[string]bool{}
 	)
 
-	for tok := range strings.SplitSeq(string(out), "\x00") {
-		if !strings.HasPrefix(tok, ":") {
-			continue
-		}
+	// Records alternate with their one path, which may itself start with ":".
+	toks := strings.Split(strings.TrimSuffix(string(out), "\x00"), "\x00")
 
-		f := strings.Fields(tok[1:])
-		if len(f) < 5 {
+	for i := 0; i+1 < len(toks); i += 2 {
+		tok := toks[i]
+
+		f := strings.Fields(strings.TrimPrefix(tok, ":"))
+		if !strings.HasPrefix(tok, ":") || len(f) < 5 {
 			return nil, fmt.Errorf("list changed files: bad record %q", tok)
 		}
 
