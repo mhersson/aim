@@ -220,7 +220,8 @@ func TestWalkTimeLimitKeepsFound(t *testing.T) {
 	var got []WalkEntry
 
 	stop := Walk(ctx, WalkOptions{Root: root, device: func(p string) (uint64, bool) {
-		if p != root {
+		// By name: the root's own read comes resolved, and on macOS t.TempDir() is under a symlink.
+		if filepath.Base(p) == "sub" {
 			ctx.expired = true
 		}
 
