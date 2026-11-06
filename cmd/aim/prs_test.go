@@ -322,6 +322,8 @@ func TestGhActionsReportAClientThatCannotBeBuilt(t *testing.T) {
 }
 
 func TestGHReadsMergeBase(t *testing.T) {
+	t.Parallel()
+
 	var (
 		mu    sync.Mutex
 		hosts []string
