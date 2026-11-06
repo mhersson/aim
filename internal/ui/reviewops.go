@@ -23,6 +23,7 @@ const reviewOpenTimeout = 5 * time.Second
 // The drawer's notices.
 const (
 	noticeNoDrawer   = "no review drawer is open"
+	noticeCopyNoEdit = "no file to edit: this pull request has no checkout here"
 	noticeNoTurns    = "no turns: this pane has no agent session"
 	noticeNoTurnsYet = "no turns yet"
 	noticeNoTurnsIn  = "no turns in %s · %s yet"

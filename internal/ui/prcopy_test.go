@@ -966,3 +966,233 @@ func TestCopyWaitLateModal(t *testing.T) {
 		t.Error("a merge box opened over the modal")
 	}
 }
+
+// callsOn is the fake git's calls on root made after the first from calls.
+func (c *copyRig) callsOn(root string, from int) []gitCall {
+	f := c.repo.f
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	var out []gitCall
+
+	for _, call := range f.log[from:] {
+		if call.Root == root {
+			out = append(out, call)
+		}
+	}
+
+	return out
+}
+
+func (c *copyRig) logLen() int {
+	c.repo.f.mu.Lock()
+	defer c.repo.f.mu.Unlock()
+
+	return len(c.repo.f.log)
+}
+
+// copyOnShow opens #88 as a copy and gives the drawer the keyboard.
+func (c *copyRig) copyOnShow(t *testing.T) (copyRoot string) {
+	t.Helper()
+
+	copyRoot = c.rootOf(t, "github.com/acme/infra")
+	c.opened88(t)
+
+	if !c.drawerHasKeys() {
+		t.Fatal("the drawer does not have the keyboard")
+	}
+
+	return copyRoot
+}
+
+func TestCopyEditRefused(t *testing.T) {
+	t.Parallel()
+
+	c := newCopyRig(t)
+	c.copyOnShow(t)
+
+	if v := c.view(); v.cursor < 0 || v.cursor >= len(v.rows) {
+		t.Fatalf("cursor %d outside %d rows", v.cursor, len(v.rows))
+	}
+
+	panes := len(c.store.State().Tab().Panes)
+
+	c.keys(keyRune('e'))
+
+	if c.notice != noticeCopyNoEdit {
+		t.Errorf("notice = %q, want %q", c.notice, noticeCopyNoEdit)
+	}
+
+	if got := len(c.store.State().Tab().Panes); got != panes {
+		t.Errorf("panes = %d, want %d: the editor opened", got, panes)
+	}
+}
+
+func TestDrawerShowsSkipsACopy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		pane     func(t *testing.T, c *copyRig)
+		wantShow func(c *copyRig) string // drawerShows and mdOpenDir
+		wantPush func(c *copyRig) string
+	}{
+		{
+			"pane in a repository", func(*testing.T, *copyRig) {},
+			func(c *copyRig) string { return c.dir }, func(c *copyRig) string { return c.dir },
+		},
+		{
+			"pane with no directory", func(t *testing.T, c *copyRig) { c.noRepoPane(t, "", "") },
+			func(*copyRig) string { return "" }, func(c *copyRig) string { return c.cwd },
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := newCopyRig(t)
+			tc.pane(t, c)
+			root := c.copyOnShow(t)
+
+			st := c.store.State()
+			got := map[string]string{
+				"drawerShows": c.drawerShows(st, st.Tab()),
+				"mdOpenDir":   c.mdOpenDir(st),
+				"pushDir":     c.pushDir(st),
+			}
+			want := map[string]string{
+				"drawerShows": tc.wantShow(c), "mdOpenDir": tc.wantShow(c), "pushDir": tc.wantPush(c),
+			}
+
+			for name, dir := range got {
+				if dir == root || dir != want[name] {
+					t.Errorf("%s = %q, want %q (the copy is %q)", name, dir, want[name], root)
+				}
+			}
+		})
+	}
+
+	t.Run("a checkout keeps its root", func(t *testing.T) {
+		t.Parallel()
+
+		c := newCopyRig(t)
+		c.selectRow(t, "github.com/o/r")
+		c.keys(keyEnter)
+		c.until(t, "PR mode on #7", c.inPRMode(7))
+
+		st := c.store.State()
+		pr := c.review().PR
+
+		if pr == nil || pr.Copy || pr.Root == "" {
+			t.Fatalf("review PR = %+v, want a checkout's", pr)
+		}
+
+		if got := c.drawerShows(st, st.Tab()); got != pr.Root {
+			t.Errorf("drawerShows = %q, want %q", got, pr.Root)
+		}
+	})
+}
+
+func TestCopyPushActsOnThePane(t *testing.T) {
+	t.Parallel()
+
+	c := newCopyRig(t)
+	root := c.copyOnShow(t)
+	from := c.logLen()
+
+	c.run(c.push())
+	c.until(t, "the push answer", func() bool { return c.confirm != nil || c.notice != "" })
+
+	if c.confirm == nil || c.confirm.push == nil {
+		t.Fatalf("no push confirm; notice = %q", c.notice)
+	}
+
+	if got := c.confirm.push.root; got == root || got != c.root {
+		t.Errorf("the confirm pushes from %q, want the pane's %q", got, c.root)
+	}
+
+	if calls := c.callsOn(root, from); len(calls) != 0 {
+		t.Errorf("git ran on the copy: %+v", calls)
+	}
+}
+
+func TestCopyComposeActsOnThePane(t *testing.T) {
+	t.Parallel()
+
+	c := newCopyRig(t)
+	root := c.copyOnShow(t)
+	from := c.logLen()
+
+	c.run(c.composeCommand())
+	c.until(t, "the compose answer", func() bool { return c.compose != nil || c.notice != "" })
+
+	if calls := c.callsOn(root, from); len(calls) != 0 {
+		t.Errorf("git ran on the copy: %+v", calls)
+	}
+
+	if c.compose != nil && c.compose.t.dir == root {
+		t.Errorf("compose resolves from the copy %q", root)
+	}
+}
+
+func TestCopyPushOnPaneInNoRepo(t *testing.T) {
+	t.Parallel()
+
+	c := newCopyRig(t)
+	c.noRepoPane(t, t.TempDir(), "")
+	root := c.copyOnShow(t)
+	from := c.logLen()
+
+	c.run(c.push())
+	c.until(t, "the notice", func() bool { return c.notice != "" })
+
+	if c.notice != noticePushNotRepo || c.confirm != nil {
+		t.Errorf("notice = %q, confirm = %v, want %q and no confirm", c.notice, c.confirm, noticePushNotRepo)
+	}
+
+	if calls := c.callsOn(root, from); len(calls) != 0 {
+		t.Errorf("git ran on the copy: %+v", calls)
+	}
+}
+
+func TestCopyCleanUpSaysNoWorktree(t *testing.T) {
+	t.Parallel()
+
+	c := newCopyRig(t)
+	root := c.copyOnShow(t)
+	from := c.logLen()
+
+	// The pane's branch reads a merged pull request whose head branch has no worktree, as a copy's #88 does.
+	merged := github.PR{
+		Number: 88, Title: "Bump", State: prMergedState, HeadBranch: copyBranch, HeadOID: c.prHead, BaseBranch: "main",
+	}
+	c.mu.Lock()
+	c.found["feat/x"] = merged
+	c.mu.Unlock()
+
+	openIn(t, c.App, core.SetBranchPR{
+		Repo: prRepoKey, Branch: "feat/x", Found: true,
+		PR: core.PRInfo{
+			Number: 88, Title: "Bump", State: prMergedState, HeadBranch: copyBranch, HeadOID: c.prHead, BaseBranch: "main",
+		},
+	})
+
+	cmd, ok := c.reg.get("worktree.cleanup")
+	if !ok {
+		t.Fatal("worktree.cleanup is not registered")
+	}
+
+	c.notice = ""
+	c.run(cmd.run(c.App))
+	c.until(t, "the notice", func() bool { return c.notice != "" || c.confirm != nil })
+
+	if want := noticeNoCleanupWorktree(copyBranch); c.notice != want || c.confirm != nil {
+		t.Errorf("notice = %q, confirm = %v, want %q", c.notice, c.confirm, want)
+	}
+
+	if calls := c.callsOn(root, from); len(calls) != 0 {
+		t.Errorf("git ran on the copy: %+v", calls)
+	}
+}

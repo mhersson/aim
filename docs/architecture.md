@@ -578,6 +578,10 @@ the followed place back, and one after a session change records nothing.
   (`core.ConfigWithTheme`, `store.SaveTheme`), so the rest of their file stays
   theirs byte for byte; a symlinked config is written through, so a dotfiles
   link survives. Nothing else in AIM writes the config.
+- **A pull request copy** is AIM's cache, not one of the user's worktrees, and
+  its HEAD is unborn. Nothing that writes or reads a branch resolves to it: the
+  drawer's edit refuses, and push, the compose box and the finder start from
+  the pane's own place (`drawerShows`).
 - **Deleting a branch.** `git branch -d` refuses a squash-merged branch, so AIM
   uses `-D` after its own check: the tip is still the one the confirm showed
   and has no commit past the merged head (`git.BranchAhead`,

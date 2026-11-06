@@ -796,6 +796,12 @@ func editLine(f git.FileDiff, r reviewRow) int {
 // pane beside the drawer's pane, and closes the drawer so the pane shows.
 func (a *App) reviewEdit() tea.Cmd {
 	if v, p := a.activePage(); p != nil {
+		if v.pr.Copy {
+			a.notice = noticeCopyNoEdit
+
+			return nil
+		}
+
 		return a.openEditor(a.store.State().Tab(), v, p.path, p.view.sourceLine())
 	}
 
@@ -807,7 +813,12 @@ func (a *App) reviewEdit() tea.Cmd {
 	r := v.rows[v.cursor]
 	f := v.res.Files[r.file]
 
-	if f.Status == git.Deleted {
+	switch {
+	case v.pr.Copy:
+		a.notice = noticeCopyNoEdit
+
+		return nil
+	case f.Status == git.Deleted:
 		a.notice = noticeFileDeleted
 
 		return nil
