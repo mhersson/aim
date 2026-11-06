@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mhersson/aim/internal/core"
 	"github.com/mhersson/aim/internal/git"
@@ -1211,16 +1212,43 @@ func TestCopyMergeFindsNoWorktree(t *testing.T) {
 
 	from := c.logLen()
 	c.keys(keyEnter)
-	c.until(t, "the clean-up check on the copy", func() bool { return len(c.callsOn(root, from)) > 0 })
-	c.until(t, "the merged state", func() bool {
-		info, _ := prInfoByNumber(c.store.State(), "github.com/acme/infra", 88)
+	// Feed messages until the merge route's clean-up answer has been processed.
+	var (
+		answered     bool
+		noticeBefore string
+	)
 
-		return info.State == prMergedState
-	})
+	deadline := time.Now().Add(c.wait)
 
-	// A merge finding no worktree is silent, as for a checkout with none: no clean-up box, and no notice but the merge's own.
-	if c.confirm != nil || c.notice == noticeNoCleanupWorktree(copyBranch) {
-		t.Errorf("confirm = %v, notice = %q, want no clean-up offer or notice", c.confirm, c.notice)
+	for !answered {
+		select {
+		case m := <-c.pm.msgs:
+			found, ok := m.(cleanupFoundMsg)
+			if ok && found.from == fromMerge {
+				noticeBefore, answered = c.notice, true
+
+				if found.ok || found.err != nil {
+					t.Fatalf("clean-up answer ok = %v, err = %v, want no worktree found", found.ok, found.err)
+				}
+			}
+
+			c.run(c.step(m))
+		case <-time.After(10 * time.Millisecond):
+			c.settle()
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for the merge's clean-up answer")
+		}
+	}
+
+	// A merge that finds no worktree is silent, as for a checkout with none.
+	if c.confirm != nil || c.notice != noticeBefore {
+		t.Errorf("confirm = %v, notice %q -> %q, want no clean-up offer and the notice unchanged", c.confirm, noticeBefore, c.notice)
+	}
+
+	if len(c.callsOn(root, from)) == 0 {
+		t.Error("the clean-up check did not run on the copy")
 	}
 
 	reads := []string{"Open", "ListWorktrees"}
