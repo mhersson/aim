@@ -279,19 +279,6 @@ func (m *pageRig) openPage(t *testing.T, rel string) *mdPage {
 	return p
 }
 
-// overlayIDs are the ids of the items in the open palette.
-func overlayIDs(a *App) []string {
-	var out []string
-
-	if a.overlay != nil {
-		for _, it := range a.overlay.items {
-			out = append(out, it.ID)
-		}
-	}
-
-	return out
-}
-
 // refusal reports whether notice is set and names shown, the path a refused open shows.
 func refusal(notice, shown string) bool { return notice != "" && strings.Contains(notice, shown) }
 

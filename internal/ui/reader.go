@@ -118,6 +118,7 @@ func (a *App) planEdit() tea.Cmd {
 	line, path, root := pv.shown().sourceLine(), pv.shownPath(), pv.root
 
 	a.closePlan()
+	a.closeFinder()
 
 	run := &paneRun{program: reviewEditor(a.getenv), args: []string{"+" + strconv.Itoa(line), path}}
 	cmd, _ := a.openPaneAt(core.KindShell, core.SplitVertical, a.store.State().Tab().Focus, root, run)

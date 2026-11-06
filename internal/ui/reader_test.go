@@ -18,6 +18,9 @@ import (
 type readerHost struct {
 	name string
 	open func(t *testing.T, w, h int) *App
+	// closes labels the hint of the close key: a file opened from the finder
+	// goes back to it.
+	closes string
 }
 
 func readerHosts() []readerHost {
@@ -28,20 +31,20 @@ func readerHosts() []readerHost {
 			r.open(t)
 
 			return r.a
-		}},
+		}, "close"},
 		{"file", func(t *testing.T, w, h int) *App {
 			r := newMDOpenRig(t, nil)
 			sized(t, r.App, w, h)
 			r.opens(t, "docs/a.md")
 
 			return r.App
-		}},
+		}, "back"},
 		{"conversation", func(t *testing.T, w, h int) *App {
 			a, _ := convApp(t, true, w, h)
 			convOpen(t, a)
 
 			return a
-		}},
+		}, "close"},
 	}
 }
 
@@ -241,7 +244,7 @@ func TestReaderHintsFollowBindings(t *testing.T) {
 			}
 
 			row := rows[hint]
-			for _, want := range []string{"n/p line", "q close"} {
+			for _, want := range []string{"n/p line", "q " + h.closes} {
 				if !strings.Contains(row, want) {
 					t.Errorf("hint row %q lacks %q", row, want)
 				}

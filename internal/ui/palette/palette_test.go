@@ -429,3 +429,38 @@ func TestBox(t *testing.T) {
 		t.Errorf("bottom in a narrow box = %q, want no count", got)
 	}
 }
+
+func TestDividerJoin(t *testing.T) {
+	t.Parallel()
+
+	box := NewBox(mustTheme(t, "catppuccin-mocha"), 10)
+
+	tests := []struct {
+		name string
+		col  int
+		want string
+	}{
+		{"a junction in the row", 4, "├───┬────┤"},
+		{"the first cell after the corner", 1, "├┬───────┤"},
+		{"the last cell before the corner", 8, "├───────┬┤"},
+		{"a column outside the row is a plain divider", 9, "├────────┤"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := ansi.Strip(box.DividerJoin(tt.col, "┬")); got != tt.want {
+				t.Errorf("DividerJoin(%d) = %q, want %q", tt.col, got, tt.want)
+			}
+
+			if got := lipgloss.Width(box.DividerJoin(tt.col, "┬")); got != 10 {
+				t.Errorf("width = %d, want 10", got)
+			}
+		})
+	}
+
+	if got := ansi.Strip(box.Bar()); got != "│" {
+		t.Errorf("Bar = %q, want one vertical line", got)
+	}
+}

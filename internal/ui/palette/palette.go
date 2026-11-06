@@ -60,13 +60,7 @@ func (t titles) Len() int            { return len(t) }
 // New returns a palette listing items, with the first one selected. The title
 // is set into the top border.
 func New(title string, items []Item, t theme.Theme) Model {
-	in := textinput.New()
-	in.Prompt = "❯ "
-	// A static cursor keeps View independent of blink timing.
-	in.SetStyles(inputStyles(t))
-	in.Focus()
-
-	m := Model{title: title, items: items, input: in, theme: t, enter: "run"}
+	m := Model{title: title, items: items, input: NewInput(t), theme: t, enter: "run"}
 	for _, it := range items {
 		m.icons = m.icons || it.Icon != ""
 	}
@@ -74,6 +68,18 @@ func New(title string, items []Item, t theme.Theme) Model {
 	m.refilter()
 
 	return m
+}
+
+// NewInput is the focused prompt input the palette and the finder share: the
+// marker, the theme's styles and a static cursor, so View does not depend on
+// blink timing.
+func NewInput(t theme.Theme) textinput.Model {
+	in := textinput.New()
+	in.Prompt = "❯ "
+	in.SetStyles(inputStyles(t))
+	in.Focus()
+
+	return in
 }
 
 // WithEnterLabel returns m with the footer's enter hint labelled label.
@@ -349,6 +355,19 @@ func (b Box) Top(title string) string {
 func (b Box) Divider() string {
 	return b.border().Render("├" + strings.Repeat("─", b.inner) + "┤")
 }
+
+// DividerJoin is a Divider with join, the junction of a vertical bar below or
+// above it, at cell col of the row (0 is the left corner).
+func (b Box) DividerJoin(col int, join string) string {
+	if col < 1 || col > b.inner {
+		return b.Divider()
+	}
+
+	return b.border().Render("├" + strings.Repeat("─", col-1) + join + strings.Repeat("─", b.inner-col) + "┤")
+}
+
+// Bar is the vertical line between two columns inside a Row.
+func (b Box) Bar() string { return b.border().Render("│") }
 
 // Bottom is the bottom border with count in Muted ending one dash before the
 // corner. The count is left out when it does not fit or is empty.

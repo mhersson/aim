@@ -1,10 +1,10 @@
 package ui
 
 import (
-	"errors"
 	"fmt"
 	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -17,7 +17,6 @@ import (
 	"github.com/mhersson/aim/internal/core"
 	"github.com/mhersson/aim/internal/git"
 	"github.com/mhersson/aim/internal/md"
-	"github.com/mhersson/aim/internal/ui/palette"
 )
 
 // mdLinks are the links docs/a.md holds in the md.open rig.
@@ -34,20 +33,20 @@ func newMDOpenRig(t *testing.T, extra map[string]string, opts ...func(*Options))
 	return bareRig(t, "", files, opts...)
 }
 
-func holdLists(m tea.Msg) bool {
-	_, ok := m.(mdListMsg)
-
-	return ok
-}
-
 func holdMDFiles(m tea.Msg) bool {
 	_, ok := m.(mdFileMsg)
 
 	return ok
 }
 
-// mdOpen runs the md.open command and returns the list answers it held.
-func (r *drawerRig) mdOpen() []tea.Msg {
+func holdWalk(m tea.Msg) bool {
+	_, ok := m.(finderWalkMsg)
+
+	return ok
+}
+
+// mdOpen runs the md.open command and delivers the answers it leads to.
+func (r *drawerRig) mdOpen() {
 	c, ok := r.reg.get("md.open")
 	if !ok {
 		panic("md.open is not a command")
@@ -56,33 +55,50 @@ func (r *drawerRig) mdOpen() []tea.Msg {
 	cmd := c.run(r.App)
 	_, after := r.Update(struct{}{})
 
-	return r.flow(tea.Batch(cmd, after), holdLists)
+	r.flow(tea.Batch(cmd, after), nil)
 }
 
-// listed runs md.open and delivers its list, which opens the palette.
+// listed opens the finder and delivers its folder.
 func (r *drawerRig) listed(t *testing.T) {
 	t.Helper()
 
-	held := r.mdOpen()
-	if len(held) != 1 {
-		t.Fatalf("md.open held %d answers, want 1 (notice %q)", len(held), r.notice)
-	}
+	r.mdOpen()
 
-	r.flow(r.step(held[0]), nil)
-
-	if r.overlay == nil || r.overlay.kind != overlayMarkdown {
-		t.Fatalf("the list did not open the palette (notice %q)", r.notice)
+	if r.finder == nil || !r.finder.loaded {
+		t.Fatalf("md.open did not open the finder on a folder (notice %q)", r.notice)
 	}
 }
 
-// pick chooses rel in the open list and delivers the answers.
-func (m *pageRig) pick(t *testing.T, rel string) {
+// finderSelect puts the finder's cursor on the row rel.
+func (r *drawerRig) finderSelect(t *testing.T, rel string) {
 	t.Helper()
 
-	m.flow(m.step(palette.ChosenMsg{ID: rel}), nil)
+	for i, row := range r.finder.rows {
+		if row.rel == rel {
+			r.finder.sel = i
+
+			return
+		}
+	}
+
+	t.Fatalf("no row %q among %q", rel, rowRels(r.finder.rows))
 }
 
-// opens runs md.open and picks rel; the overlay is open afterwards.
+// goTo takes the open finder down the folders of rel and presses enter on its
+// last element, whether a file or a folder.
+func (r *drawerRig) goTo(t *testing.T, rel string) {
+	t.Helper()
+
+	for name := range strings.SplitSeq(rel, "/") {
+		r.finderSelect(t, name)
+		r.press(keyEnter)
+	}
+}
+
+// pick opens rel from the open finder, which starts in the root.
+func (m *pageRig) pick(t *testing.T, rel string) { m.goTo(t, rel) }
+
+// opens runs md.open and opens rel; the overlay is open afterwards.
 func (m *pageRig) opens(t *testing.T, rel string) {
 	t.Helper()
 
@@ -127,27 +143,10 @@ func TestMDOpen(t *testing.T) {
 	t.Parallel()
 
 	m := newMDOpenRig(t, nil)
+	m.listed(t)
 
-	held := m.mdOpen()
-	if len(held) != 1 {
-		t.Fatalf("md.open held %d answers, want 1", len(held))
-	}
-
-	if msg, ok := held[0].(mdListMsg); !ok || msg.root != m.root {
-		t.Fatalf("held %+v, want a list of %s", held[0], m.root)
-	}
-
-	m.flow(m.step(held[0]), nil)
-
-	if want := []string{"README.md", "docs/a.md", "notes/b.md"}; !slices.Equal(overlayIDs(m.App), want) || m.overlay.kind != overlayMarkdown {
-		t.Fatalf("palette lists %v, want %v", overlayIDs(m.App), want)
-	}
-
-	box := ansi.Strip(m.overlay.pal.View(60))
-	for _, want := range []string{iconMarkdown + " Markdown files", "enter open"} {
-		if !strings.Contains(box, want) {
-			t.Errorf("the palette lacks %q:\n%s", want, box)
-		}
+	if want := []string{"^..", "/docs", "/notes", "-README.md"}; !slices.Equal(rowRels(m.finder.rows), want) || m.finder.dir != m.dir {
+		t.Fatalf("the finder shows %q in %s, want %q in %s", rowRels(m.finder.rows), m.finder.dir, want, m.dir)
 	}
 
 	if m.store.State().Tab().Review != nil {
@@ -170,8 +169,8 @@ func TestMDOpen(t *testing.T) {
 	}
 
 	bottom := slices.IndexFunc(screen, func(l string) bool { return strings.Contains(l, "╯") })
-	if bottom < 1 || !strings.Contains(screen[bottom-1], "esc close") {
-		t.Errorf("the row above the bottom border (%d) lacks the hint:\n%s", bottom, strings.Join(screen, "\n"))
+	if bottom < 1 || !strings.Contains(screen[bottom-1], "esc back") {
+		t.Errorf("the row above the bottom border (%d) lacks the back hint:\n%s", bottom, strings.Join(screen, "\n"))
 	}
 
 	t.Run("without icons", func(t *testing.T) {
@@ -188,12 +187,7 @@ func TestMDOpen(t *testing.T) {
 
 		openIn(t, m.App, core.SetPaneCwd{ID: m.store.State().Tab().Focus, Cwd: wt})
 
-		held := m.mdOpen()
-		if len(held) != 1 || held[0].(mdListMsg).root != wt { //nolint:forcetypeassert // the held message is a list
-			t.Fatalf("held %+v, want a list of %s", held, wt)
-		}
-
-		m.flow(m.step(held[0]), nil)
+		m.listed(t)
 		m.pick(t, "docs/a.md")
 
 		if m.plan == nil || m.plan.root != wt {
@@ -213,7 +207,7 @@ func TestMDOpenWhere(t *testing.T) {
 		name  string
 		keys  bool // the drawer holds the keyboard after setup
 		setup func(t *testing.T, m *pageRig, wt string)
-		want  func(m *pageRig, wt string) string // the list's root
+		want  func(m *pageRig, wt string) string // the folder the finder starts in
 	}{
 		{"no drawer", false, func(*testing.T, *pageRig, string) {}, func(m *pageRig, _ string) string { return m.root }},
 		{"a pinned drawer with the keyboard", true, func(t *testing.T, m *pageRig, wt string) {
@@ -246,265 +240,38 @@ func TestMDOpenWhere(t *testing.T) {
 				t.Fatal("setup: the drawer lacks the keyboard")
 			}
 
-			held := m.mdOpen()
-			if len(held) != 1 {
-				t.Fatalf("md.open held %d answers, want 1 (notice %q)", len(held), m.notice)
-			}
-
-			if got, want := held[0].(mdListMsg).root, tt.want(m, wt); got != want { //nolint:forcetypeassert // the held message is a list
-				t.Errorf("listed %q, want %q", got, want)
-			}
-		})
-	}
-
-	t.Run("an empty tab", func(t *testing.T) {
-		t.Parallel()
-
-		a := newTestApp(t)
-		sized(t, a, 120, 40)
-
-		if cmd := a.mdOpenCommand(); cmd != nil || a.notice != noticeNotRepo {
-			t.Errorf("cmd %v, notice %q, want none and %q", cmd != nil, a.notice, noticeNotRepo)
-		}
-	})
-
-	t.Run("a pane outside a repository", func(t *testing.T) {
-		t.Parallel()
-
-		r := newKeysRig(t, t.TempDir(), gitOf(newFakeGit(t)))
-
-		held := r.mdOpen()
-		if len(held) != 1 {
-			t.Fatalf("md.open held %d answers, want 1", len(held))
-		}
-
-		if msg := held[0].(mdListMsg); !errors.Is(msg.err, git.ErrNotRepo) { //nolint:forcetypeassert // the held message is a list
-			t.Fatalf("list error = %v, want %v", msg.err, git.ErrNotRepo)
-		}
-
-		r.notice = ""
-		r.flow(r.step(held[0]), nil)
-
-		if r.notice != noticeNotRepo || r.overlay != nil {
-			t.Errorf("notice %q, palette %v, want %q and none", r.notice, r.overlay != nil, noticeNotRepo)
-		}
-	})
-
-	t.Run("a pinned root that was removed", func(t *testing.T) {
-		t.Parallel()
-
-		m := newMDOpenRig(t, nil)
-		wt := linkedWorktree(t, m)
-
-		m.opened(t)
-		openIn(t, m.App, core.PinReview{Root: wt})
-		m.settle()
-
-		if err := os.RemoveAll(wt); err != nil {
-			t.Fatal(err)
-		}
-
-		held := m.mdOpen()
-		if len(held) != 1 {
-			t.Fatalf("md.open held %d answers, want 1", len(held))
-		}
-
-		m.notice = ""
-		m.flow(m.step(held[0]), nil)
-
-		if !refusal(m.notice, wt) || m.overlay != nil {
-			t.Errorf("notice %q, palette %v, want a notice naming %q and none", m.notice, m.overlay != nil, wt)
-		}
-	})
-}
-
-func TestMDOpenNotices(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name   string
-		mutate func(*mdListMsg)
-		want   noticeWant
-		items  []string // the palette's titles, when it opens
-		ids    []string
-	}{
-		{name: "no files", mutate: func(m *mdListMsg) { m.files = nil }, want: exactly(noticeNoMarkdown)},
-		{name: "a listing error", mutate: func(m *mdListMsg) { m.files, m.err = nil, errors.New("boom") }, want: carries("boom")},
-		{
-			name:   "a hostile name",
-			mutate: func(m *mdListMsg) { m.files = []string{"a\x1b[31mb\u200b.md"} },
-			items:  []string{"a[31mb.md"},
-			ids:    []string{"a\x1b[31mb\u200b.md"},
-		},
-	}
-
-	m := newMDOpenRig(t, nil)
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			held := m.mdOpen()
-			if len(held) != 1 {
-				t.Fatalf("md.open held %d answers, want 1", len(held))
-			}
-
-			msg := held[0].(mdListMsg) //nolint:forcetypeassert // the held message is a list
-			tt.mutate(&msg)
-
-			m.notice = ""
-			m.flow(m.step(msg), nil)
-
-			if tt.items == nil {
-				if !tt.want.matches(m.notice) || m.overlay != nil {
-					t.Errorf("notice = %q, palette open = %v, want %+v and none", m.notice, m.overlay != nil, tt.want)
-				}
-
-				return
-			}
-
-			if m.overlay == nil || !slices.Equal(overlayIDs(m.App), tt.ids) {
-				t.Fatalf("palette ids = %q, want %q", overlayIDs(m.App), tt.ids)
-			}
-
-			var titles []string
-			for _, it := range m.overlay.items {
-				titles = append(titles, it.Title)
-			}
-
-			if !slices.Equal(titles, tt.items) {
-				t.Errorf("titles = %q, want %q", titles, tt.items)
-			}
-
-			m.closeOverlay()
-		})
-	}
-}
-
-func TestMDOpenLate(t *testing.T) {
-	t.Parallel()
-
-	lists := []struct {
-		name string
-		// setup runs before md.open; after runs before the answer; undo after it.
-		setup, after, undo func(t *testing.T, m *pageRig)
-		opens              bool // the answer still opens the palette
-	}{
-		{name: "a second md.open", after: func(_ *testing.T, m *pageRig) { m.mdOpen() }},
-		{
-			name:  "the compose box opened",
-			after: func(_ *testing.T, m *pageRig) { m.compose = &composeView{} },
-			undo:  func(_ *testing.T, m *pageRig) { m.compose = nil },
-		},
-		{
-			name:  "a confirm opened",
-			after: func(_ *testing.T, m *pageRig) { m.confirm = &confirm{} },
-			undo:  func(_ *testing.T, m *pageRig) { m.confirm = nil },
-		},
-		{name: "the focus moved to a pane elsewhere", after: func(t *testing.T, m *pageRig) {
-			chord(m.App, 'n')
-			openIn(t, m.App, core.SetPaneCwd{ID: m.store.State().Tab().Focus, Cwd: t.TempDir()})
-		}},
-		{name: "a new tab", after: func(t *testing.T, m *pageRig) {
-			if err := m.dispatch(core.NewTab{Kind: core.KindShell, Cwd: "/w/c"}); err != nil {
-				t.Fatal(err)
-			}
-		}},
-		{
-			name: "the drawer took the keyboard on a pinned drawer",
-			setup: func(t *testing.T, m *pageRig) {
-				wt := linkedWorktree(t, m)
-				m.opened(t)
-				openIn(t, m.App, core.PinReview{Root: wt})
-				m.settle()
-				m.drawerRelease()
-			},
-			after: func(_ *testing.T, m *pageRig) { m.drawerTake() },
-		},
-		{
-			name: "the drawer's worktree list is open",
-			setup: func(t *testing.T, m *pageRig) {
-				m.opened(t)
-			},
-			after: func(_ *testing.T, m *pageRig) {
-				tab := m.store.State().Tab()
-				m.drawer.list = &wtList{tab: tab.ID, pane: tab.Review.Pane, cancel: func() {}}
-			},
-			undo:  func(_ *testing.T, m *pageRig) { m.drawer.list = nil },
-			opens: true,
-		},
-	}
-
-	for _, tt := range lists {
-		t.Run("a list after "+tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			m := newMDOpenRig(t, nil)
-			if tt.setup != nil {
-				tt.setup(t, m)
-			}
-
-			held := m.mdOpen()
-			if len(held) != 1 {
-				t.Fatalf("md.open held %d answers, want 1", len(held))
-			}
-
-			tt.after(t, m)
-			m.flow(m.step(held[0]), nil)
-
-			if opened := m.overlay != nil && m.overlay.kind == overlayMarkdown; opened != tt.opens {
-				t.Errorf("palette opened = %v, want %v", opened, tt.opens)
-			}
-
-			if tt.undo != nil {
-				tt.undo(t, m)
-			}
-		})
-	}
-
-	reads := []struct {
-		name        string
-		after, undo func(t *testing.T, m *pageRig)
-	}{
-		{name: "a newer md.open", after: func(_ *testing.T, m *pageRig) { m.mdOpen() }},
-		{name: "a plan ask", after: func(t *testing.T, m *pageRig) {
-			chord(m.App, 'n')
-
-			id := m.store.State().Tab().Focus
-			openIn(t, m.App, core.NotePlan{ID: id, Plan: core.Plan{Path: filepath.Join(m.root, "docs/a.md"), Root: m.root, Kind: core.PlanFile}})
-			press(m.App, keyLeader, keyRune('p'))
-		}},
-		{
-			name:  "the compose box opened",
-			after: func(_ *testing.T, m *pageRig) { m.compose = &composeView{} },
-			undo:  func(_ *testing.T, m *pageRig) { m.compose = nil },
-		},
-		{
-			name:  "a confirm opened",
-			after: func(_ *testing.T, m *pageRig) { m.confirm = &confirm{} },
-			undo:  func(_ *testing.T, m *pageRig) { m.confirm = nil },
-		},
-	}
-
-	for _, tt := range reads {
-		t.Run("a read after "+tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			m := newMDOpenRig(t, nil)
 			m.listed(t)
 
-			held := m.flow(m.step(palette.ChosenMsg{ID: "docs/a.md"}), holdMDFiles)
-			if len(held) != 1 {
-				t.Fatalf("the pick held %d answers, want 1", len(held))
+			if got, want := m.finder.dir, tt.want(m, wt); got != want {
+				t.Errorf("the finder starts in %q, want %q", got, want)
 			}
+		})
+	}
 
-			tt.after(t, m)
-			m.flow(m.step(held[0]), nil)
+	fallbacks := []struct {
+		name string
+		home func(t *testing.T) string
+		want func(home string) string
+	}{
+		{"home when no pane has a folder", func(t *testing.T) string { return t.TempDir() }, func(home string) string { return home }},
+		{"the root when there is no home", func(*testing.T) string { return "" }, func(string) string { return "/" }},
+	}
 
-			if m.plan != nil {
-				t.Errorf("the late read opened the overlay: %+v", m.plan.file)
-			}
+	for _, tt := range fallbacks {
+		t.Run("an empty tab falls back to "+tt.name, func(t *testing.T) {
+			t.Parallel()
 
-			if tt.undo != nil {
-				tt.undo(t, m)
+			home := tt.home(t)
+			a := newOptionsApp(t, Options{
+				Store:  core.NewStore(core.State{Theme: "catppuccin-mocha"}),
+				Getenv: func(k string) string { return map[string]string{"HOME": home}[k] },
+			})
+			sized(t, a, 120, 40)
+
+			a.mdOpenCommand()
+
+			if a.finder == nil || a.finder.dir != tt.want(home) {
+				t.Errorf("finder = %+v, want one in %q", a.finder, tt.want(home))
 			}
 		})
 	}
@@ -536,8 +303,14 @@ func TestMDOverlayOverDrawer(t *testing.T) {
 
 	m.press(keyEsc)
 
-	if m.plan != nil || !m.drawerHasKeys() {
-		t.Errorf("after esc: overlay open %v, drawer has the keyboard %v, want it closed and the keyboard back", m.plan != nil, m.drawerHasKeys())
+	if m.plan != nil || m.finder == nil {
+		t.Errorf("after esc: overlay open %v, finder open %v, want the finder back", m.plan != nil, m.finder != nil)
+	}
+
+	m.press(keyEsc)
+
+	if m.finder != nil || !m.drawerHasKeys() {
+		t.Errorf("after the second esc: finder open %v, drawer has the keyboard %v, want it closed and the keyboard back", m.finder != nil, m.drawerHasKeys())
 	}
 }
 
@@ -734,10 +507,6 @@ func TestMDOverlayReadErrors(t *testing.T) {
 	big := strings.Repeat("x", md.MaxBytes+10)
 	m := newMDOpenRig(t, map[string]string{"docs/big.md": big})
 
-	if err := os.Symlink("/etc/hostname", filepath.Join(m.dir, "docs/link.md")); err != nil {
-		t.Skipf("no symlinks: %v", err)
-	}
-
 	write(t, filepath.Join(m.dir, "docs/dir.md"), "x\n")
 
 	tests := []struct {
@@ -745,8 +514,7 @@ func TestMDOverlayReadErrors(t *testing.T) {
 		before    func()
 		shown     string // the path the notice names
 	}{
-		{"removed after the list", "docs/a.md", func() { _ = os.Remove(filepath.Join(m.dir, "docs/a.md")) }, "docs/a.md"},
-		{"a symlink out of the root", "docs/link.md", nil, "docs/link.md"},
+		{"removed after the list", "docs/a.md", func() { _ = os.Remove(filepath.Join(m.dir, "docs/a.md")) }, "a.md"},
 		{"a folder", "docs/dir.md", func() {
 			_ = os.Remove(filepath.Join(m.dir, "docs/dir.md"))
 			_ = os.MkdirAll(filepath.Join(m.dir, "docs/dir.md"), 0o755)
@@ -756,13 +524,15 @@ func TestMDOverlayReadErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m.listed(t)
+			m.goTo(t, path.Dir(tt.rel))
 
 			if tt.before != nil {
 				tt.before()
 			}
 
 			m.notice = ""
-			m.pick(t, tt.rel)
+			m.finderSelect(t, path.Base(tt.rel))
+			m.press(keyEnter)
 
 			if m.plan != nil || !refusal(m.notice, tt.shown) {
 				t.Errorf("notice %q, overlay open %v, want a notice naming %q and none", m.notice, m.plan != nil, tt.shown)

@@ -57,6 +57,22 @@ closed. Messages carry what they answer (the `*pane`, a request counter, the
 source, the session), and the handler drops a stale one before it dispatches.
 New async work must do the same.
 
+**The markdown finder's walk** (`internal/ui/finder.go`, `md.Walk`) is the one
+off-loop job that streams. The finder owns at most one walk per folder and per
+reach of hidden entries, started at the first typed letter in a goroutine under
+a context cancelled by closing the finder or changing folder (and by quit,
+through the app's). Its batches and its end reach the loop as `finderWalkMsg`s
+that a `tea.Cmd` reads one at a time and the handler re-arms, so no tick drives
+it; the time limit is a second context whose expiry the walk reports as its
+stop reason. It is one walk per folder because every later letter only filters
+what the walk found: a keystroke costs no disk reads, and a walk of `/` finds
+about 8,800 markdown files among 77,000 folders. The filter runs on the loop
+below `finderFilterInline` names and past it as a `tea.Cmd`, at most one at a
+time; a change that lands while it runs marks it dirty and its answer starts
+the next. Walk, filter and folder-read messages carry the finder, and a folder
+generation where a folder change makes them stale; a stale one is dropped, and
+a dropped walk message is not waited on again.
+
 **Layout.** `core.Arrange` (`internal/core/geometry.go`) is the one function
 that turns a tab into the rects drawn and the PTY sizes. The agents rail
 narrows the body, so it is part of the layout. The review drawer is an overlay

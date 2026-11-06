@@ -73,7 +73,7 @@ func (a *App) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 
 // routeKey routes a key press: an open confirm first, then an open prompt, then
 // copy mode, then the open overlay, compose box, merge box, plan overlay,
-// conversation, checks, PR list or worktree picker, then the leader state
+// markdown finder, conversation, checks, PR list or worktree picker, then the leader state
 // machine, then the usage popover while it shows, then the rail while it has
 // the keyboard, then the review drawer while it has it, then the focused pane.
 func (a *App) routeKey(msg tea.KeyPressMsg) tea.Cmd {
@@ -115,6 +115,10 @@ func (a *App) routeKey(msg tea.KeyPressMsg) tea.Cmd {
 
 	if a.plan != nil {
 		return a.handlePlanKey(msg)
+	}
+
+	if a.finder != nil {
+		return a.handleFinderKey(msg)
 	}
 
 	if a.conv != nil {
@@ -162,7 +166,7 @@ func (a *App) paneHasKeys() bool {
 }
 
 // handlePaste sends a paste to the topmost text input: prompt, overlay, compose box,
-// plan search, picker, then the rail's or drawer's search, else the focused pane.
+// plan search, finder, picker, then the rail's or drawer's search, else the focused pane.
 // Confirm, copy mode, checks, merge, the PR list and the usage popover drop it;
 // the conversation takes it only into its search prompt.
 func (a *App) handlePaste(msg tea.PasteMsg) tea.Cmd {
@@ -190,6 +194,10 @@ func (a *App) handlePaste(msg tea.PasteMsg) tea.Cmd {
 		a.planPaste(msg.Content)
 
 		return nil
+	}
+
+	if a.finder != nil {
+		return a.finderPaste(msg.Content)
 	}
 
 	if a.conv != nil {
@@ -268,7 +276,7 @@ func (a *App) reportFocusChange(from, to core.PaneID) {
 
 // modalOpen reports whether any modal owns the keyboard: a confirm, prompt,
 // copy mode, the palette or another overlay, the compose box, the merge box,
-// the plan, the conversation, the checks, the pull request list, the worktree
+// the plan, the markdown finder, the conversation, the checks, the pull request list, the worktree
 // picker or the drawer's worktree list or link chooser.
 func (a *App) modalOpen() bool { return a.composeShown() || a.otherModalOpen() }
 
@@ -279,7 +287,11 @@ func (a *App) otherModalOpen() bool {
 
 // aboveDrawerModalOpen is otherModalOpen without the drawer's worktree list and
 // link chooser, which the leader opens overlays over.
-func (a *App) aboveDrawerModalOpen() bool {
+func (a *App) aboveDrawerModalOpen() bool { return a.finder != nil || a.modalOverFinder() }
+
+// modalOverFinder is aboveDrawerModalOpen without the markdown finder: the
+// finder's own answers land under it, and the plan overlay shows over it.
+func (a *App) modalOverFinder() bool {
 	return a.confirm != nil || a.prompt != nil || a.copy != nil || a.overlay != nil || a.merge != nil ||
 		a.plan != nil || a.conv != nil || a.checks != nil || a.prList != nil || a.picker.open != nil
 }

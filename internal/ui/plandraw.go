@@ -188,6 +188,14 @@ func (a *App) planHead(v *planView) (lead, path, tag string) {
 		lead = " " + icon + " " + name + " · "
 	}
 
+	// A file outside every repository is titled by its path alone.
+	if v.file != nil && v.file.repo == "" {
+		lead = " "
+		if a.icons {
+			lead = " " + icon + " "
+		}
+	}
+
 	if v.file == nil {
 		tag = " " + planKindWord(v.plan.Kind)
 		if v.rewritten {
@@ -228,7 +236,12 @@ func (a *App) planLines(lk look, w, h int) (out []string, pics []picRow) {
 
 	lead, path, tag := a.planHead(v)
 
-	title, tag := planTop(lead, shortPath(path, v.root, a.getenv("HOME")), tag, w)
+	main := v.root
+	if v.file != nil && v.file.repo == "" {
+		main = ""
+	}
+
+	title, tag := planTop(lead, shortPath(path, main, a.getenv("HOME")), tag, w)
 	top := border.Render("╭─") + on(ui.Info).Bold(true).Render(title)
 
 	if tag != "" {
@@ -310,6 +323,10 @@ func (a *App) planHintRow(ui theme.UI, w int) string {
 	var b strings.Builder
 
 	for i, p := range planHints(a.keys.reader, w) {
+		if p[1] == "close" && a.finder != nil {
+			p[1] = "back"
+		}
+
 		if i > 0 {
 			b.WriteString(on(ui.Fg).Render(strings.Repeat(" ", planHintGap)))
 		}

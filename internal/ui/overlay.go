@@ -24,7 +24,6 @@ type overlayKind int
 const (
 	overlayCommands overlayKind = iota
 	overlayThemes
-	overlayMarkdown
 )
 
 // overlay is an open palette. It owns every key until it closes.
@@ -32,7 +31,6 @@ type overlay struct {
 	kind  overlayKind
 	items []palette.Item
 	pal   palette.Model
-	pick  *mdPick // the worktree an overlayMarkdown list was made for
 }
 
 // look is the theme with its derived styles and highlighted sample. The app
@@ -186,7 +184,7 @@ func (a *App) chosen(id string) tea.Cmd {
 		return nil
 	}
 
-	kind, pick := a.overlay.kind, a.overlay.pick
+	kind := a.overlay.kind
 	a.closeOverlay()
 
 	switch kind {
@@ -202,8 +200,6 @@ func (a *App) chosen(id string) tea.Cmd {
 	case overlayThemes:
 		// dispatch logs its own failures.
 		_ = a.dispatch(core.SetTheme{Name: id})
-	case overlayMarkdown:
-		return a.pickMarkdown(pick, id)
 	}
 
 	return nil

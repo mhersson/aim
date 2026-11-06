@@ -520,11 +520,11 @@ func (a *App) onPinAcquired(msg pinAcquiredMsg) {
 }
 
 // mdWatchSync keeps one reference on the root of the open markdown file
-// overlay, as pinSync does for a pin: it releases one the overlay no longer
+// overlay when it is in a repository, as pinSync does for a pin: it releases one the overlay no longer
 // wants and starts taking the wanted one off the update loop.
 func (a *App) mdWatchSync() tea.Cmd {
 	want := ""
-	if a.watches.set != nil && a.plan != nil && a.plan.file != nil {
+	if a.watches.set != nil && a.plan != nil && a.plan.file != nil && a.plan.file.repo != "" {
 		want = a.plan.root
 	}
 

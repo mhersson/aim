@@ -18,7 +18,7 @@
 │ │     • The hook handler writes it and the rail only reads it.             │ │
 │ │                                                                          │ │
 │ │                                                                          │ │
-│ │   j/k line    ctrl+d/u half page    enter open    esc close              │ │
+│ │   j/k line    ctrl+d/u half page    enter open    esc back               │ │
 │ ╰──────────────────────────────────────────────────────────────────── top ─╯ │
 │                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯

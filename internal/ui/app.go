@@ -163,6 +163,7 @@ type App struct {
 	merge                  *mergeView   // the merge box; owns every key while open
 	conv                   *convView    // a pull request's conversation; owns every key while open
 	plan                   *planView    // an agent's plan; owns every key while open
+	finder                 *finderView  // the markdown finder; stays set while a file it opened shows over it
 	planSeq                int          // plan read counter; an answer for another read is stale
 	prList                 *prListView  // the agents' pull requests; owns every key while open
 	compose                *composeView // the compose box; owns every key while open
@@ -765,8 +766,12 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, a.onLinkEdit(msg)
 	case mdPageMsg:
 		a.onMDPage(msg)
-	case mdListMsg:
-		a.onMDList(msg)
+	case finderListMsg:
+		return a, a.onFinderList(msg)
+	case finderWalkMsg:
+		return a, a.onFinderWalk(msg)
+	case finderFilterMsg:
+		return a, a.onFinderFilter(msg)
 	case mdFileMsg:
 		a.onMDFile(msg)
 	case planReadMsg:
@@ -953,6 +958,10 @@ func (a *App) View() tea.View {
 
 	if a.merge != nil {
 		content = a.overlayMerge(f, content, lk)
+	}
+
+	if a.finder != nil && a.plan == nil {
+		content = a.overlayFinder(f, content, lk)
 	}
 
 	if a.plan != nil {
