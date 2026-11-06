@@ -196,7 +196,7 @@ func TestWalkSymlinkedRoot(t *testing.T) {
 
 // expiring is a context whose deadline passes when expire is called.
 type expiring struct {
-	context.Context
+	context.Context //nolint:containedctx // a test double that overrides Err
 
 	expired bool
 }
