@@ -86,7 +86,7 @@ func TestAfterLoadActionNeedsTheKeyboard(t *testing.T) {
 		}
 	})
 
-	t.Run("leader g m takes an unfocused drawer's keyboard", func(t *testing.T) {
+	t.Run("the merge command takes an unfocused drawer's keyboard", func(t *testing.T) {
 		t.Parallel()
 
 		r := newPRDrawer(t)
@@ -100,8 +100,7 @@ func TestAfterLoadActionNeedsTheKeyboard(t *testing.T) {
 			t.Fatal("leader h left the drawer focused")
 		}
 
-		r.leader('g')
-		r.typed("m")
+		r.run(r.mergeCommand())
 		r.until(t, "the box", func() bool { return r.merge != nil })
 
 		if !r.drawer.focused {

@@ -402,7 +402,7 @@ func TestMergeKeys(t *testing.T) {
 	})
 }
 
-func TestMergeFromLeaderM(t *testing.T) {
+func TestMergeCommand(t *testing.T) {
 	t.Parallel()
 
 	r := newPRDrawer(t)
@@ -410,11 +410,10 @@ func TestMergeFromLeaderM(t *testing.T) {
 	r.actions = f
 
 	r.poll()
-	r.leader('g')
-	r.typed("m")
+	r.run(r.mergeCommand())
 
 	if r.merge != nil {
-		t.Fatal("leader g m opened the box before the pull request loaded")
+		t.Fatal("the command opened the box before the pull request loaded")
 	}
 
 	r.until(t, "the box", func() bool { return r.merge != nil })
@@ -444,12 +443,11 @@ func TestMergeWithoutActions(t *testing.T) {
 		t.Errorf("box %v, notice %q, want no box and %q", r.merge, r.notice, noticePRsOff)
 	}
 
-	r.leader('h')
-	r.leader('g')
-	r.typed("m")
+	r.notice = ""
+	r.run(r.mergeCommand())
 
 	if r.merge != nil || r.notice != noticePRsOff {
-		t.Errorf("leader g m: box %v, notice %q, want no box and %q", r.merge, r.notice, noticePRsOff)
+		t.Errorf("command: box %v, notice %q, want no box and %q", r.merge, r.notice, noticePRsOff)
 	}
 }
 
@@ -466,8 +464,7 @@ func TestMergeWithoutAFocusedPane(t *testing.T) {
 		t.Fatalf("the tab still has panes: %v", st.Tab().Panes)
 	}
 
-	r.leader('g')
-	r.typed("m")
+	r.run(r.mergeCommand())
 
 	if r.merge != nil || r.notice != noticeMergeNoPane {
 		t.Errorf("box %v, notice %q, want no box and %q", r.merge, r.notice, noticeMergeNoPane)
@@ -593,11 +590,10 @@ func TestMergeOnce(t *testing.T) {
 		t.Errorf("box %v, notice %q, want no box and the busy notice", r.merge, r.notice)
 	}
 
-	r.leader('g')
-	r.typed("m")
+	r.run(r.mergeCommand())
 
 	if r.merge != nil || r.notice != fmt.Sprintf(noticeMergeBusy, 7) {
-		t.Errorf("leader g m: box %v, notice %q, want no box and the busy notice", r.merge, r.notice)
+		t.Errorf("command: box %v, notice %q, want no box and the busy notice", r.merge, r.notice)
 	}
 
 	r.cancel()

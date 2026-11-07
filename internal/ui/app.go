@@ -509,6 +509,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.later = append(a.later, c)
 	}
 
+	a.prHoldSync()
+
 	if c := a.prSync(); c != nil {
 		a.later = append(a.later, c)
 	}

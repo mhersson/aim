@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/mhersson/aim/internal/core"
+	"github.com/mhersson/aim/internal/github"
 )
 
 // noticePRListNone is what the list says when no agent's branch has an open
@@ -273,15 +274,14 @@ func paneIDLess(x, y core.PaneID) bool {
 	return x < y
 }
 
-// prListOpen shows the row's pull request and runs then once its diff has
-// loaded. A row with an agent switches to the agent's tab, as the rail's jump
-// does; any other opens the active tab's drawer on the focused pane, or says
-// there is no pane to open it on.
-func (a *App) prListOpen(row prListRow, then prThen) tea.Cmd {
+// prListOpen shows the row's pull request. A row with an agent switches to the
+// agent's tab, as the rail's jump does; any other opens the active tab's drawer
+// on the focused pane, or says there is no pane to open it on.
+func (a *App) prListOpen(row prListRow) tea.Cmd {
 	st := a.store.State()
 
 	if row.pane == "" {
-		return a.prListOpenHere(st, row, then)
+		return a.prListOpenHere(st, row)
 	}
 
 	a.prList = nil
@@ -301,7 +301,7 @@ func (a *App) prListOpen(row prListRow, then prThen) tea.Cmd {
 	a.railRelease()
 
 	want := &prWant{repo: row.key.repo, number: row.key.number, root: row.root, base: row.pr.BaseBranch}
-	cmds = append(cmds, a.openWithPR(row.pane, want, then))
+	cmds = append(cmds, a.openWithPR(row.pane, want, thenNothing))
 
 	return tea.Batch(cmds...)
 }
@@ -309,7 +309,7 @@ func (a *App) prListOpen(row prListRow, then prThen) tea.Cmd {
 // prListOpenHere opens the drawer on the focused pane with the row's pull
 // request: from a pane's checkout of the repository when there is one, else from
 // AIM's private copy of it.
-func (a *App) prListOpenHere(st core.State, row prListRow, then prThen) tea.Cmd {
+func (a *App) prListOpenHere(st core.State, row prListRow) tea.Cmd {
 	focus := st.Tab().Focus
 	if focus == "" {
 		a.notice = noticePRNoPane
@@ -340,5 +340,121 @@ func (a *App) prListOpenHere(st core.State, row prListRow, then prThen) tea.Cmd 
 
 	a.prList = nil
 
-	return a.openWithPR(focus, want, then)
+	return a.openWithPR(focus, want, thenNothing)
+}
+
+// prListReread asks the poller for each repository of the shown tab and reads
+// the searches again, as `r` does; nil when the list is closed.
+func (a *App) prListReread() tea.Cmd {
+	if a.prList == nil {
+		return nil
+	}
+
+	a.prListRefresh(a.prListRowsOf(a.store.State(), a.prList.tab))
+
+	return a.prSearchCmd()
+}
+
+// prListMerge is `M` on a row: the merge box opens over the list at once when
+// the row's repository has been polled, since the box freezes the repository's
+// settings when it opens. Otherwise the merge holds on the list until the poll
+// answers.
+func (a *App) prListMerge(row prListRow) {
+	a.prHoldEnd()
+
+	if repo, ok := repoOfKey(row.key.repo); ok && !a.prs.polled[repo] && a.prs.src != nil {
+		a.prs.held = row.key
+		a.prs.dirty = true
+		a.notice = fmt.Sprintf(noticePRFetching, row.key.number)
+		a.prs.src.Refresh(repo)
+
+		return
+	}
+
+	a.prListMergeBox(row)
+}
+
+// prListMergeBox opens the merge box over the list from the row: the details
+// the poll has, else the row's, and the head the row lists. The root is the
+// row's agent's, else a pane's checkout of the repository, else none, which
+// offers no clean-up.
+func (a *App) prListMergeBox(row prListRow) {
+	root := row.root
+	if root == "" {
+		root, _ = a.prCheckout(row.key.repo)
+	}
+
+	a.openMergeBox(row.key.repo, row.key.number, row.pr, row.pr.HeadOID, root, true)
+}
+
+// prHoldEnd drops the list's merge hold and the notice it set.
+func (a *App) prHoldEnd() {
+	h := a.prs.held
+	if h == (prListKey{}) {
+		return
+	}
+
+	a.prs.held = prListKey{}
+	a.prs.dirty = true
+
+	if a.notice == fmt.Sprintf(noticePRFetching, h.number) {
+		a.notice = ""
+	}
+}
+
+// prHoldSync drops the hold once the list is closed or its selected row is not
+// the held one, so the repository goes back to the watch it had.
+func (a *App) prHoldSync() {
+	h := a.prs.held
+	if h == (prListKey{}) {
+		return
+	}
+
+	if a.prList != nil {
+		rows := a.prListRowsOf(a.store.State(), a.prList.tab)
+		if i := a.prList.selected(rows); i >= 0 && rows[i].key == h {
+			return
+		}
+	}
+
+	a.prHoldEnd()
+}
+
+// prHoldAnswered ends the hold when its repository's poll answers for the held
+// pull request and opens the merge box from the row, or says why not. An answer
+// that reaches a list with something open above it is dropped silently.
+func (a *App) prHoldAnswered(s github.Snapshot) {
+	h := a.prs.held
+	if h == (prListKey{}) || s.Repo.String() != h.repo || s.Err == nil && s.Asked != h.number {
+		return
+	}
+
+	a.prHoldEnd()
+
+	if a.prList == nil || a.modalAboveList() {
+		return
+	}
+
+	if s.Err != nil {
+		a.notice = fmt.Sprintf(noticePRsFailed, h.repo, prReason(s.Err))
+
+		return
+	}
+
+	// Before the row check: a poll that loses the pull request also removes an
+	// Agents row, and that says so rather than dropping silently.
+	if _, known := prInfoByNumber(a.store.State(), h.repo, h.number); !known {
+		if f := s.Focused; f != nil && f.Number == h.number && f.Err != nil {
+			a.notice = fmt.Sprintf(noticePRsFailed, h.repo, prReason(f.Err))
+		} else {
+			a.notice = fmt.Sprintf(noticePRGone, h.number)
+		}
+
+		return
+	}
+
+	rows := a.prListRowsOf(a.store.State(), a.prList.tab)
+	if i := a.prList.selected(rows); i >= 0 && rows[i].key == h {
+		a.prListMergeBox(rows[i])
+	}
 }

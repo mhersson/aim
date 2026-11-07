@@ -77,7 +77,6 @@ func defaultKeymap() keymap {
 			{key: "g l", command: "pr.list", group: "Git"},
 			{key: "g P", command: "git.push", group: "Git"},
 			{key: "g o", command: "pr.open", group: "Git"},
-			{key: "g m", command: "pr.merge", group: "Git"},
 			{key: "q", command: "app.quit", group: "App"},
 		},
 	}

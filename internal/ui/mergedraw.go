@@ -67,7 +67,13 @@ func (a *App) mergeBox(lk look, w, room int) []string {
 	where += run(printable(branch), ui.Dim, false) + run(" → ", ui.Muted, false) + run(printable(base), ui.Dim, false)
 
 	sha := v.sha[:min(shortOIDLen, len(v.sha))]
-	head := run("head "+sha, ui.Fg, true) + run(", the commit you reviewed; GitHub refuses if the PR moved since", ui.Muted, false)
+
+	headNote := ", the commit you reviewed; GitHub refuses if the PR moved since"
+	if v.listed {
+		headNote = ", the commit listed; GitHub refuses if the PR moved since"
+	}
+
+	head := run("head "+sha, ui.Fg, true) + run(headNote, ui.Muted, false)
 
 	status := []railRun{}
 	if glyph, counts := prChecksOf(pr, a.icons, ui); glyph.text != "" {

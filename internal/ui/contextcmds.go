@@ -200,7 +200,7 @@ func prListCommands() []command {
 			return nil
 		}),
 		cmd("prlist.show", "show the diff", true, func(a *App, rows []prListRow, i int) tea.Cmd {
-			return a.prListOpen(rows[i], thenNothing)
+			return a.prListOpen(rows[i])
 		}),
 		// The conversation and the checks stack over the list, which stays under them.
 		cmd("prlist.conversation", "show the conversation", true, func(a *App, rows []prListRow, i int) tea.Cmd {
@@ -228,7 +228,11 @@ func prListCommands() []command {
 				return nil
 			}
 
-			return a.prListOpen(rows[i], thenApprove)
+			// The row has all the confirm needs, so it opens over the list at once.
+			r := rows[i]
+			a.openApproveConfirm(r.key.repo, r.key.number, r.pr.Title, r.pr.HeadOID, true)
+
+			return nil
 		}),
 		cmd("prlist.merge", "merge", true, func(a *App, rows []prListRow, i int) tea.Cmd {
 			if a.actions == nil {
@@ -237,15 +241,15 @@ func prListCommands() []command {
 				return nil
 			}
 
-			return a.prListOpen(rows[i], thenMerge)
+			a.prListMerge(rows[i])
+
+			return nil
 		}),
 		cmd("prlist.browser", "open in the browser", true, func(a *App, rows []prListRow, i int) tea.Cmd {
 			return a.openURL(a.prListRowURL(rows[i]))
 		}),
-		cmd("prlist.refresh", "refresh", false, func(a *App, rows []prListRow, _ int) tea.Cmd {
-			a.prListRefresh(rows)
-
-			return a.prSearchCmd()
+		cmd("prlist.refresh", "refresh", false, func(a *App, _ []prListRow, _ int) tea.Cmd {
+			return a.prListReread()
 		}),
 		cmd("prlist.close", "close", false, func(a *App, _ []prListRow, _ int) tea.Cmd {
 			a.prList = nil

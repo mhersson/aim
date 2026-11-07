@@ -337,7 +337,7 @@ func TestSequencePopup(t *testing.T) {
 		{'>', []string{"1-9", "esc"}},
 		{'.', []string{"1-9", "esc"}},
 		{';', []string{"h j k l", "esc"}},
-		{'g', []string{"l", "P", "o", "m", "esc"}},
+		{'g', []string{"l", "P", "o", "esc"}},
 	}
 
 	for _, tt := range tests {

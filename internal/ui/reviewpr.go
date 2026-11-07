@@ -731,8 +731,11 @@ func (a *App) prPollHolds(v *reviewView, then prThen) bool {
 
 // prPollAnswered ends the holds of s's repository that the poll answered: a
 // failed poll says why, an answer for another pull request leaves the hold, and
-// one that knows the pull request runs what was held.
+// one that knows the pull request runs what was held. The list's hold is one of
+// them.
 func (a *App) prPollAnswered(s github.Snapshot) tea.Cmd {
+	a.prHoldAnswered(s)
+
 	var (
 		cmds   []tea.Cmd
 		repo   = s.Repo.String()

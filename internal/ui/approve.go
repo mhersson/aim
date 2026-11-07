@@ -24,11 +24,13 @@ const (
 )
 
 // approveTarget is what an approval sends, frozen when its confirm opens: the
-// pull request and the commit whose diff the drawer showed.
+// pull request and the commit whose diff the drawer showed, or the one the pull
+// request list showed when listed is set.
 type approveTarget struct {
 	repo       github.Repo
 	number     int
 	title, sha string
+	listed     bool // opened from the pull request list, not from the drawer
 }
 
 // approvedMsg answers an approval.
@@ -48,6 +50,13 @@ func (a *App) openApprove(repoKey string, number int, sha string) {
 		return
 	}
 
+	a.openApproveConfirm(repoKey, number, "", sha, false)
+}
+
+// openApproveConfirm opens the approve confirm on pull request number of
+// repoKey at sha, or says why it cannot. The title is the poll's, else title. It
+// checks no modal: the drawer's route does, and the list's opens over the list.
+func (a *App) openApproveConfirm(repoKey string, number int, title, sha string, listed bool) {
 	repo, ok := repoOfKey(repoKey)
 	if !ok || a.actions == nil {
 		a.notice = noticePRsOff
@@ -55,7 +64,7 @@ func (a *App) openApprove(repoKey string, number int, sha string) {
 		return
 	}
 
-	t := approveTarget{repo: repo, number: number, sha: sha}
+	t := approveTarget{repo: repo, number: number, title: title, sha: sha, listed: listed}
 
 	if info, ok := prInfoByNumber(a.store.State(), repoKey, number); ok {
 		switch {
@@ -135,12 +144,17 @@ func approveBox(t approveTarget, w int, icons bool, st styles) []string {
 
 	top, row, bottom := boxFrame(w, title, boxStyle{border: st.popupBorder, title: st.approveTitle, cut: "…"}, st)
 
+	which := ", the commit you reviewed"
+	if t.listed {
+		which = ", the commit listed"
+	}
+
 	return []string{
 		top,
 		row(""),
 		row(st.confirmQuestion.Render(printable(t.title))),
 		row(st.popupMuted.Render("at head ") + st.confirmQuestion.Render(t.sha[:min(shortOIDLen, len(t.sha))]) +
-			st.popupMuted.Render(", the commit you reviewed")),
+			st.popupMuted.Render(which)),
 		row(""),
 		row(hint("enter", "approve") + st.popup.Render("    ") + hint("esc", "cancel")),
 		bottom,
