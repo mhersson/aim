@@ -546,11 +546,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // keyboardCheck starts watching a message and returns the check to run once it
 // is handled. If a user-input message moved the active tab or its focused pane,
 // the keyboard returns to the panes from the rail or the drawer, whichever had
-// it; changes with other causes (a process exit, a hook, a restore) leave it
+// it, unless the message itself gave it to the drawer, as `enter` on a list row
+// does; changes with other causes (a process exit, a hook, a restore) leave it
 // alone. The drawer is then settled (see settleDrawer).
 func (a *App) keyboardCheck(msg tea.Msg) func() {
 	user := isUserInput(msg)
-	railWas, drawerWas, ver := a.rail.focused, a.drawer.focused, a.storeVer
+	railWas, drawerWas, ver, takes := a.rail.focused, a.drawer.focused, a.storeVer, a.drawer.takes
 
 	// The state before the update is copied only when something can depend on it:
 	// the rail or a drawer has the keyboard, or a drawer is open in some tab.
@@ -568,7 +569,7 @@ func (a *App) keyboardCheck(msg tea.Msg) func() {
 					a.railRelease()
 				}
 
-				if drawerWas {
+				if drawerWas && a.drawer.takes == takes {
 					a.drawerRelease()
 				}
 			}

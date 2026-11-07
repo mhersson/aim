@@ -71,6 +71,73 @@ func (r *listRig) placed() placement {
 	return p
 }
 
+// enterRow presses enter on the agent's row and checks that the drawer it asked
+// for has the keyboard: the next key acts on the diff and misses the agent's pane.
+func (r *listRig) enterRow(t *testing.T, zoomed bool) {
+	t.Helper()
+
+	// The rig's agent has no process, so a key that missed the drawer would vanish.
+	p := newPane(r.agent, newFakeProc(), 80, 24, r.clock)
+
+	t.Cleanup(func() { _ = p.close() })
+
+	r.panes[r.agent] = p
+
+	r.keys(keyEnter)
+	r.until(t, "the agent's drawer in PR mode", func() bool {
+		st := r.store.State()
+
+		return st.Active == 1 && st.Tab().Focus == r.agent && r.inPRMode(7)()
+	})
+
+	target := r.view()
+	if target.zoom != zoomed {
+		t.Errorf("zoom = %v, want %v", target.zoom, zoomed)
+	}
+
+	cursor := target.cursor
+
+	r.keys(keyRune('j'))
+
+	if target.cursor != cursor+1 {
+		t.Errorf("j: cursor = %d, want %d", target.cursor, cursor+1)
+	}
+
+	if got := r.sentSoFar(t, r.agent); got != "" {
+		t.Errorf("the agent's pane was sent %q, want nothing", got)
+	}
+}
+
+func TestPRListEnterGivesTheDrawerTheKeyboard(t *testing.T) {
+	t.Parallel()
+
+	t.Run("moving the tab from another drawer", func(t *testing.T) {
+		t.Parallel()
+
+		directRig(t).enterRow(t, false)
+	})
+
+	// A drawer on a tab that is not active has no zoom, so this is the route that can hold one.
+	t.Run("moving the focus under a zoomed drawer", func(t *testing.T) {
+		t.Parallel()
+
+		r := newListRig(t)
+		r.run(r.act(core.SelectTab{Index: 1}))
+		r.opened(t)
+		r.shell(t, r.dir)
+		r.settle()
+		r.keys(keyRune('z'))
+		r.leader('g')
+		r.typed("l")
+
+		if !r.zoomed() || r.focus() == r.agent || r.prList == nil {
+			t.Fatalf("setup: zoomed %v, focus %s, list %v; want a zoomed drawer, the focus off %s and the list", r.zoomed(), r.focus(), r.prList, r.agent)
+		}
+
+		r.enterRow(t, true)
+	})
+}
+
 func TestPRListActsInPlace(t *testing.T) {
 	t.Parallel()
 

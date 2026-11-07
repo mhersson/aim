@@ -156,6 +156,7 @@ type reviewCache struct {
 // drawerState is the drawer's UI state outside the views.
 type drawerState struct {
 	focused, tree bool // the drawer has the keyboard; within it, the tree has
+	takes         int  // counts drawerTake; keyboardCheck compares it to see whether a message asked for the drawer
 	slideFrom     time.Time
 	closing       bool
 	resizeFrom    int // the width a zoom or un-zoom slide started from; 0 for an open or close slide
