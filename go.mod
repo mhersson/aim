@@ -4,7 +4,7 @@ go 1.27.3
 
 require (
 	charm.land/bubbles/v2 v2.2.1
-	charm.land/bubbletea/v2 v2.1.0
+	charm.land/bubbletea/v2 v2.1.1
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/alecthomas/chroma/v2 v2.27.0
 	github.com/bluekeyes/go-gitdiff v0.9.0
@@ -16,11 +16,11 @@ require (
 	github.com/cli/go-gh/v2 v2.17.0
 	github.com/cli/shurcooL-graphql v0.0.4
 	github.com/creack/pty v1.1.24
-	github.com/ebitengine/purego v0.11.2
+	github.com/ebitengine/purego v0.11.3
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/sahilm/fuzzy v0.1.3
 	github.com/spf13/cobra v1.10.2
-	github.com/yuin/goldmark/v2 v2.1.9
+	github.com/yuin/goldmark/v2 v2.1.15
 	golang.org/x/image v0.47.0
 	golang.org/x/sys v0.49.0
 	tuios.dev/vt v0.3.2
