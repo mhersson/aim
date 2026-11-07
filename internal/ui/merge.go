@@ -59,7 +59,7 @@ type mergedMsg struct {
 	root   string
 	sha    string
 	method github.MergeMethod
-	branch string
+	pr     core.PRInfo // the box's pull request, as frozen when it opened
 	res    github.Merged
 	err    error
 }
@@ -382,6 +382,7 @@ func (a *App) mergeRun(v *mergeView) tea.Cmd {
 		repo    = v.repo
 		info    = v.info
 		root    = v.root
+		frozen  = v.pr
 	)
 
 	return func() tea.Msg {
@@ -390,7 +391,7 @@ func (a *App) mergeRun(v *mergeView) tea.Cmd {
 
 		res, err := actions.Merge(ctx, repo, pr, info, opts)
 
-		return mergedMsg{key: key, root: root, sha: opts.SHA, method: opts.Method, branch: pr.HeadBranch, res: res, err: err}
+		return mergedMsg{key: key, root: root, sha: opts.SHA, method: opts.Method, pr: frozen, res: res, err: err}
 	}
 }
 
@@ -427,7 +428,7 @@ func (a *App) onMerged(msg mergedMsg) tea.Cmd {
 
 	switch {
 	case msg.res.DeleteErr != nil:
-		text += fmt.Sprintf("; deleting %s failed: %s", printable(msg.branch), gitReason(msg.res.DeleteErr))
+		text += fmt.Sprintf("; deleting %s failed: %s", printable(msg.pr.HeadBranch), gitReason(msg.res.DeleteErr))
 	case msg.res.BranchDeleted:
 		text += ", branch deleted"
 	}
@@ -450,11 +451,11 @@ func (a *App) cleanupAfterMerge(msg mergedMsg) tea.Cmd {
 
 	pr, ok := prInfoByNumber(a.store.State(), repo.String(), msg.key.number)
 	if !ok {
-		pr = core.PRInfo{Number: msg.key.number, HeadBranch: msg.branch}
+		pr = msg.pr
 	}
 
 	if pr.HeadBranch == "" {
-		pr.HeadBranch = msg.branch
+		pr.HeadBranch = msg.pr.HeadBranch
 	}
 
 	if msg.root == "" || msg.sha == "" || pr.CrossRepo || pr.HeadBranch == a.store.State().PRs[repo.String()].DefaultBranch {
@@ -471,11 +472,11 @@ func (a *App) recordMerged(msg mergedMsg) {
 
 	info, ok := prInfoByNumber(a.store.State(), repo, msg.key.number)
 	if !ok {
-		info = core.PRInfo{Number: msg.key.number, HeadBranch: msg.branch}
+		info = msg.pr
 	}
 
 	if info.HeadBranch == "" {
-		info.HeadBranch = msg.branch
+		info.HeadBranch = msg.pr.HeadBranch
 	}
 
 	info.State = prMergedState

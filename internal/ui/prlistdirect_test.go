@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/golden"
@@ -568,5 +569,54 @@ func TestToastShowsOverAFullList(t *testing.T) {
 
 	if !strings.Contains(lines[h-2], text) {
 		t.Errorf("the toast's text row is hidden:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+// forkRig is the clean-up rig with the list on the Requested tab, holding a
+// fork's #99 on feat/x, a branch name a worktree here has, that the poll does
+// not list.
+func forkRig(t *testing.T) *cleanupRig {
+	t.Helper()
+
+	r := newCleanupRig(t)
+	r.reads = &fakeReads{fail: map[string]error{}, mine: map[string]github.MyPRs{
+		"github.com": {Requested: []github.SearchPR{
+			searched(prRepo.String(), 99, "Fork work", "stranger", time.Hour, func(p *github.PR) {
+				p.BaseBranch, p.HeadBranch, p.HeadOID, p.CrossRepo = "main", "feat/x", "forkhead", true
+			}),
+		}},
+	}}
+
+	focus := r.store.State().Tab().Focus
+	k := prKey{cwd: r.wt, branch: "feat/x"}
+	r.prs.panes[focus] = &prPane{key: k, answered: k, repo: prRepo, ok: true}
+
+	r.leader('g')
+	r.typed("l")
+	r.typed("2")
+	r.until(t, "the row", func() bool { return len(r.prListRowsOf(r.store.State(), prTabRequested)) == 1 })
+
+	return r
+}
+
+func TestListedForkMergeKeepsItsRepository(t *testing.T) {
+	t.Parallel()
+
+	r := forkRig(t)
+	r.keys(keyRune('M'))
+
+	if r.merge == nil || !r.merge.pr.CrossRepo {
+		t.Fatalf("box = %+v, notice %q; want the fork's box", r.merge, r.notice)
+	}
+
+	r.keys(keyEnter)
+	m := feedUntil[mergedMsg](t, r.drawerRig)
+
+	if cmd := r.cleanupAfterMerge(m); cmd != nil {
+		t.Error("a clean-up check started for a pull request from another repository")
+	}
+
+	if rec := r.store.State().PRs[prRepoKey].Branch["feat/x"]; rec.Number != 99 || !rec.CrossRepo {
+		t.Errorf("record of feat/x = %+v, want #99 marked as from another repository", rec)
 	}
 }
