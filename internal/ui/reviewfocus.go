@@ -36,6 +36,7 @@ func (a *App) drawerHasKeys() bool {
 func (a *App) drawerTake() {
 	a.railRelease()
 	a.drawer.focused, a.drawer.tree = true, false
+	a.drawer.takes++
 }
 
 // drawerRelease takes the keyboard from the drawer and un-zooms it: a zoomed

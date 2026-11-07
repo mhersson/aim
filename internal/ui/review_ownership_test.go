@@ -172,6 +172,24 @@ func TestKeyboardOwnerWhenPanesClose(t *testing.T) {
 	})
 }
 
+// A key that moves to a tab with its own drawer, and does not ask for it, leaves
+// the keyboard with the panes.
+func TestTabSwitchToAnotherDrawerLeavesTheKeyboardWithThePanes(t *testing.T) {
+	t.Parallel()
+	r, _ := fakeKeysRig(t)
+	r.opened(t)
+	r.leader('c')
+	r.opened(t)
+
+	r.leader('1')
+
+	st := r.store.State()
+	if st.Active != 0 || st.Tab().Review == nil || r.drawer.focused {
+		t.Errorf("tab %d, drawer open = %v, has the keyboard = %v, want the first tab's drawer open and the panes holding the keyboard",
+			st.Active, st.Tab().Review != nil, r.drawer.focused)
+	}
+}
+
 // A tab whose focused pane is under its drawer gives that drawer the keyboard
 // when the tab shows again.
 func TestTabSwitchToACoveredFocusGivesTheDrawerTheKeyboard(t *testing.T) {
