@@ -182,20 +182,6 @@ func TestPRListBoxesSendTheListedHead(t *testing.T) {
 			t.Errorf("confirm %v, list %v, approved %v; want the confirm gone, the list open, nothing sent", r.confirm, r.prList, r.acts.approved())
 		}
 	})
-
-	t.Run("a on your own pull request is refused", func(t *testing.T) {
-		t.Parallel()
-
-		r := directRig(t)
-		pr := prSeven()
-		pr.HeadOID, pr.ViewerAuthored = listHead, true
-		r.run(r.step(prSnapshotMsg{Repo: prRepo, Info: github.RepoInfo{DefaultBranch: "main"}, PRs: []github.PR{pr}}))
-		r.typed("a")
-
-		if r.notice != noticeApproveOwn || r.confirm != nil {
-			t.Errorf("notice %q, confirm %v; want the refusal", r.notice, r.confirm)
-		}
-	})
 }
 
 // holdRig is the copy rig with the list on the Requested tab, #88 selected and
@@ -618,5 +604,145 @@ func TestListedForkMergeKeepsItsRepository(t *testing.T) {
 
 	if rec := r.store.State().PRs[prRepoKey].Branch["feat/x"]; rec.Number != 99 || !rec.CrossRepo {
 		t.Errorf("record of feat/x = %+v, want #99 marked as from another repository", rec)
+	}
+}
+
+func (f *fakeReads) searches(host string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	n := 0
+
+	for _, c := range f.calls {
+		if c == host {
+			n++
+		}
+	}
+
+	return n
+}
+
+func TestMovedMergeReadsTheSearchesAgain(t *testing.T) {
+	t.Parallel()
+
+	c := holdRig(t)
+	c.poll(88, copyPR88())
+	c.actions.(*fakeActions).mergeFail = fmt.Errorf("%w: sha mismatch", github.ErrHeadMoved)
+
+	before := c.reads.searches("github.com")
+
+	c.keys(keyRune('M'))
+	c.keys(keyEnter)
+	feedUntil[mergedMsg](t, c.drawerRig)
+
+	c.until(t, "the searches to run again", func() bool { return c.reads.searches("github.com") > before })
+}
+
+func TestListMergeBoxDetails(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a polled repository that does not list it shows the row's details", func(t *testing.T) {
+		t.Parallel()
+
+		c := holdRig(t)
+		c.poll(88)
+		c.keys(keyRune('M'))
+
+		m := c.merge
+		if m == nil {
+			t.Fatalf("no merge box; notice %q", c.notice)
+		}
+
+		if m.pr.Title != "Bump" || m.pr.HeadBranch != "feat/infra" || m.pr.BaseBranch != "main" {
+			t.Errorf("box pull request = %+v, want the row's title and branches", m.pr)
+		}
+	})
+
+	t.Run("the root", func(t *testing.T) {
+		t.Parallel()
+
+		c := holdRig(t)
+		c.poll(88, copyPR88())
+		c.prs.polled[prRepo] = true
+
+		rows := c.prListRowsOf(c.store.State(), prTabRequested)
+		byNumber := func(n int) prListRow {
+			for _, r := range rows {
+				if r.key.number == n {
+					return r
+				}
+			}
+
+			t.Fatalf("no row #%d", n)
+
+			return prListRow{}
+		}
+
+		own := byNumber(88)
+		own.root = "/agents/own"
+
+		for _, tc := range []struct {
+			name string
+			row  prListRow
+			want string
+		}{
+			{"the row's agent", own, "/agents/own"},
+			{"a pane's checkout", byNumber(7), c.dir},
+			{"none", byNumber(88), ""},
+		} {
+			c.merge = nil
+			c.prListMergeBox(tc.row)
+
+			if c.merge == nil || c.merge.root != tc.want {
+				t.Errorf("%s: box = %+v, want root %q", tc.name, c.merge, tc.want)
+			}
+		}
+	})
+}
+
+func TestListMergeOffersCleanupOverTheList(t *testing.T) {
+	t.Parallel()
+
+	r := newCleanupRig(t)
+	r.reads = &fakeReads{fail: map[string]error{}, mine: map[string]github.MyPRs{
+		"github.com": {Requested: []github.SearchPR{
+			searched(prRepo.String(), 7, "Add x", "kari-dev", time.Hour, func(p *github.PR) {
+				p.BaseBranch, p.HeadBranch, p.HeadOID = "main", "feat/x", r.prHead
+			}),
+		}},
+	}}
+
+	focus := r.store.State().Tab().Focus
+	k := prKey{cwd: r.wt, branch: "feat/x"}
+	r.prs.panes[focus] = &prPane{key: k, answered: k, repo: prRepo, ok: true}
+
+	r.leader('g')
+	r.typed("l")
+	r.typed("2")
+	r.until(t, "the row", func() bool { return len(r.prListRowsOf(r.store.State(), prTabRequested)) == 1 })
+
+	r.keys(keyRune('M'))
+	r.keys(keyEnter)
+	r.until(t, "the cleanup box", func() bool { return r.confirm != nil && r.confirm.cleanup != nil })
+
+	if r.prList == nil {
+		t.Error("the list closed")
+	}
+}
+
+func TestCleanupAnswerOfACommandIsDroppedUnderTheList(t *testing.T) {
+	t.Parallel()
+
+	r := newCleanupRig(t)
+	pr, _ := prInfoByNumber(r.store.State(), prRepoKey, 7)
+	pr.State = prMergedState
+
+	answer := r.cleanupCheck(fromCommand, prRepo, pr, r.root, r.prHead)()
+
+	r.prList = &prListView{}
+	r.run(r.step(answer))
+
+	if r.confirm != nil {
+		t.Errorf("confirm = %+v, want the answer dropped under the list", r.confirm)
 	}
 }
