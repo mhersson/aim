@@ -108,7 +108,7 @@ func TestKeymapSequences(t *testing.T) {
 	for key, want := range map[string]string{
 		"> 1": "pane.move.tab.1", "> 9": "pane.move.tab.9", ". 3": "pane.send.tab.3",
 		"; h": "pane.preselect.left", "; esc": "pane.preselect.clear",
-		"g l": "pr.list", "g P": "git.push", "g o": "pr.open", "g m": "pr.merge",
+		"g l": "pr.list", "g P": "git.push", "g o": "pr.open",
 		"!": "pane.break", "space": "layout.cycle", "r": "layout.rotate", "=": "layout.equalize", "enter": "layout.promote",
 	} {
 		if got, ok := km.lookup(key); !ok || got != want {

@@ -98,7 +98,7 @@ To mark a draft ready for review, press `R` in the drawer or on a list row; the 
 
 ## Merge
 
-To merge, press `M` in the drawer or on a list row, or `ctrl+space g m`, which opens the drawer on the focused pane first if none is open. The merge box shows the pull request, `head <sha7>, the commit you reviewed; GitHub refuses if the PR moved since` from the drawer or `head <sha7>, the commit listed; GitHub refuses if the PR moved since` from the list, its checks, review and merge state, and warns about failed or running checks and a missing approval. `enter` still merges after a warning, if GitHub allows it.
+To merge, press `M` in the drawer or on a list row. The `Merge pull request` command in the palette (`ctrl+space :`) does the same from anywhere, opening the drawer on the focused pane first if none is open, and has no default key: bind `pr.merge` under `[keys.leader]` to get one. The merge box shows the pull request, `head <sha7>, the commit you reviewed; GitHub refuses if the PR moved since` from the drawer or `head <sha7>, the commit listed; GitHub refuses if the PR moved since` from the list, its checks, review and merge state, and warns about failed or running checks and a missing approval. `enter` still merges after a warning, if GitHub allows it.
 
 | To | Press |
 | --- | --- |

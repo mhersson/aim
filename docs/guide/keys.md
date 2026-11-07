@@ -100,7 +100,6 @@ Keys pressed after the leader key. Remap them under `[keys.leader]`.
 | `g l` | `pr.list` | Pull requests |
 | `g P` | `git.push` | Push branch |
 | `g o` | `pr.open` | Open a pull request |
-| `g m` | `pr.merge` | Merge pull request |
 
 ### App
 
@@ -287,6 +286,7 @@ These commands are in the command palette. Bind one under a table that takes it.
 | `layout.set.bsp` | Layout: BSP | `[keys.leader]` |
 | `layout.set.master-stack` | Layout: master-stack | `[keys.leader]` |
 | `layout.set.scrolling` | Layout: scrolling | `[keys.leader]` |
+| `pr.merge` | Merge pull request | `[keys.leader]` |
 | `worktree.cleanup` | Clean up a merged worktree | `[keys.leader]` |
 | `theme.set.catppuccin-latte` | Theme: Catppuccin Latte | `[keys.leader]` |
 | `theme.set.catppuccin-frappe` | Theme: Catppuccin Frappé | `[keys.leader]` |

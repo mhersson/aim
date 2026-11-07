@@ -155,7 +155,7 @@ func TestResolveLeader(t *testing.T) {
 func TestCheckKeysErrors(t *testing.T) {
 	t.Parallel()
 
-	noGit := []string{"g l", "none", "g P", "none", "g o", "none", "g m", "none"}
+	noGit := []string{"g l", "none", "g P", "none", "g o", "none"}
 
 	tests := []struct {
 		name string
@@ -321,7 +321,7 @@ func TestLeaderRemapScreens(t *testing.T) {
 			got = append(got, h.key)
 		}
 
-		if want := []string{"P", "o", "m", "esc"}; !slices.Equal(got, want) {
+		if want := []string{"P", "o", "esc"}; !slices.Equal(got, want) {
 			t.Errorf("row keys = %q, want %q", got, want)
 		}
 
