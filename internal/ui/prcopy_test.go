@@ -131,11 +131,9 @@ func TestPRListCopyOpens(t *testing.T) {
 	for _, tc := range []struct {
 		name, host, repo string
 		number           int
-		key              rune
 	}{
-		{"github enter", "github.com", "github.com/acme/infra", 88, '\r'},
-		{"enterprise enter", "ghe.example.com", "ghe.example.com/acme/infra", 4, '\r'},
-		{"github a", "github.com", "github.com/acme/infra", 88, 'a'},
+		{"github", "github.com", "github.com/acme/infra", 88},
+		{"enterprise", "ghe.example.com", "ghe.example.com/acme/infra", 4},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -144,12 +142,7 @@ func TestPRListCopyOpens(t *testing.T) {
 			root := c.rootOf(t, tc.repo)
 
 			c.selectRow(t, tc.repo)
-
-			if tc.key == '\r' {
-				c.keys(keyEnter)
-			} else {
-				c.keys(keyRune(tc.key))
-			}
+			c.keys(keyEnter)
 
 			if c.prList != nil {
 				t.Error("the list stayed open")
@@ -791,13 +784,12 @@ func copyPR88() github.PR {
 	return github.PR{Number: 88, HeadBranch: copyBranch, BaseBranch: "main", State: prOpenState}
 }
 
-// pressOnRow presses key on the row of #88 and waits for the diff to load.
-func (c *copyRig) pressOnRow(t *testing.T, key rune) {
+// pressInDrawer opens #88's diff from its row and presses key in the drawer.
+func (c *copyRig) pressInDrawer(t *testing.T, key rune) {
 	t.Helper()
 
-	c.selectRow(t, "github.com/acme/infra")
+	c.opened88(t)
 	c.keys(keyRune(key))
-	c.until(t, "PR mode on #88", c.inPRMode(88))
 }
 
 func (c *copyRig) noBox(t *testing.T) {
@@ -816,7 +808,7 @@ func TestCopyActionWaitsForThePoll(t *testing.T) {
 			t.Parallel()
 
 			c := newCopyRig(t)
-			c.pressOnRow(t, key)
+			c.pressInDrawer(t, key)
 			c.noBox(t)
 
 			if want := fmt.Sprintf(noticePRFetching, 88); c.notice != want {
@@ -866,31 +858,12 @@ func TestCopyEnterDoesNotWait(t *testing.T) {
 	}
 }
 
-func TestCopyDrawerKeyWaitsToo(t *testing.T) {
-	t.Parallel()
-
-	c := newCopyRig(t)
-	c.opened88(t)
-	c.keys(keyRune('M'))
-	c.noBox(t)
-
-	if c.view().pollThen != thenMerge {
-		t.Fatalf("pollThen = %v, want the merge held", c.view().pollThen)
-	}
-
-	c.poll(88, copyPR88())
-
-	if c.merge == nil {
-		t.Error("no merge box after the poll")
-	}
-}
-
 func TestCopyKnownPRDoesNotWait(t *testing.T) {
 	t.Parallel()
 
 	c := newCopyRig(t)
 	c.poll(88, copyPR88())
-	c.pressOnRow(t, 'M')
+	c.pressInDrawer(t, 'M')
 
 	if c.merge == nil {
 		t.Error("the merge box did not open at once")
@@ -901,7 +874,7 @@ func TestCopyWaitIgnoresAnOlderAsk(t *testing.T) {
 	t.Parallel()
 
 	c := newCopyRig(t)
-	c.pressOnRow(t, 'M')
+	c.pressInDrawer(t, 'M')
 	c.poll(5)
 
 	if c.view().pollThen != thenMerge {
@@ -915,7 +888,7 @@ func TestCopyNewerAskDropsTheHeldAction(t *testing.T) {
 	t.Parallel()
 
 	c := newCopyRig(t)
-	c.pressOnRow(t, 'M')
+	c.pressInDrawer(t, 'M')
 
 	other := c.want88()
 	other.number = 89
@@ -931,7 +904,7 @@ func TestCopyWaitFailedPoll(t *testing.T) {
 	t.Parallel()
 
 	c := newCopyRig(t)
-	c.pressOnRow(t, 'M')
+	c.pressInDrawer(t, 'M')
 	c.deliver(github.Snapshot{Repo: copyRepo, Asked: 88, Err: errors.New("boom")})
 
 	if want := fmt.Sprintf(noticePRsFailed, "github.com/acme/infra", "boom"); c.notice != want {
@@ -951,7 +924,7 @@ func TestCopyWaitStandingError(t *testing.T) {
 	c := newCopyRig(t)
 	c.deliver(github.Snapshot{Repo: copyRepo, Err: errors.New("boom")})
 	c.notice = ""
-	c.pressOnRow(t, 'M')
+	c.pressInDrawer(t, 'M')
 
 	if want := fmt.Sprintf(noticePRsFailed, "github.com/acme/infra", "boom"); c.notice != want {
 		t.Errorf("notice = %q, want %q", c.notice, want)
@@ -968,7 +941,7 @@ func TestCopyWaitAnswerWithoutIt(t *testing.T) {
 	t.Parallel()
 
 	c := newCopyRig(t)
-	c.pressOnRow(t, 'M')
+	c.pressInDrawer(t, 'M')
 	c.poll(88)
 
 	if want := fmt.Sprintf(noticePRGone, 88); c.notice != want {
@@ -982,7 +955,7 @@ func TestCopyWaitFocusedQueryFailed(t *testing.T) {
 	t.Parallel()
 
 	c := newCopyRig(t)
-	c.pressOnRow(t, 'M')
+	c.pressInDrawer(t, 'M')
 	c.deliver(github.Snapshot{
 		Repo: copyRepo, Asked: 88, Focused: &github.FocusedChecks{Number: 88, Err: errors.New("boom")},
 	})
@@ -998,7 +971,7 @@ func TestCopyWaitDroppedByReload(t *testing.T) {
 	t.Parallel()
 
 	c := newCopyRig(t)
-	c.pressOnRow(t, 'M')
+	c.pressInDrawer(t, 'M')
 	c.keys(keyRune('r'))
 	c.until(t, "PR mode on #88", c.inPRMode(88))
 	c.poll(88, copyPR88())
@@ -1011,7 +984,7 @@ func TestCopyWaitHiddenTab(t *testing.T) {
 	c := newCopyRig(t)
 	first := c.store.State().Active
 
-	c.pressOnRow(t, 'M')
+	c.pressInDrawer(t, 'M')
 
 	if err := c.dispatch(core.NewTab{Kind: core.KindShell, Cwd: c.dir}); err != nil {
 		t.Fatal(err)
@@ -1031,7 +1004,7 @@ func TestCopyWaitSwitchedAwayAndBack(t *testing.T) {
 	c := newCopyRig(t)
 	first := c.store.State().Active
 
-	c.pressOnRow(t, 'M')
+	c.pressInDrawer(t, 'M')
 
 	holding := fmt.Sprintf(noticePRFetching, 88)
 	if c.notice != holding {
@@ -1063,7 +1036,7 @@ func TestCopyWaitLateModal(t *testing.T) {
 	t.Parallel()
 
 	c := newCopyRig(t)
-	c.pressOnRow(t, 'M')
+	c.pressInDrawer(t, 'M')
 
 	c.confirm = &confirm{}
 	c.poll(88, copyPR88())
@@ -1312,7 +1285,7 @@ func TestCopyMergeFindsNoWorktree(t *testing.T) {
 
 	c := newCopyRig(t)
 	root := c.rootOf(t, "github.com/acme/infra")
-	c.pressOnRow(t, 'M')
+	c.pressInDrawer(t, 'M')
 	c.poll(88, copyPR88())
 
 	if c.merge == nil {

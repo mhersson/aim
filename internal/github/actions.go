@@ -19,11 +19,11 @@ type NewPR struct {
 	Draft                   bool
 }
 
-// MergeOptions say how to merge. SHA is the reviewed head commit; a merge
+// MergeOptions say how to merge. SHA is the pinned head commit; a merge
 // without one is refused before any request.
 type MergeOptions struct {
 	Method       MergeMethod
-	SHA          string // the reviewed head: git Result.Head
+	SHA          string // the pinned head: the drawer's git Result.Head, or the one the PR list showed
 	DeleteBranch bool
 }
 
@@ -109,7 +109,7 @@ func mentionsExisting(he *api.HTTPError) bool {
 	return false
 }
 
-// Approve approves number at the reviewed commit sha. An empty sha or a
+// Approve approves number at the pinned commit sha. An empty sha or a
 // non-positive number sends nothing.
 func (c *Client) Approve(ctx context.Context, r Repo, number int, sha string) error {
 	if sha == "" {
@@ -141,7 +141,7 @@ func (c *Client) MarkReady(ctx context.Context, id string) error {
 	return c.mutate(ctx, "MarkReady", &m, map[string]any{"id": graphql.ID(id)})
 }
 
-// Merge merges pr at the reviewed commit m.SHA, so GitHub refuses it when the
+// Merge merges pr at the pinned commit m.SHA, so GitHub refuses it when the
 // head moved. Every check runs before any request.
 func (c *Client) Merge(ctx context.Context, r Repo, pr PR, info RepoInfo, m MergeOptions) (Merged, error) {
 	if m.SHA == "" {

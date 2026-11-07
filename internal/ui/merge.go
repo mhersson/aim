@@ -28,12 +28,14 @@ const (
 	noticeMergeBusy   = "#%d is already being merged"
 	noticeMergeClosed = "#%d is %s"
 	noticeMergeNoPane = "merge: not a git repository"
+	noticeMergeMoved  = "merge #%d: the PR moved; nothing merged"
 )
 
 // mergeView is the open merge box. Everything it sends is frozen when it opens:
-// the repository, the pull request, the repository's settings and the head the
-// drawer's diff loaded. The box draws the poll's later state of the pull
-// request but never sends it.
+// the repository, the pull request, the repository's settings and the head: the
+// one the drawer's diff loaded, or the one the pull request list showed when
+// listed is set. The box draws the poll's later state of the pull request but
+// never sends it.
 type mergeView struct {
 	root   string
 	repo   github.Repo
@@ -42,6 +44,7 @@ type mergeView struct {
 	sha    string
 	method github.MergeMethod
 	del    bool
+	listed bool // opened from the pull request list, not from the drawer
 }
 
 // mergeKey identifies a pull request with a merge in flight.
@@ -210,7 +213,7 @@ func mergeStateWord(state, base string, ui theme.UI) railRun {
 // showed, after showing the pull request first when it is not shown.
 func (a *App) reviewMerge() tea.Cmd { return a.prAct(thenMerge) }
 
-// mergeCommand is `leader g m`: it merges what the active tab's drawer shows, or
+// mergeCommand is `pr.merge`: it merges what the active tab's drawer shows, or
 // when none is open opens one on the focused pane first.
 func (a *App) mergeCommand() tea.Cmd {
 	if a.actions == nil {
@@ -240,6 +243,14 @@ func (a *App) openMerge(repoKey string, number int, sha, root string) {
 		return
 	}
 
+	a.openMergeBox(repoKey, number, core.PRInfo{Number: number}, sha, root, false)
+}
+
+// openMergeBox opens the box on pull request number of repoKey at sha, or says
+// why it cannot. The details start as pr has them and become the poll's when it
+// knows the pull request. It checks no modal: the drawer's route does, and the
+// list's opens over the list.
+func (a *App) openMergeBox(repoKey string, number int, pr core.PRInfo, sha, root string, listed bool) {
 	repo, ok := repoOfKey(repoKey)
 	if !ok || a.actions == nil {
 		a.notice = noticePRsOff
@@ -254,7 +265,6 @@ func (a *App) openMerge(repoKey string, number int, sha, root string) {
 	}
 
 	st := a.store.State()
-	pr := core.PRInfo{Number: number}
 
 	if info, ok := prInfoByNumber(st, repoKey, number); ok {
 		switch info.State {
@@ -276,7 +286,7 @@ func (a *App) openMerge(repoKey string, number int, sha, root string) {
 		DefaultBranch: rp.DefaultBranch, Methods: allowedMethods(rp.Methods), DeleteBranchOnMerge: rp.DeleteBranchOnMerge,
 	}
 
-	v := &mergeView{root: root, repo: repo, pr: pr, info: info, sha: sha, method: defaultMethod(rp.Methods)}
+	v := &mergeView{root: root, repo: repo, pr: pr, info: info, sha: sha, method: defaultMethod(rp.Methods), listed: listed}
 	if !v.allows(v.method) {
 		v.method = info.Methods[0]
 	}
@@ -384,9 +394,9 @@ func (a *App) mergeRun(v *mergeView) tea.Cmd {
 	}
 }
 
-// onMerged says what a merge did, asks the poller for the repository and starts
-// the check for a worktree to clean up. A merge cut short by the app closing
-// says nothing.
+// onMerged says what a merge did, asks the poller for the repository, reads the
+// open list again and starts the check for a worktree to clean up. A merge cut
+// short by the app closing says nothing.
 func (a *App) onMerged(msg mergedMsg) tea.Cmd {
 	delete(a.merging, msg.key)
 
@@ -403,9 +413,10 @@ func (a *App) onMerged(msg mergedMsg) tea.Cmd {
 
 		return nil
 	case errors.Is(msg.err, github.ErrHeadMoved):
-		a.toast(levelError, fmt.Sprintf("merge #%d: the PR moved since you reviewed it; nothing merged", n))
+		a.toast(levelError, fmt.Sprintf(noticeMergeMoved, n))
 
-		return nil
+		// The next merge from the list needs the new head, not the one GitHub refused.
+		return a.prListReread()
 	case msg.err != nil:
 		a.toast(levelError, fmt.Sprintf("merge #%d: %s", n, gitReason(msg.err)))
 
@@ -428,7 +439,7 @@ func (a *App) onMerged(msg mergedMsg) tea.Cmd {
 		a.prs.src.Refresh(msg.key.repo)
 	}
 
-	return a.cleanupAfterMerge(msg)
+	return tea.Batch(a.prListReread(), a.cleanupAfterMerge(msg))
 }
 
 // cleanupAfterMerge starts the check for a worktree that has the merged branch.

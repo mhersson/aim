@@ -165,6 +165,13 @@ func (a *App) paneHasKeys() bool {
 	return !a.aboveDrawerModalOpen() && !a.composeShown() && !a.pending && !a.usageShows() && !a.rail.focused && !a.drawerHasKeys()
 }
 
+// modalAboveList reports whether anything routeKey gives keys to before the PR
+// list is open. It must follow that order.
+func (a *App) modalAboveList() bool {
+	return a.confirm != nil || a.prompt != nil || a.copy != nil || a.overlay != nil || a.composeShown() || a.merge != nil ||
+		a.plan != nil || a.finder != nil || a.conv != nil || a.checks != nil
+}
+
 // handlePaste sends a paste to the topmost text input: prompt, overlay, compose box,
 // plan search, finder, picker, then the rail's or drawer's search, else the focused pane.
 // Confirm, copy mode, checks, merge, the PR list and the usage popover drop it;

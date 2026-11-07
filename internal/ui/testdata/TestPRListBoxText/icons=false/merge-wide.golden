@@ -1,0 +1,44 @@
+ 1 api   2 api   3 web   4 zeta                                                                                             layout bsp │ #1 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+╭─ Agents 7 ───────── blocked 1 ⠋1 idle 5 ─╮╭─ claude ────────────────────────────────────────────────────────────────────────────── idle ─╮
+│ Blocked ────────────────────────────── 1 ││                                                                                              │
+│                                          ││                                                                                              │
+│▎  web                                 0s ││                                                                                              │
+│   feat/b                        #9 draft ││                                                                                              │
+│                                          ││                                                                                              │
+│                                          ││                                                                                              │
+│                                          ││                                                                                              │
+│ Working ────────────────────────────── 1 ││                                                                                              │
+│              ╭─ Pull requests ────────────────────────────────────────────────────────────────────────────────────────────╮              │
+│ ⠋ api        │                                                                                                            │              │
+│   feat/a     │   Agents 4   Review requested   All open                                            tab next tab  1-3 jump │              │
+│              │              ╭─ Merge #9 ───────────────────────────────────────────────────────────────────╮              │              │
+│              │  acme/api ───│                                                                              │────────── 2  │              │
+│              │   #8 Retry on│  Login form                                                                  │eview yet  4m │              │
+│ Idle ────────│   #5 Add the │  acme/web  feat/b → main                                                     │ approved  3h │              │
+│              │              │                                                                              │              │              │
+│   api        │  acme/web ───│  head 5f3a9c1, the commit listed; GitHub refuses if the PR moved since       │────────── 1  │              │
+│   feat/a     │  ▎#9 Login fo│  ci 2 failed   no review yet   mergeability unknown                          │ed  draft  8s │              │
+│   waiting for│              │  2 checks failed, 2 checks running, no approval yet                          │              │              │
+│              │  acme/zeta ──│  enter still merges if GitHub allows it                                      │────────── 1  │              │
+│              │   #1 Zeta cha│                                                                              │  changes  2d │              │
+│   api        │              │  method   s squash   m merge   r rebase                                      │              │              │
+│   feat/c     │  enter diff  │                                                                              │esc close     │              │
+│   waiting for╰──────────────│  [ ] delete feat/b after merging                                             │──────────────╯              │
+│                             │                                                                              │                             │
+│                             │  s/m/r method    d delete branch    enter merge    esc cancel                │                             │
+│   web                       ╰──────────────────────────────────────────────────────────────────────────────╯                             │
+│   feat/m                       #3 merged ││                                                                                              │
+│   waiting for a prompt                   ││                                                                                              │
+│                                          ││                                                                                              │
+│                                          ││                                                                                              │
+│   web                                 0s ││                                                                                              │
+│   main                                   ││                                                                                              │
+│   waiting for a prompt                   ││                                                                                              │
+│                                          ││                                                                                              │
+│                                          ││                                                                                              │
+│   zeta                                0s ││                                                                                              │
+│   feat/z                      #1 changes ││                                                                                              │
+│                                          ││                                                                                              │
+│ j/k move  enter jump  p plan  / search   ││                                                                                              │
+╰──────────────────────────────────── 1 ↓ ─╯╰──────────────────────────────────────────────────────────────────────────────────────────────╯

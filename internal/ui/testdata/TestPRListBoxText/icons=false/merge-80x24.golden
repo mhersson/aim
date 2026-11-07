@@ -1,0 +1,24 @@
+ 1 api   2 api   3 web   4 zeta                                 layout bsp │ #1 
+────────────────────────────────────────────────────────────────────────────────
+╭─ Agents 7 ───── blocked 1 ⠋1 idle 5 ─╮╭─ claude ────────────────────── idle ─╮
+│ Blocked ────────────────────────── 1 ││                                      │
+│                                      ││                                      │
+│▎  web                             0s ││                                      │
+│ ╭─ Pull requests ──────────────────────────────────────────────────────────╮ │
+│ │                                                                          │ │
+│╭─ Merge #9 ─────────────────────────────────────────────────────────────────╮│
+││                                                                            ││
+││  Login form                                                                ││
+││  acme/web  feat/b → main                                                   ││
+││                                                                            ││
+││  head 5f3a9c1, the commit listed; GitHub refuses if the PR moved since     ││
+││  ci 2 failed   no review yet   mergeability unknown                        ││
+││  2 checks failed, 2 checks running, no approval yet                        ││
+││  enter still merges if GitHub allows it                                    ││
+││                                                                            ││
+││  method   s squash   m merge   r rebase                                    ││
+││                                                                            ││
+││  [ ] delete feat/b after merging                                           ││
+││  s/m/r method    d delete branch    enter merge    esc cancel              ││
+│╰────────────────────────────────────────────────────────────────────────────╯│
+╰──────────────────────────────── 5 ↓ ─╯╰──────────────────────────────────────╯

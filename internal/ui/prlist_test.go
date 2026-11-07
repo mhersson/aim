@@ -367,48 +367,6 @@ func TestPRListKeysThroughTheDrawer(t *testing.T) {
 			t.Errorf("review = %+v, want the drawer on the agent %s", rv, r.agent)
 		}
 	})
-
-	t.Run("a opens the approve confirm once the diff has loaded", func(t *testing.T) {
-		t.Parallel()
-
-		r := newListRig(t)
-		r.leader('g')
-		r.typed("l")
-		r.keys(keyRune('a'))
-
-		if r.prList != nil {
-			t.Error("a left the list open")
-		}
-
-		r.until(t, "the approve confirm", func() bool { return r.confirm != nil && r.confirm.approve != nil })
-
-		if r.confirm.approve.number != 7 || r.confirm.approve.sha != r.prHead {
-			t.Errorf("approve target = %+v, want #7 at the loaded head %s", *r.confirm.approve, r.prHead)
-		}
-
-		if st := r.store.State(); st.Active != 1 || st.Tab().Focus != r.agent {
-			t.Errorf("active tab %d, focus %s; want the agent's tab and pane", st.Active, st.Tab().Focus)
-		}
-	})
-
-	t.Run("M opens the merge box once the diff has loaded", func(t *testing.T) {
-		t.Parallel()
-
-		r := newListRig(t)
-		r.leader('g')
-		r.typed("l")
-		r.keys(keyRune('M'))
-
-		r.until(t, "the merge box", func() bool { return r.merge != nil })
-
-		if r.merge.pr.Number != 7 || r.merge.sha != r.prHead {
-			t.Errorf("merge target = #%d at %s, want #7 at %s", r.merge.pr.Number, r.merge.sha, r.prHead)
-		}
-
-		if r.prList != nil {
-			t.Error("M left the list open")
-		}
-	})
 }
 
 func TestPRListKeepsSelection(t *testing.T) {
@@ -768,20 +726,6 @@ func TestPRListCheckout(t *testing.T) {
 
 		if v := r.reviewViewOf(r.store.State().Tab().ID); v.prBase != "main" {
 			t.Errorf("base = %q, want main from the row", v.prBase)
-		}
-	})
-
-	t.Run("a opens the approve confirm on the loaded head", func(t *testing.T) {
-		t.Parallel()
-
-		r := otherTabsRig(t)
-		r.selectRow(t, "github.com/o/r")
-		r.keys(keyRune('a'))
-
-		r.until(t, "the approve confirm", func() bool { return r.confirm != nil && r.confirm.approve != nil })
-
-		if r.confirm.approve.number != 7 || r.confirm.approve.sha != r.prHead {
-			t.Errorf("approve target = %+v, want #7 at %s", *r.confirm.approve, r.prHead)
 		}
 	})
 }

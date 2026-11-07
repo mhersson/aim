@@ -92,6 +92,7 @@ type prState struct {
 	sent   bool                 // the source was given a set
 	ver    uint64               // the store version the last sync read
 	dirty  bool                 // a head result arrived since the last sync
+	held   prListKey            // the list row whose merge waits for its repository's poll; zero means none
 
 	copyGate prCopyGate // one copy fetch at a time per copy
 }
@@ -317,6 +318,14 @@ func (a *App) prWatches(st core.State) []github.Watch {
 	if c := a.conv; c != nil {
 		if repo, ok := repoOfKey(c.repo); ok {
 			visible[repo] = append(visible[repo], c.number)
+		}
+	}
+
+	// The pull request a list row's merge waits for is read as the merge box's is, and wins over the overlays above.
+	if h := a.prs.held; h != (prListKey{}) {
+		if repo, ok := repoOfKey(h.repo); ok {
+			visible[repo] = append(visible[repo], h.number)
+			focused[repo] = h.number
 		}
 	}
 

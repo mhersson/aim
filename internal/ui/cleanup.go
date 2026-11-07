@@ -337,9 +337,15 @@ func workingAgent(panes []cleanupPane) (cleanupPane, bool) {
 
 // onCleanupFound says why a worktree stays, or opens the cleanup confirm. An
 // answer that is not the newest check's, or that arrives under a modal, is
-// dropped.
+// dropped; a merge's answer is not dropped for the PR list, which the confirm
+// opens over.
 func (a *App) onCleanupFound(msg cleanupFoundMsg) tea.Cmd { //nolint:unparam // every handler of the update loop's messages has this shape
-	if msg.seq != a.cleanupSeq || a.modalOpen() || (msg.from == fromCommand && msg.pane != a.store.State().Tab().Focus) {
+	modal := a.modalOpen()
+	if msg.from == fromMerge && a.prList != nil {
+		modal = a.modalAboveList()
+	}
+
+	if msg.seq != a.cleanupSeq || modal || (msg.from == fromCommand && msg.pane != a.store.State().Tab().Focus) {
 		return nil
 	}
 

@@ -219,7 +219,8 @@ a push.
   worktree root, `.git/info/exclude`, and the `theme` line of the user's
   `config.toml`. Only the cleanup confirm removes such a worktree, and only the
   theme picker's `ctrl+s` writes that line.
-- Merges always pass the reviewed head `sha`, and every approve or merge needs a
-  confirm step in the UI.
+- Merges always pass a pinned head `sha`: the head of the diff the drawer
+  loaded or, from the pull request list, the head the row shows. Every approve
+  or merge needs a confirm step in the UI.
 - Code ported from TUIOS (MIT) keeps its license header and is listed in
   `THIRD_PARTY.md`.

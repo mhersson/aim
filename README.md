@@ -26,7 +26,7 @@ Watch it as a [video (MP4)](https://github.com/user-attachments/assets/26f3b30c-
 - **Agents rail.** Agents grouped as Blocked, Working, Idle or No hooks, with what it does now, its branch, its pull request and its diff stats.
 - **Claude usage.** Your Claude subscription's 5-hour and weekly usage in the tray, in the context meter's colours.
 - **Live review.** Turn and branch mode, unified or side by side, highlighted, with markdown rendered; the drawer follows the agent's edits from worktree to worktree.
-- **Pull requests and CI.** Push, open a pull request from the compose box, read its conversation and checks with their logs, approve, and merge the reviewed head after a confirm.
+- **Pull requests and CI.** Push, open a pull request from the compose box, read its conversation and checks with their logs, approve, and merge the head you saw after a confirm.
 - **Plans and markdown.** The agent's plan, any markdown file and a pull request's conversation open in a reading box, with pictures over the Kitty graphics protocol.
 - **Keyboard first.** One leader key, which-key, a command palette, every key remappable, copy mode and mouse selection.
 - **Picks up where you left off.** Tabs, layouts and each agent's Claude session come back on restart.

@@ -446,13 +446,21 @@ the followed place back, and one after a session change records nothing.
   failed poll keeps the last good data on show. Focused checks that cannot be
   read fail only themselves: the poll keeps its pull requests, and a rate limit
   there still waits for its reset.
-- **Approve and merge are pinned to the reviewed head.** Both send `Result.Head`
-  of the diff the drawer loaded, never the poll's head (`internal/ui/reviewpr.go`),
-  and every route to them (drawer, `leader g m`, the list) loads that diff
-  first. GitHub refuses a merge whose `sha` is not the head (`409`,
-  `ErrHeadMoved`), so a pull request that moved after it was read is never
-  merged. Both run only after a confirm; `internal/github` refuses either
-  without a `sha` (`ErrNoSHA`).
+- **Approve and merge are pinned to a head.** From the drawer, both send
+  `Result.Head` of the diff it loaded, never the poll's head
+  (`internal/ui/reviewpr.go`), and that route loads the diff first. From the
+  pull request list, `a` and `M` open their confirm over the list with the head
+  the row shows (`internal/ui/prlist.go`) and load no diff. GitHub refuses a
+  merge whose `sha` is not the head (`409`, `ErrHeadMoved`), so a pull request
+  that moved after the diff or the list read it is never merged. Both run only
+  after a confirm; `internal/github` refuses either without a `sha`
+  (`ErrNoSHA`).
+- **A merge from the list waits for its repository's poll.** The merge box
+  freezes the repository's settings when it opens, so `M` on a row of a
+  repository with no poll yet holds on the list (`prState.held`): the
+  repository is watched with the pull request focused, and the poll's answer
+  opens the box from the row, or says why not. The hold ends when the list
+  closes, its selected row changes or something opens above the list.
 - **Any listed pull request opens through a private copy** when no pane is in
   its repository (`internal/git/prcopy.go`, `internal/ui/prcopy.go`). The copy
   is a non-bare `git init` with no files, `origin` at
@@ -591,5 +599,8 @@ the followed place back, and one after a session change records nothing.
   `git.DeleteBranch`).
 - **The merge `sha` and the confirm.** A pull request can move between reading
   and merging; the `sha` makes GitHub refuse that merge, and the confirm makes
-  the operator's intent explicit.
+  the operator's intent explicit. The list may skip the diff because its user
+  has already read it and comes back to act, and the pin still makes GitHub
+  refuse a pull request that moved after the list read it. What it does not
+  cover: a push the list has already read merges without another look.
 - **TUIOS code.** Its MIT license asks that the notice travel with the code.
