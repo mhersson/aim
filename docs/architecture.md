@@ -434,7 +434,8 @@ the followed place back, and one after a session change records nothing.
 - **Repositories.** The remote URL names the repository, ssh aliases mapped
   through `ssh -G` (`internal/github/repo.go`). Only watched repositories are
   polled: each agent's followed place, the focused shell's, and whatever the
-  drawer, merge box or checks overlay shows.
+  drawer, merge box or checks overlay shows, and the repository of a merge held
+  on the list.
 - **The poller** (`internal/github/poller.go`) runs one goroutine per watched
   repository and one GraphQL query per poll for the 100 newest open pull
   requests, plus one more for the focused one while it is past them. The
@@ -460,7 +461,9 @@ the followed place back, and one after a session change records nothing.
   repository with no poll yet holds on the list (`prState.held`): the
   repository is watched with the pull request focused, and the poll's answer
   opens the box from the row, or says why not. The hold ends when the list
-  closes, its selected row changes or something opens above the list.
+  closes, its selected row changes, or something is open above the list when the
+  poll answers; opening something and closing it again before the answer does
+  not end it.
 - **Any listed pull request opens through a private copy** when no pane is in
   its repository (`internal/git/prcopy.go`, `internal/ui/prcopy.go`). The copy
   is a non-bare `git init` with no files, `origin` at
