@@ -174,6 +174,10 @@ what to do about it. Skim it before your first commit each session.
   `PATH` with `t.Setenv`, which rules out `t.Parallel()`. Read the log with
   `wrappedCalls`, which fails when it is empty, so an assertion that a call
   never ran cannot pass because nothing was wrapped.
+- A `file://` remote that stands in for GitHub needs `uploadpack.allowFilter`
+  and `uploadpack.allowAnySHA1InWant` in its own config. `fetch --filter`
+  writes promisor settings to the repository's config, which is why a pull
+  request copy passes them through the environment and has no `--filter`.
 - internal/ui's test apps record their ticks and never fire them (`ticked`), so
   a helper that runs returned commands never sleeps. A test that needs a tick's
   message sends it itself, as with `whichKeyMsg{seq: a.seq}`; a new real

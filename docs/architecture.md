@@ -356,7 +356,9 @@ not a UUID, or a `cwd` outside a repository, gets no snapshot.
 merge base with the base branch against the working tree, untracked files
 included), `TurnSource` and `PRSource` (`refs/aim/pr/<n>/head` and `base`,
 fetched with an empty refmap so nothing else is written). The drawer's modes
-therefore share the full-file view, reviewed hunks and rendering.
+therefore share the full-file view, reviewed hunks and rendering. With
+`PRSource.Copy` (a private copy, see [GitHub](#github)) the `base` ref is the
+merge base commit itself, since a shallow copy cannot run `git merge-base`.
 
 - It compares tree ids, never HEAD, the working tree made a tree through the
   snapshot's temporary index, so agent commits never break a diff.
@@ -434,8 +436,10 @@ the followed place back, and one after a session change records nothing.
   polled: each agent's followed place, the focused shell's, and whatever the
   drawer, merge box or checks overlay shows.
 - **The poller** (`internal/github/poller.go`) runs one goroutine per watched
-  repository and one GraphQL query per poll. The focused pull request's checks
-  come over REST through an ETag cache (`internal/github/etag.go`), since
+  repository and one GraphQL query per poll for the 100 newest open pull
+  requests, plus one more for the focused one while it is past them. The
+  focused pull request's checks come over REST through an ETag cache
+  (`internal/github/etag.go`), since
   GraphQL has no conditional requests and a `304` costs no rate limit. Polls
   come every 10 s while a shown pull request has pending checks, else every
   60 s; a rate limit waits for its reset, other errors back off to 5 min. A
@@ -449,6 +453,36 @@ the followed place back, and one after a session change records nothing.
   `ErrHeadMoved`), so a pull request that moved after it was read is never
   merged. Both run only after a confirm; `internal/github` refuses either
   without a `sha` (`ErrNoSHA`).
+- **Any listed pull request opens through a private copy** when no pane is in
+  its repository (`internal/git/prcopy.go`, `internal/ui/prcopy.go`). The copy
+  is a non-bare `git init` with no files, `origin` at
+  `https://<host>/<owner>/<name>.git`, under `<user cache dir>/aim/prs/`, never
+  one of the user's clones. It is shallow because full history is the cost: on
+  `kubernetes/kubernetes` PR 143904 (9 files) the head and merge base at depth
+  1 without contents took 0.97 s and 1.4 MB, the changed files' contents 0.54 s
+  more, against 17.26 s and 229 MB for a filtered full history; the large
+  PR 124519 (387 files) took 5.06 s and 3.5 MB for all four steps, against the
+  60 s `prFetchTimeout`. The four steps, off the update loop and under that
+  timeout: fetch `refs/pull/<n>/head` into `refs/aim/pr/<n>/head`; ask GitHub
+  for the merge base of that fetched head (the list's data can be 60 s old, so
+  a merge base of an older head would pair with a newer tree); fetch the merge
+  base into `.../base`; fetch the blobs of every changed file, listed with
+  `--no-renames`, which reads none. A per-copy gate (`prCopyGate`) keeps one
+  fetch at a time in a copy, and a wait for it counts against the timeout.
+  After step 4 every blob a read needs is local, and the promisor settings go
+  only into the environment of the network calls, never the copy's config, so
+  a read cannot fetch (and cannot prompt); a missing object is an error the
+  drawer shows. The token goes through `AIM_PR_TOKEN` to a credential helper
+  scoped to the origin's host, so it is in no argv or file and does not follow
+  a redirect to another host; `core.hooksPath` is `/dev/null`, and an
+  `insteadOf` rewriting the origin to itself beats a user's rule that rewrites
+  it to ssh. The user's global git config otherwise stays, so a proxy or CA
+  set there still applies; a user's rule on the exact origin URL ties and
+  wins, and the fetch then goes the way they asked, without the token. The
+  copy's HEAD is unborn and means nothing: the place comes from the list's row
+  (never `localPRPlace` or a branch lookup), `p` shows the pull request the
+  drawer holds, and the title uses its head branch (`reviewView.heldWant`,
+  `prBranch`). A copy counts no turns.
 - **Push** (`internal/git/push.go`, `internal/ui/push.go`) always targets
   `refs/heads/<branch>`, so a branch cut from `origin/main` never lands on
   `main`, and is never forced. The confirm freezes the target; the push
@@ -488,7 +522,7 @@ the followed place back, and one after a session change records nothing.
 | `<state dir>/aim-<pid>.log` | a second instance's log | per run, appended; the saver sweeps one at start once its pid is dead and it is untouched 7 days |
 | `<state dir>/reviews/*.json` | reviewed-hunk marks, per repository | atomic, not fsynced |
 | `<state dir>/run/` | socket, settings, the instance's binary, shell integration, temporary indexes | per run; swept |
-| `<user cache dir>/aim/` | index copies, fetched images | as used; swept at start: index copies not refreshed for 14 days, images untouched 30 |
+| `<user cache dir>/aim/` | index copies, fetched images, pull request copies (`prs/<host>/<owner>/<name>`) | as used; swept at start: index copies not refreshed for 14 days, images untouched 30, copies unused 30 (only the instance that holds `state.lock`) |
 
 - **Only what cannot come back is saved.** Agent states, actions, reported
   directories, edits, models, Claude usage, pull request data and a drawer's pin
@@ -545,6 +579,12 @@ the followed place back, and one after a session change records nothing.
   (`core.ConfigWithTheme`, `store.SaveTheme`), so the rest of their file stays
   theirs byte for byte; a symlinked config is written through, so a dotfiles
   link survives. Nothing else in AIM writes the config.
+- **A pull request copy** is AIM's cache, not one of the user's worktrees, and
+  its HEAD is unborn. Nothing that writes or reads a branch resolves to it: the
+  drawer's edit refuses, and push, the compose box and the finder start from
+  the pane's own place (`drawerShows`). The one read on it is the merge's
+  clean-up check, which lists the copy's worktrees (read-only) and finds none
+  of the branch.
 - **Deleting a branch.** `git branch -d` refuses a squash-merged branch, so AIM
   uses `-D` after its own check: the tip is still the one the confirm showed
   and has no commit past the merged head (`git.BranchAhead`,

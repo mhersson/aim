@@ -14,9 +14,12 @@ import (
 // pull request.
 const noticePRListNone = "no open pull requests on agent branches"
 
-// noticePRNoCheckout is what a row of the other tabs says when no pane is in
-// its repository; it takes prRepoName of the repository.
-const noticePRNoCheckout = "no checkout of %s here; O opens it in the browser"
+// What a row of the other tabs says when it cannot open: the tab has no pane
+// to open the drawer on, or there is no folder for a copy (it takes the number).
+const (
+	noticePRNoPane = "no pane here to open the drawer on; O opens it in the browser"
+	noticeCopyOff  = "no cache folder for a copy of #%d; O opens it in the browser"
+)
 
 // prListKey identifies a pull request in the list: its repository keyed
 // "host/owner/name" and its number.
@@ -272,13 +275,13 @@ func paneIDLess(x, y core.PaneID) bool {
 
 // prListOpen shows the row's pull request and runs then once its diff has
 // loaded. A row with an agent switches to the agent's tab, as the rail's jump
-// does; any other opens the active tab's drawer on the focused pane, through a
-// checkout of the repository, or says there is none.
+// does; any other opens the active tab's drawer on the focused pane, or says
+// there is no pane to open it on.
 func (a *App) prListOpen(row prListRow, then prThen) tea.Cmd {
 	st := a.store.State()
 
 	if row.pane == "" {
-		return a.prListOpenCheckout(st, row, then)
+		return a.prListOpenHere(st, row, then)
 	}
 
 	a.prList = nil
@@ -303,19 +306,39 @@ func (a *App) prListOpen(row prListRow, then prThen) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// prListOpenCheckout opens the drawer on the row's checkout, or says there is
-// none.
-func (a *App) prListOpenCheckout(st core.State, row prListRow, then prThen) tea.Cmd {
-	dir, ok := a.prCheckout(row.key.repo)
-	if !ok || st.Tab().Focus == "" {
-		a.notice = fmt.Sprintf(noticePRNoCheckout, prRepoName(row.key.repo))
+// prListOpenHere opens the drawer on the focused pane with the row's pull
+// request: from a pane's checkout of the repository when there is one, else from
+// AIM's private copy of it.
+func (a *App) prListOpenHere(st core.State, row prListRow, then prThen) tea.Cmd {
+	focus := st.Tab().Focus
+	if focus == "" {
+		a.notice = noticePRNoPane
 
 		return nil
 	}
 
+	want := &prWant{repo: row.key.repo, number: row.key.number, base: row.pr.BaseBranch}
+
+	if dir, ok := a.prCheckout(row.key.repo); ok {
+		want.root = dir
+	} else {
+		if a.reads == nil {
+			a.notice = noticePRsOff
+
+			return nil
+		}
+
+		root, ok := a.prCopyRoot(row.key.repo)
+		if !ok {
+			a.notice = fmt.Sprintf(noticeCopyOff, row.key.number)
+
+			return nil
+		}
+
+		want.root, want.inCopy, want.branch = root, true, row.pr.HeadBranch
+	}
+
 	a.prList = nil
 
-	want := &prWant{repo: row.key.repo, number: row.key.number, root: dir, base: row.pr.BaseBranch}
-
-	return a.openWithPR(st.Tab().Focus, want, then)
+	return a.openWithPR(focus, want, then)
 }

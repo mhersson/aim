@@ -14,4 +14,6 @@ type prReads interface {
 	JobLog(ctx context.Context, r github.Repo, jobID int64) (data []byte, cut bool, err error)
 	CheckRun(ctx context.Context, r github.Repo, id int64) (github.CheckRunOutput, error)
 	Conversation(ctx context.Context, r github.Repo, number int) (github.Conversation, error)
+	MergeBase(ctx context.Context, r github.Repo, base, head string) (string, error)
+	GitToken(ctx context.Context, host string) (string, error)
 }

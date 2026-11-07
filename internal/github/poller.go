@@ -40,6 +40,7 @@ type Snapshot struct {
 	Focused   *FocusedChecks
 	RateLimit RateLimit
 	Err       error // the poll failed; Info, PRs and Focused are empty
+	Asked     int   // the Focused number this poll was made for; set on a failed poll too
 	At        time.Time
 }
 
@@ -322,7 +323,7 @@ func rateLimitOf(s Snapshot) (*RateLimitError, bool) {
 // PR still has checks running.
 func (p *Poller) poll(ctx context.Context, rp *repoPoller) (snap Snapshot, pending bool) {
 	w := rp.current()
-	snap = Snapshot{Repo: rp.repo}
+	snap = Snapshot{Repo: rp.repo, Asked: w.Focused}
 
 	fail := func(err error) (Snapshot, bool) {
 		snap.Err = err
@@ -342,6 +343,17 @@ func (p *Poller) poll(ctx context.Context, rp *repoPoller) (snap Snapshot, pendi
 	}
 
 	var focused *FocusedChecks
+
+	// The list holds only the newest 100; a focused one beyond them is asked
+	// for by number, and a failure there fails only the focused checks.
+	if w.Focused != 0 && !slices.ContainsFunc(prs, func(pr PR) bool { return pr.Number == w.Focused }) {
+		switch pr, err := c.PullRequest(ctx, rp.repo, w.Focused); {
+		case err == nil && pr.State == "OPEN":
+			prs = append(prs, pr)
+		case err != nil && !errors.Is(err, ErrNoPR):
+			focused = &FocusedChecks{Number: w.Focused, Err: err}
+		}
+	}
 
 	for _, pr := range prs {
 		if w.Focused == 0 || pr.Number != w.Focused || pr.HeadOID == "" {

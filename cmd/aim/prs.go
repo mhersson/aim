@@ -192,6 +192,21 @@ func (g ghReads) Conversation(ctx context.Context, r github.Repo, number int) (g
 	return c.Conversation(ctx, r, number)
 }
 
+// MergeBase reads the commit where head branched from base.
+func (g ghReads) MergeBase(ctx context.Context, r github.Repo, base, head string) (string, error) {
+	c, err := g.clients.client(ctx, r.Host)
+	if err != nil {
+		return "", fmt.Errorf("client for %s: %w", r.Host, err)
+	}
+
+	return c.MergeBase(ctx, r, base, head)
+}
+
+// GitToken is the host's token, read at each call so a new login needs no restart.
+func (g ghReads) GitToken(ctx context.Context, host string) (string, error) {
+	return github.Token(ctx, host, github.TokenOptions{})
+}
+
 // Close stops the poller: its requests are cancelled, its goroutines end and
 // its updates close. It is safe to repeat.
 func (p *prRuntime) Close() error { return p.poller.Close() }

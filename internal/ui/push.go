@@ -93,7 +93,7 @@ type pushedMsg struct {
 
 // pushDir is the directory a push starts from: what the open review drawer
 // shows, a pin or a held pull request included, else the focused pane's followed place, else the
-// directory the app started in.
+// directory the app started in. A pull request copy is never it: see drawerShows.
 func (a *App) pushDir(st core.State) string {
 	tab := st.Tab()
 
@@ -110,13 +110,14 @@ func (a *App) pushDir(st core.State) string {
 
 // drawerShows is the directory tab's open review drawer shows: a held pull
 // request's worktree, wherever the pane has gone since, else what the pane
-// follows or its pin holds. It is "" with no drawer.
+// follows or its pin holds. A copy is not a worktree, so pushing, composing and
+// the finder never start in it: the pane's place is used. It is "" with no drawer.
 func (a *App) drawerShows(st core.State, tab core.Tab) string {
 	if tab.Review == nil {
 		return ""
 	}
 
-	if tab.Review.PR != nil && tab.Review.PR.Root != "" {
+	if tab.Review.PR != nil && tab.Review.PR.Root != "" && !tab.Review.PR.Copy {
 		return tab.Review.PR.Root
 	}
 

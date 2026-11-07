@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -285,6 +286,120 @@ func TestPRForBranchNone(t *testing.T) {
 			_, err := c.PRForBranch(context.Background(), testRepo, "feat/x")
 			if !errors.Is(err, ErrNoPR) {
 				t.Fatalf("err = %v, want ErrNoPR", err)
+			}
+		})
+	}
+}
+
+func TestPullRequestDecodes(t *testing.T) {
+	t.Parallel()
+
+	rec := &gqlRecorder{body: []byte(`{"data":{"repository":{"pullRequest":` + branchNode(150, "OPEN", false) + `}}}`)}
+	c, _ := newTestClient(t, "github.com", rec)
+
+	pr, err := c.PullRequest(context.Background(), testRepo, 150)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var n pullNode
+	if err := json.Unmarshal([]byte(branchNode(150, "OPEN", false)), &n); err != nil {
+		t.Fatal(err)
+	}
+
+	if pr != n.pr() || pr.Number != 150 {
+		t.Errorf("pr = %+v, want %+v", pr, n.pr())
+	}
+
+	body := strings.Join(strings.Fields(rec.requests()[0]), "")
+	if !strings.Contains(body, "pullRequest(number:$number)") || !strings.Contains(body, `"number":150`) {
+		t.Errorf("query = %s", body)
+	}
+}
+
+func TestPullRequestNotFound(t *testing.T) {
+	t.Parallel()
+
+	rec := &gqlRecorder{body: []byte(`{"data":{"repository":{"pullRequest":null}},"errors":[{"type":"NOT_FOUND","path":["repository","pullRequest"],"message":"Could not resolve to a PullRequest with the number of 99."}]}`)}
+	c, _ := newTestClient(t, "github.com", rec)
+
+	_, err := c.PullRequest(context.Background(), testRepo, 99)
+	if !errors.Is(err, ErrNoPR) {
+		t.Fatalf("err = %v, want ErrNoPR", err)
+	}
+}
+
+func TestMergeBase(t *testing.T) {
+	t.Parallel()
+
+	var got *http.Request
+
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Clone(r.Context())
+
+		_, _ = w.Write(readFixture(t, "compare.json"))
+	})
+	c, _ := newTestClient(t, "github.com", h)
+
+	sha, err := c.MergeBase(t.Context(), Repo{Host: "github.com", Owner: "o", Name: "r"}, "main", "abc123")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want := "91c32c2bbd92976fe0d36f3a3e7b36db8a39c640"; sha != want {
+		t.Errorf("merge base = %q, want %q", sha, want)
+	}
+
+	if got.Method != http.MethodGet || got.URL.EscapedPath() != "/repos/o/r/compare/main...abc123" {
+		t.Errorf("request = %s %s", got.Method, got.URL.EscapedPath())
+	}
+
+	if q := got.URL.Query().Get("per_page"); q != "1" {
+		t.Errorf("per_page = %q, want 1", q)
+	}
+}
+
+func TestMergeBaseBranchWithSlash(t *testing.T) {
+	t.Parallel()
+
+	c, reqs := setup(t, step{body: `{"merge_base_commit":{"sha":"deadbeef"}}`})
+
+	if _, err := c.MergeBase(t.Context(), Repo{Host: "github.com", Owner: "o", Name: "r"}, "release/1.0", "abc123"); err != nil {
+		t.Fatal(err)
+	}
+
+	got := reqs()
+	if len(got) != 1 || got[0].path != "/repos/o/r/compare/release/1.0...abc123" {
+		t.Errorf("requests = %+v", got)
+	}
+}
+
+func TestMergeBaseRefuses(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		step step
+		api  bool
+	}{
+		{"not found", step{status: http.StatusNotFound, body: `{"message":"Not Found"}`}, true},
+		{"no sha", step{body: `{"status":"ahead"}`}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c, _ := setup(t, tt.step)
+
+			_, err := c.MergeBase(t.Context(), Repo{Host: "github.com", Owner: "o", Name: "r"}, "main", "abc123")
+			if err == nil {
+				t.Fatal("want an error")
+			}
+
+			var he *api.HTTPError
+			if errors.As(err, &he) != tt.api {
+				t.Errorf("error = %v, API error wanted: %v", err, tt.api)
 			}
 		})
 	}

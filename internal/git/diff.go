@@ -38,10 +38,12 @@ type TurnSource struct {
 }
 
 // PRSource compares the merge base of a pull request's base and head, as FetchPR
-// stored them, with its head.
+// stored them, with its head. With Copy, the base ref holds the merge base
+// itself (a PRCopy) and Worktree is the copy.
 type PRSource struct {
 	Worktree string
 	Number   int
+	Copy     bool
 }
 
 func (BranchSource) source() {}
@@ -230,7 +232,12 @@ func (e *Engine) diffPR(ctx context.Context, s PRSource) (Result, error) {
 		return Result{}, err
 	}
 
-	pr, err := resolvePR(ctx, r, s.Number)
+	resolve := resolvePR
+	if s.Copy {
+		resolve = resolvePRCopy
+	}
+
+	pr, err := resolve(ctx, r, s.Number)
 	if err != nil {
 		return Result{}, err
 	}

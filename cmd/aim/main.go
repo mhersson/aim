@@ -148,6 +148,14 @@ func run(ctx context.Context, env core.Env, configPath, recordDir string, fresh 
 		logger.Info("swept index cache", "removed", n)
 	}
 
+	if held {
+		if n, err := git.SweepPRCopies(prCopyDir(indexCache), time.Now()); err != nil {
+			logger.Warn("sweep pull request copies", "err", err)
+		} else if n > 0 {
+			logger.Info("swept pull request copies", "removed", n)
+		}
+	}
+
 	watches := git.NewWatchSet(context.Background(), git.WatchOptions{})
 	defer func() {
 		if cerr := watches.Close(); cerr != nil {
@@ -234,6 +242,7 @@ func run(ctx context.Context, env core.Env, configPath, recordDir string, fresh 
 		SweepRefs:    saver != nil,
 		Pictures:     github.NewImageFetcher(github.ImageOptions{}),
 		ImageCache:   imageCacheDir(indexCache),
+		PRCopies:     prCopyDir(indexCache),
 		Git:          ui.SystemGit{},
 		Watches:      watches,
 		Places:       places,

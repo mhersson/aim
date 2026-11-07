@@ -92,6 +92,8 @@ type prState struct {
 	sent   bool                 // the source was given a set
 	ver    uint64               // the store version the last sync read
 	dirty  bool                 // a head result arrived since the last sync
+
+	copyGate prCopyGate // one copy fetch at a time per copy
 }
 
 func newPRState(src prSource, lookup PRLookup, g Git) prState {
@@ -334,6 +336,21 @@ func (a *App) prWatches(st core.State) []github.Watch {
 // last one it was given.
 func (a *App) prSetWatches(st core.State) {
 	p := &a.prs
+
+	// A tab switched away drops its repository from the watch, so its poll is
+	// cancelled and a hold waiting on it would fire on the next poll after return.
+	for id, v := range a.drawer.views {
+		if id == st.Tab().ID {
+			continue
+		}
+
+		if v.pollThen != thenNothing && a.notice == fmt.Sprintf(noticePRFetching, v.pr.Number) {
+			a.notice = ""
+		}
+
+		v.pollThen = thenNothing
+	}
+
 	ws := a.prWatches(st)
 
 	same := slices.EqualFunc(ws, p.set, func(x, y github.Watch) bool {
@@ -419,10 +436,10 @@ func (a *App) onPRSnapshot(s github.Snapshot) tea.Cmd {
 
 		if a.prs.shown[key] != reason {
 			a.prs.shown[key] = reason
-			a.notice = fmt.Sprintf("pull requests for %s: %s", key, reason)
+			a.notice = fmt.Sprintf(noticePRsFailed, key, reason)
 		}
 
-		return nil
+		return a.prPollAnswered(s)
 	}
 
 	open := make([]core.PRInfo, len(s.PRs))
@@ -460,6 +477,10 @@ func (a *App) onPRSnapshot(s github.Snapshot) tea.Cmd {
 	}
 
 	if cmd := a.convPoll(st, key); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+
+	if cmd := a.prPollAnswered(s); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 

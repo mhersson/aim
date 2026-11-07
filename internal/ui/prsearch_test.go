@@ -42,6 +42,11 @@ type fakeReads struct {
 	convs     []github.Conversation
 	convErr   error
 	convCalls []convCall
+
+	gitToken   string
+	tokenErr   error
+	mergeBases map[string]string // by head
+	mergeErr   error
 }
 
 // convCall is one Conversation read.
@@ -62,6 +67,28 @@ func (f *fakeReads) Conversation(_ context.Context, r github.Repo, number int) (
 	}
 
 	return f.convs[min(n, len(f.convs)-1)], nil
+}
+
+func (f *fakeReads) MergeBase(_ context.Context, r github.Repo, base, head string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.calls = append(f.calls, "mergebase "+r.String()+" "+base+"..."+head)
+
+	if f.mergeErr != nil {
+		return "", f.mergeErr
+	}
+
+	return f.mergeBases[head], nil
+}
+
+func (f *fakeReads) GitToken(_ context.Context, host string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.calls = append(f.calls, "gittoken "+host)
+
+	return f.gitToken, f.tokenErr
 }
 
 func (f *fakeReads) convReads() []convCall {

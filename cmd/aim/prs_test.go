@@ -320,3 +320,53 @@ func TestGhActionsReportAClientThatCannotBeBuilt(t *testing.T) {
 		t.Errorf("Approve error = %v, want the factory's", err)
 	}
 }
+
+func TestGHReadsMergeBase(t *testing.T) {
+	t.Parallel()
+
+	var (
+		mu    sync.Mutex
+		hosts []string
+		net   offline
+	)
+
+	p := startPRs(func(_ context.Context, host string) (*github.Client, error) {
+		mu.Lock()
+
+		hosts = append(hosts, host)
+
+		mu.Unlock()
+
+		return github.NewClient(host, github.Options{Token: "test-token", Transport: &net})
+	})
+
+	t.Cleanup(func() { _ = p.Close() })
+
+	other := github.Repo{Host: "ghe.example.com", Owner: "o", Name: "r"}
+
+	for _, r := range []github.Repo{testRepo, other} {
+		if _, err := p.reads().MergeBase(t.Context(), r, "main", "abc"); err == nil || !strings.Contains(err.Error(), "offline") {
+			t.Fatalf("MergeBase(%s) error = %v, want the transport's", r, err)
+		}
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if got := strings.Join(hosts, ","); got != "github.com,ghe.example.com" {
+		t.Errorf("clients built for %q, want one per host", got)
+	}
+}
+
+func TestGHReadsGitToken(t *testing.T) {
+	t.Setenv("GH_TOKEN", "tok")
+
+	got, err := ghReads{}.GitToken(t.Context(), "github.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got != "tok" {
+		t.Errorf("token = %q, want tok", got)
+	}
+}

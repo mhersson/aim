@@ -34,6 +34,8 @@ const (
 	noticePRFetching    = "fetching #%d…"
 	noticePRNotOnRemote = "#%d is not on %s"
 	noticePRLoaded      = "#%d loaded"
+	noticePRsFailed     = "pull requests for %s: %s"
+	noticePRGone        = "#%d is no longer open"
 )
 
 // prThen is what the drawer does once the shown pull request's diff has loaded.
@@ -57,6 +59,11 @@ type prWant struct {
 	number int
 	root   string
 	base   string // the base branch when the caller knows it, else the state's
+
+	// inCopy reads the pull request from the private copy at root, whose HEAD
+	// means nothing; branch is its head branch, for the drawer's title.
+	inCopy bool
+	branch string
 }
 
 // prPlace is the worktree a pull request is read from: its root, branch, the
@@ -83,6 +90,8 @@ type prNext struct {
 	want *prWant
 	then prThen
 	open bool // the drawer opened; the source is awaited
+	// noRepo: the pane's repository answer failed or found none, so no source is coming and the ask goes at once.
+	noRepo bool
 }
 
 // prAsk is what every answer of one request carries, so a request that was
@@ -238,6 +247,8 @@ func (a *App) reviewReload() tea.Cmd {
 
 	a.retryPictures(v)
 
+	v.pollThen = thenNothing
+
 	// A drawer still opening for a pull request shows it but no longer acts on it.
 	if n := a.drawer.prNext; n != nil {
 		n.then = thenNothing
@@ -254,7 +265,7 @@ func (a *App) reviewReload() tea.Cmd {
 		a.prs.src.Refresh(repo)
 	}
 
-	return a.askPR(tab.ID, &prWant{repo: v.pr.Repo, number: v.pr.Number, root: v.pr.Root}, v.prBase, thenNothing)
+	return a.askPR(tab.ID, v.heldWant(v.pr.Root), v.prBase, thenNothing)
 }
 
 // retryPictures forgets the failed images of the rendered files v shows, so
@@ -292,6 +303,17 @@ func (a *App) askPR(tab core.TabID, want *prWant, base string, then prThen) tea.
 
 	dir := a.drawerDir(st, t, t.Review.Pane)
 
+	// A copy's HEAD means nothing, so a pull request it shows is asked for as itself.
+	if want == nil && t.Review.PR != nil && t.Review.PR.Copy {
+		want = a.reviewViewOf(tab).heldWant(t.Review.PR.Root)
+	}
+
+	if want != nil && want.inCopy && a.reads == nil {
+		a.notice = noticePRsOff
+
+		return nil
+	}
+
 	switch {
 	case want != nil:
 		dir = want.root
@@ -322,7 +344,7 @@ func (a *App) askPR(tab core.TabID, want *prWant, base string, then prThen) tea.
 	}
 
 	v := a.reviewViewOf(tab)
-	v.then = thenNothing
+	v.then, v.pollThen = thenNothing, thenNothing
 
 	a.drawer.prSeq++
 	ask := prAsk{tab: tab, pane: t.Review.Pane, seq: a.drawer.prSeq, epoch: v.epoch, then: then, want: want, base: base}
@@ -342,6 +364,16 @@ func (a *App) askPR(tab core.TabID, want *prWant, base string, then prThen) tea.
 		defer cancel()
 
 		msg := prPlaceMsg{prAsk: ask, number: number}
+
+		if want != nil && want.inCopy {
+			if repo, ok := repoOfKey(want.repo); ok {
+				msg.place = prPlace{root: want.root, remote: "origin", repo: repo}
+			} else {
+				msg.err = errPRNone
+			}
+
+			return msg
+		}
 
 		if want != nil {
 			msg.place, msg.err = localPRPlace(ctx, g, dir)
@@ -477,6 +509,10 @@ func (a *App) onPRPlace(msg prPlaceMsg) tea.Cmd {
 
 	a.drawer.fetching[number]++
 
+	if ask.want != nil && ask.want.inCopy {
+		return a.fetchCopyCmd(ask, place, number)
+	}
+
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(appCtx, prFetchTimeout)
 		defer cancel()
@@ -542,7 +578,14 @@ func (a *App) onPRFetched(msg prFetchedMsg) tea.Cmd {
 	epoch := v.epoch
 	v.prBase, v.unpushed = msg.base, msg.unpushed
 
-	show := core.ShowReviewPR{Repo: msg.place.repo.String(), Number: msg.number, Root: msg.place.root}
+	inCopy := msg.want != nil && msg.want.inCopy
+
+	v.prBranch = ""
+	if inCopy {
+		v.prBranch = msg.want.branch
+	}
+
+	show := core.ShowReviewPR{Repo: msg.place.repo.String(), Number: msg.number, Root: msg.place.root, Copy: inCopy}
 	if err := a.dispatch(show); err != nil {
 		return nil
 	}
@@ -630,6 +673,10 @@ func (a *App) prThenRun(then prThen) tea.Cmd {
 		return nil
 	}
 
+	if a.prPollHolds(v, then) {
+		return nil
+	}
+
 	switch then {
 	case thenConversation:
 		info, _ := prInfoByNumber(a.store.State(), v.pr.Repo, v.pr.Number)
@@ -647,6 +694,101 @@ func (a *App) prThenRun(then prThen) tea.Cmd {
 	}
 
 	return nil
+}
+
+// prPollHolds holds an approve or merge of a copy's pull request until its
+// repository's poll knows it: the box freezes what it knows when it opens, and a
+// copy's repository is watched only once the drawer shows it. It reports whether
+// then was held or refused, so the caller runs nothing.
+func (a *App) prPollHolds(v *reviewView, then prThen) bool {
+	if !v.pr.Copy || (then != thenApprove && then != thenMerge) || a.prs.src == nil {
+		return false
+	}
+
+	repo, ok := repoOfKey(v.pr.Repo)
+	if !ok {
+		return false
+	}
+
+	st := a.store.State()
+
+	if _, known := prInfoByNumber(st, v.pr.Repo, v.pr.Number); known && a.prs.polled[repo] {
+		return false
+	}
+
+	if reason := st.PRs[v.pr.Repo].Err; reason != "" {
+		a.notice = fmt.Sprintf(noticePRsFailed, v.pr.Repo, reason)
+
+		return true
+	}
+
+	v.pollThen = then
+	a.notice = fmt.Sprintf(noticePRFetching, v.pr.Number)
+	a.prs.src.Refresh(repo)
+
+	return true
+}
+
+// prPollAnswered ends the holds of s's repository that the poll answered: a
+// failed poll says why, an answer for another pull request leaves the hold, and
+// one that knows the pull request runs what was held.
+func (a *App) prPollAnswered(s github.Snapshot) tea.Cmd {
+	var (
+		cmds   []tea.Cmd
+		repo   = s.Repo.String()
+		active = a.drawer.views[a.store.State().Tab().ID]
+	)
+
+	for _, v := range a.drawer.views {
+		then := v.pollThen
+		if then == thenNothing || v.pr.Repo != repo {
+			continue
+		}
+
+		switch {
+		case s.Err != nil:
+			v.pollThen = thenNothing
+
+			if v == active {
+				a.notice = fmt.Sprintf(noticePRsFailed, repo, prReason(s.Err))
+			}
+		case s.Asked != v.pr.Number:
+		case v != active:
+			v.pollThen = thenNothing
+		default:
+			v.pollThen = thenNothing
+
+			if a.notice == fmt.Sprintf(noticePRFetching, v.pr.Number) {
+				a.notice = ""
+			}
+
+			cmds = append(cmds, a.prPollRun(v, s, then))
+		}
+	}
+
+	return tea.Batch(cmds...)
+}
+
+// prPollRun runs the held then once the poll answered for v's pull request, or
+// says why it cannot.
+func (a *App) prPollRun(v *reviewView, s github.Snapshot, then prThen) tea.Cmd {
+	if _, known := prInfoByNumber(a.store.State(), v.pr.Repo, v.pr.Number); !known {
+		if f := s.Focused; f != nil && f.Number == v.pr.Number && f.Err != nil {
+			a.notice = fmt.Sprintf(noticePRsFailed, v.pr.Repo, prReason(f.Err))
+		} else {
+			a.notice = fmt.Sprintf(noticePRGone, v.pr.Number)
+		}
+
+		return nil
+	}
+
+	if a.modalOpen() || !a.drawerHasKeys() {
+		a.notice = a.prLoadedNotice(v.pr.Number, then)
+
+		return nil
+	}
+
+	return a.prThenRun(then)
 }
 
 // prLink is the page of a pull request: the poll's, else the one its repository
@@ -676,7 +818,7 @@ func (a *App) prAct(then prThen) tea.Cmd {
 	// The held pull request is asked for again as itself: resolving the worktree's
 	// branch could pick another.
 	if v.pr != (core.ReviewPR{}) && v.root != "" {
-		return a.askPR(tab.ID, &prWant{repo: v.pr.Repo, number: v.pr.Number, root: v.root}, v.prBase, then)
+		return a.askPR(tab.ID, v.heldWant(v.root), v.prBase, then)
 	}
 
 	return a.showPR(tab.ID, then)
@@ -693,7 +835,7 @@ func (a *App) openWithPR(pane core.PaneID, want *prWant, then prThen) tea.Cmd {
 		return a.askPR(tab.ID, want, "", then)
 	}
 
-	cmd := a.openSliding(pane)
+	cmd := a.openSliding(pane, want != nil && want.inCopy)
 	if cmd == nil {
 		return nil
 	}
@@ -716,6 +858,12 @@ func (a *App) prNextAfterSync() tea.Cmd {
 		a.drawer.prNext = nil
 
 		return nil
+	}
+
+	if n.noRepo {
+		a.drawer.prNext = nil
+
+		return a.askPR(n.tab, n.want, "", n.then)
 	}
 
 	v := a.drawer.views[t.ID]

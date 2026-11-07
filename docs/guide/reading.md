@@ -21,7 +21,7 @@ A plan that cannot be read leaves the box closed with a notice such as `not open
 
 To read any markdown file, press `ctrl+space m`, or choose "Open a markdown file" (`md.open`) in the command palette (`ctrl+space :`). The finder opens in a box the size of the reading box, with the prompt on top, the folder in the title and the list below it. From 100 terminal columns the box also splits in two, with the list on the left and a preview of the selected row on the right (see [The preview](#the-preview)). In a terminal too small for the box the finder stays open unseen and only `esc` works.
 
-It starts in the folder you are looking at: the one the review drawer shows while the drawer has the keyboard, else the focused pane's followed folder (the worktree of its latest edit, else where it works), then your home folder, then `/`. It needs no repository. A new open always starts there with an empty prompt.
+It starts in the folder you are looking at: the one the review drawer shows while the drawer has the keyboard (the focused pane's followed folder when it shows a pull request from AIM's private copy), else the focused pane's followed folder (the worktree of its latest edit, else where it works), then your home folder, then `/`. It needs no repository. A new open always starts there with an empty prompt.
 
 ### The list
 

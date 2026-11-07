@@ -72,6 +72,16 @@ func imageCacheDir(indexCache string) string {
 	return filepath.Join(indexCache, "images")
 }
 
+// prCopyDir is where AIM's private pull request repositories live under the
+// index cache; empty when that is off.
+func prCopyDir(indexCache string) string {
+	if indexCache == "" {
+		return ""
+	}
+
+	return filepath.Join(indexCache, "prs")
+}
+
 // startHooks prepares <stateDir>/run: it sweeps files of dead instances, places
 // this instance's binary, writes its settings file and serves its socket. A
 // failure leaves nothing behind and yields a runtime with a notice, so agents

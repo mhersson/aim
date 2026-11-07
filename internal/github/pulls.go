@@ -2,8 +2,14 @@ package github
 
 import (
 	"context"
+	"errors"
+	"net/http"
+	"net/url"
+	"slices"
+	"strings"
 	"time"
 
+	"github.com/cli/go-gh/v2/pkg/api"
 	graphql "github.com/cli/shurcooL-graphql"
 )
 
@@ -119,6 +125,38 @@ type branchQuery struct {
 	Repository struct {
 		PullRequests struct{ Nodes []pullNode } `graphql:"pullRequests(headRefName: $branch, first: 10, orderBy: {field: CREATED_AT, direction: DESC}, states: [OPEN, MERGED, CLOSED])"`
 	} `graphql:"repository(owner: $owner, name: $name)"`
+}
+
+type pullQuery struct {
+	Repository struct {
+		PullRequest *pullNode `graphql:"pullRequest(number: $number)"`
+	} `graphql:"repository(owner: $owner, name: $name)"`
+}
+
+// PullRequest returns one pull request of any state by number. One that does
+// not exist is ErrNoPR.
+func (c *Client) PullRequest(ctx context.Context, r Repo, number int) (PR, error) {
+	var q pullQuery
+
+	vars := map[string]any{
+		"owner": graphql.String(r.Owner), "name": graphql.String(r.Name),
+		"number": graphql.Int(number), //nolint:gosec // pull request numbers fit int32
+	}
+	if err := c.query(ctx, "PullRequest", &q, vars); err != nil {
+		if ge, ok := errors.AsType[*api.GraphQLError](err); ok && slices.ContainsFunc(ge.Errors, func(i api.GraphQLErrorItem) bool {
+			return i.Type == "NOT_FOUND"
+		}) {
+			return PR{}, ErrNoPR
+		}
+
+		return PR{}, err
+	}
+
+	if q.Repository.PullRequest == nil {
+		return PR{}, ErrNoPR
+	}
+
+	return q.Repository.PullRequest.pr(), nil
 }
 
 // PullRequests returns the repository's open pull requests, newest update
@@ -253,4 +291,30 @@ func rollupState(s string) CheckState {
 	default:
 		return CheckNone
 	}
+}
+
+// MergeBase is the sha of the commit where head branched from base. per_page=1
+// pages only the commits; the file list still comes whole.
+func (c *Client) MergeBase(ctx context.Context, r Repo, base, head string) (string, error) {
+	segs := strings.Split(base, "/")
+	for i, s := range segs {
+		segs[i] = url.PathEscape(s)
+	}
+
+	var out struct {
+		MergeBaseCommit struct {
+			SHA string `json:"sha"`
+		} `json:"merge_base_commit"`
+	}
+
+	path := repoPath(r) + "/compare/" + strings.Join(segs, "/") + "..." + url.PathEscape(head) + "?per_page=1"
+	if err := c.rest(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return "", err
+	}
+
+	if out.MergeBaseCommit.SHA == "" {
+		return "", errors.New("github: compare " + base + "..." + head + " has no merge base")
+	}
+
+	return out.MergeBaseCommit.SHA, nil
 }

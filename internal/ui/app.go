@@ -115,6 +115,9 @@ type Options struct {
 	Pictures pictureFetcher
 	// ImageCache is the directory of the fetched images' disk cache; empty keeps none.
 	ImageCache string
+	// PRCopies is where AIM's private copies of repositories live, for pull
+	// requests of repositories no pane is in; empty turns that route off.
+	PRCopies string
 }
 
 // markFiles is the persistence of the reviewed-hunk marks, one file per
@@ -176,6 +179,7 @@ type App struct {
 	openLink               urlOpener
 	actions                prActions               // GitHub writes; nil means they are off
 	reads                  prReads                 // GitHub reads beyond the poller; nil means they are off
+	prCopies               string                  // where the pull request copies live; "" means none
 	pullRequests           core.PullRequestsConfig // how far back the Review requested search goes
 	search                 prSearchState
 
@@ -326,6 +330,7 @@ func New(opts Options) (*App, error) {
 
 	a.actions = opts.PRActions
 	a.reads = opts.PRReads
+	a.prCopies = opts.PRCopies
 	a.pullRequests = opts.PullRequests
 
 	a.openLink = opts.OpenURL

@@ -50,9 +50,11 @@ type reviewOpenMsg struct {
 	pane  core.PaneID
 	cwd   string
 	focus bool
-	repo  git.Repo
-	turns int // how many turns the pane's session has
-	err   error
+	// anyDir opens the drawer although err says the pane is in no repository.
+	anyDir bool
+	repo   git.Repo
+	turns  int // how many turns the pane's session has
+	err    error
 }
 
 // reviewLoadedMsg answers one load. gen is the view's epoch when it was asked.
@@ -268,7 +270,7 @@ func (a *App) reviewReset(tab core.TabID, pane core.PaneID) *reviewView {
 	v.pane, v.split = pane, a.drawer.cfg.Split()
 
 	if old != nil {
-		v.prBase, v.unpushed, v.showRead = old.prBase, old.unpushed, old.showRead
+		v.prBase, v.prBranch, v.unpushed, v.showRead = old.prBase, old.prBranch, old.unpushed, old.showRead
 	}
 
 	return v
@@ -284,7 +286,7 @@ func (a *App) reviewRetarget(tab core.TabID, v *reviewView, turn int) tea.Cmd {
 
 	switch {
 	case v.pr != (core.ReviewPR{}):
-		v.src = git.PRSource{Worktree: v.root, Number: v.pr.Number}
+		v.src = git.PRSource{Worktree: v.root, Number: v.pr.Number, Copy: v.pr.Copy}
 	case v.mode == core.ReviewTurn && v.session != "":
 		v.src = git.TurnSource{Worktree: v.root, Session: v.session, Turn: turn}
 	default:
@@ -292,7 +294,7 @@ func (a *App) reviewRetarget(tab core.TabID, v *reviewView, turn int) tea.Cmd {
 	}
 
 	v.epoch = a.drawer.nextEpoch()
-	v.queued, v.after, v.then = nil, nil, thenNothing
+	v.queued, v.after, v.then, v.pollThen = nil, nil, thenNothing, thenNothing
 	v.stopReads()
 	a.dropPages(v)
 
@@ -311,6 +313,8 @@ type reviewJob struct {
 	batch    *git.Batch // nil: a full diff of src
 	infoOnly bool       // skip the diff: refresh only what describe finds
 	prBase   string     // the base of the pull request src shows
+	prBranch string     // its head branch, when it is shown from a copy
+	prCopy   bool       // src shows a pull request from a copy: its HEAD and turns mean nothing
 	prev     git.Result // the result batch updates
 	keep     reviewInfo // what a load that skips a probe keeps
 	eng      DiffEngine
@@ -344,7 +348,7 @@ func (a *App) reviewStart(tab core.TabID, v *reviewView, b *git.Batch, infoOnly 
 	v.own = a.store.State().Panes[v.pane].WorkDir()
 
 	job := reviewJob{
-		tab: tab, epoch: v.epoch, src: v.src, root: v.root, session: v.session, own: v.own, batch: b, infoOnly: infoOnly, prev: v.res, prBase: v.prBase,
+		tab: tab, epoch: v.epoch, src: v.src, root: v.root, session: v.session, own: v.own, batch: b, infoOnly: infoOnly, prev: v.res, prBase: v.prBase, prBranch: v.prBranch, prCopy: v.pr.Copy,
 		keep: keep, eng: a.engine, git: a.git, log: a.log,
 		common: v.common, commonRoot: v.commonRoot, known: a.store.State().Marks, files: a.marks, now: a.clock.Now(),
 	}
@@ -465,7 +469,7 @@ func (j reviewJob) countTurnsAt(ctx context.Context, info *reviewInfo, res git.R
 // countTurns sets info.turns to the length of the root's list of turns, unless
 // the root has none or the count is not available.
 func (j reviewJob) countTurns(ctx context.Context, info *reviewInfo) {
-	if j.session == "" {
+	if j.session == "" || j.prCopy {
 		info.turns = 0
 
 		return
@@ -542,7 +546,9 @@ func (j reviewJob) describe(ctx context.Context, info *reviewInfo) {
 	if probe {
 		info.project = repoProject(r)
 
-		if h, err := j.git.Head(ctx, r); err == nil {
+		if j.prCopy {
+			info.branch = j.prBranch
+		} else if h, err := j.git.Head(ctx, r); err == nil {
 			info.branch = h.Branch
 			if h.Detached {
 				info.branch = h.OID[:min(shortOIDLen, len(h.OID))]
@@ -558,7 +564,7 @@ func (j reviewJob) describe(ctx context.Context, info *reviewInfo) {
 			base = j.prBase
 		}
 
-		if base == "" {
+		if base == "" && !j.prCopy {
 			if base, err = j.git.DefaultBranch(ctx, r); err != nil {
 				j.log.Debug("review: default branch", "root", j.root, "err", err)
 			}
