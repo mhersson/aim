@@ -434,8 +434,8 @@ the followed place back, and one after a session change records nothing.
 - **Repositories.** The remote URL names the repository, ssh aliases mapped
   through `ssh -G` (`internal/github/repo.go`). Only watched repositories are
   polled: each agent's followed place, the focused shell's, and whatever the
-  drawer, merge box or checks overlay shows, and the repository of a merge held
-  on the list.
+  drawer, merge box, checks overlay or conversation overlay shows, and the
+  repository of a merge held on the list.
 - **The poller** (`internal/github/poller.go`) runs one goroutine per watched
   repository and one GraphQL query per poll for the 100 newest open pull
   requests, plus one more for the focused one while it is past them. The
