@@ -156,31 +156,62 @@ func TestNotifyBlockedOnlyWhenUnseen(t *testing.T) {
 	tests := []struct {
 		name  string
 		setup func(*testing.T, *App)
+		rig   func(*testing.T) (*App, core.PaneID) // nil means notifyApp's p2
 		want  int
 	}{
-		{"visible and focused", func(*testing.T, *App) {}, 0},
-		{"window unfocused", func(_ *testing.T, a *App) { a.Update(tea.BlurMsg{}) }, 1},
+		{"visible and focused", func(*testing.T, *App) {}, nil, 0},
+		{"window unfocused", func(_ *testing.T, a *App) { a.Update(tea.BlurMsg{}) }, nil, 1},
 		{"on another tab", func(t *testing.T, a *App) {
 			openIn(t, a, core.NewTab{Kind: core.KindShell, Cwd: "/w/b"})
-		}, 1},
+		}, nil, 1},
 		{"behind a zoomed pane", func(t *testing.T, a *App) {
 			openIn(t, a, core.FocusPane{ID: "p1"}, core.ToggleZoom{})
+		}, nil, 1},
+		{"under a zoomed drawer", nil, func(t *testing.T) (*App, core.PaneID) {
+			r, _ := fakeKeysRig(t, func(o *Options) { o.Getenv = func(k string) string { return osc777Env[k] } })
+			zoomed(t, r)
+
+			id := r.store.State().NewPaneID()
+			openIn(t, r.App, core.OpenPane{Kind: core.KindAgent, Cwd: t.TempDir(), Split: core.SplitVertical, Area: r.bodyArea()})
+			r.leader('z')
+
+			if !r.zoomed() || r.store.State().Tab().Zoomed {
+				t.Fatal("setup: the drawer is not the zoomed one")
+			}
+
+			if _, ok := r.arrangeIn(r.store.State(), 0).Rects[id]; !ok {
+				t.Fatal("setup: the agent's pane is not drawn under the drawer")
+			}
+
+			return r.App, id
 		}, 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			a, _ := notifyApp(t, core.NotificationsConfig{}, osc777Env)
-			tt.setup(t, a)
+			var (
+				a  *App
+				id core.PaneID = "p2"
+			)
 
-			got := raws(hook(a, blockedEv()))
+			if tt.rig != nil {
+				a, id = tt.rig(t)
+			} else {
+				a, _ = notifyApp(t, core.NotificationsConfig{}, osc777Env)
+				tt.setup(t, a)
+			}
+
+			ev := blockedEv()
+			ev.Pane = id
+
+			got := raws(hook(a, ev))
 			if len(got) != tt.want {
 				t.Fatalf("sent %q, want %d notices", got, tt.want)
 			}
 
-			if tt.want == 1 && got[0] != notice777(a, " needs you") {
-				t.Errorf("sent %q, want %q", got[0], notice777(a, " needs you"))
+			if want := "\x1b]777;notify;AIM;" + a.cardName(a.store.State(), id) + " needs you\x1b\\"; tt.want == 1 && got[0] != want {
+				t.Errorf("sent %q, want %q", got[0], want)
 			}
 		})
 	}
