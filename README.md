@@ -32,6 +32,11 @@ Watch it as a [video (MP4)](https://github.com/user-attachments/assets/26f3b30c-
 - **Picks up where you left off.** Tabs, layouts and each agent's Claude session come back on restart.
 - **Themes.** Catppuccin Latte, Frappé, Macchiato and Mocha, plus [themes of your own](docs/guide/themes.md) from files beside the config, switched from the palette while AIM runs.
 
+## What AIM touches
+
+- **Network.** AIM sends no telemetry and needs no account of its own; its GitHub features use the token under [Requirements](#requirements). Apart from the pushes you confirm, which go to your branch's own remote, it talks only to [GitHub](docs/architecture.md#github): the API, pull request fetches and pictures from GitHub's hosts. The Claude Code it runs talks to Anthropic as it always does.
+- **Agent state.** AIM learns what each agent does from [Claude Code's hooks](docs/architecture.md#claude-code-launch-hooks-and-the-socket), through a settings file it writes for each run and passes with `--settings`, never by reading the screen. It never edits `~/.claude` or your shell's startup files.
+
 ## Screenshots
 
 <table>
