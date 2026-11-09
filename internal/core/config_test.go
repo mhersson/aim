@@ -100,6 +100,15 @@ func TestLoadConfig(t *testing.T) {
 			}(),
 		},
 		{
+			name: "notifications section", content: "[notifications]\nnotify = \"blocked\"\nbell = true\nprotocol = \"osc99\"\n",
+			want: func() Config {
+				c := DefaultConfig()
+				c.Notifications = NotificationsConfig{Notify: "blocked", Bell: true, Protocol: "osc99"}
+
+				return c
+			}(),
+		},
+		{
 			name: "pull_requests section", content: "[pull_requests]\nreview_requested_days = 30\n",
 			want: func() Config {
 				c := DefaultConfig()
@@ -364,6 +373,8 @@ func TestAllowedValuesMatchValidate(t *testing.T) {
 		{"diff.layout", DiffLayouts(), func(c *Config, v string) { c.Diff.Layout = v }, func(c Config) error { return c.Diff.Validate() }},
 		{"diff.mode", reviews, func(c *Config, v string) { c.Diff.Mode = v }, func(c Config) error { return c.Diff.Validate() }},
 		{"layout.master_position", tiling.MasterPositions(), func(c *Config, v string) { c.Layout.MasterPosition = v }, func(c Config) error { return c.Layout.Validate() }},
+		{"notifications.notify", NotifyModes(), func(c *Config, v string) { c.Notifications.Notify = v }, func(c Config) error { return c.Notifications.Validate() }},
+		{"notifications.protocol", NotifyProtocols(), func(c *Config, v string) { c.Notifications.Protocol = v }, func(c Config) error { return c.Notifications.Validate() }},
 		{"worktrees.root", WorktreeRoots(), func(c *Config, v string) { c.Worktrees.Root = v }, func(c Config) error { return c.Worktrees.Validate() }},
 	}
 
@@ -456,47 +467,5 @@ func TestAllowedValuesMatchValidate(t *testing.T) {
 
 	if got := LayoutModes(); !reflect.DeepEqual(got, want) {
 		t.Errorf("LayoutModes() after a write = %v, want %v", got, want)
-	}
-}
-
-func TestNotificationsConfig(t *testing.T) {
-	t.Parallel()
-
-	def := DefaultConfig().Notifications
-	if def.Mode() != "all" || def.Bell || def.Proto() != "auto" {
-		t.Errorf("defaults = %+v", def)
-	}
-
-	if (NotificationsConfig{}).Mode() != "all" || (NotificationsConfig{}).Proto() != "auto" {
-		t.Error("the zero value does not read as the defaults")
-	}
-
-	path := filepath.Join(t.TempDir(), "c.toml")
-	if err := os.WriteFile(path, []byte("[notifications]\nnotify = \"blocked\"\nbell = true\nprotocol = \"osc99\"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := LoadConfig(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if want := (NotificationsConfig{Notify: "blocked", Bell: true, Protocol: "osc99"}); got.Notifications != want {
-		t.Errorf("loaded %+v, want %+v", got.Notifications, want)
-	}
-
-	tests := []struct {
-		c       NotificationsConfig
-		wantErr string
-	}{
-		{NotificationsConfig{Notify: "off", Protocol: "osc777"}, ""},
-		{NotificationsConfig{Notify: "some", Protocol: "auto"}, "notifications.notify"},
-		{NotificationsConfig{Notify: "all", Protocol: "osc52"}, "notifications.protocol"},
-	}
-	for _, tt := range tests {
-		err := tt.c.Validate()
-		if tt.wantErr == "" && err != nil || tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)) {
-			t.Errorf("Validate(%+v) = %v, want %q", tt.c, err, tt.wantErr)
-		}
 	}
 }
