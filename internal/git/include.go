@@ -27,8 +27,9 @@ func (e *CopyError) Unwrap() error { return e.Err }
 // CopyIncluded copies into dst the files in the checkout main that main's
 // .worktreeinclude names and git ignores, and returns how many it copied.
 // Tracked files, symlinks and other special files are skipped, as is a file
-// dst already has. A file that fails does not stop the rest; the first
-// failure is returned as a *CopyError.
+// dst already has. A file that fails comes back as a *CopyError while the rest
+// are still copied; a failure to list the files or to open either checkout is
+// a plain error and copies nothing.
 func CopyIncluded(ctx context.Context, main, dst string) (int, error) {
 	if _, err := os.Lstat(filepath.Join(main, IncludeFile)); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {

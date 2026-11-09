@@ -486,7 +486,7 @@ func (a *App) pickerCreate(p *picker) tea.Cmd {
 func (a *App) onPickerCreated(msg pickerCreatedMsg) tea.Cmd {
 	p := a.picker.open
 	if p == nil || p.seq != msg.seq || p.form == nil {
-		a.log.Info("new worktree: answer after the picker closed", "path", msg.created.Worktree.Path, "err", msg.err)
+		a.log.Info("new worktree: answer after the picker closed", "path", msg.created.Worktree.Path, "err", msg.err, "copyErr", msg.created.CopyErr)
 
 		return nil
 	}

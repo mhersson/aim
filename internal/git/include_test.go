@@ -7,15 +7,13 @@ import (
 	"testing"
 )
 
-const includePatterns = ".env\n*.local\nconfig/**\n"
-
 func TestCopyIncluded(t *testing.T) {
 	t.Parallel()
 	main, _ := seededRepo(t)
 	dst := t.TempDir()
 
 	writeFile(t, main, ".gitignore", ".env\n*.local\nconfig/\n")
-	writeFile(t, main, IncludeFile, includePatterns)
+	writeFile(t, main, IncludeFile, ".env\n*.local\nconfig/**\nnotignored.txt\n")
 	writeFile(t, main, ".env", "SECRET=1\n")
 	writeFile(t, main, "tracked.local", "tracked\n")
 	writeFile(t, main, "notignored.txt", "x\n")
@@ -23,7 +21,7 @@ func TestCopyIncluded(t *testing.T) {
 	writeFile(t, main, "keep.local", "main\n")
 	writeFile(t, dst, "keep.local", "dst\n")
 
-	if err := os.Chmod(filepath.Join(main, ".env"), 0o600); err != nil {
+	if err := os.Chmod(filepath.Join(main, ".env"), 0o666); err != nil {
 		t.Fatal(err)
 	}
 
@@ -32,10 +30,6 @@ func TestCopyIncluded(t *testing.T) {
 	}
 
 	gitOut(t, main, "add", "-f", "tracked.local")
-
-	if err := os.WriteFile(filepath.Join(main, IncludeFile), []byte(includePatterns+"notignored.txt\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 
 	n, err := CopyIncluded(t.Context(), main, dst)
 	if err != nil {
@@ -47,7 +41,7 @@ func TestCopyIncluded(t *testing.T) {
 		want     string // "" = absent
 		wantMode os.FileMode
 	}{
-		{path: ".env", want: "SECRET=1\n", wantMode: 0o600},
+		{path: ".env", want: "SECRET=1\n", wantMode: 0o666},
 		{path: "config/deep/app.local", want: "nested\n"},
 		{path: "keep.local", want: "dst\n"},
 		{path: "tracked.local"},
@@ -118,26 +112,45 @@ func TestCopyIncludedStaysInside(t *testing.T) {
 	}
 }
 
-func TestCopyIncludedWithoutFile(t *testing.T) {
+func TestCopyIncludedCopiesNothing(t *testing.T) {
 	t.Parallel()
-	main, _ := seededRepo(t)
-	dst := t.TempDir()
 
-	writeFile(t, main, ".gitignore", ".env\n")
-	writeFile(t, main, ".env", "x\n")
-
-	n, err := CopyIncluded(t.Context(), main, dst)
-	if n != 0 || err != nil {
-		t.Fatalf("CopyIncluded = %d, %v, want 0, nil", n, err)
+	tests := []struct {
+		name    string
+		include string // "" = no .worktreeinclude
+	}{
+		{name: "no include file"},
+		{name: "only files git does not ignore", include: "plain.txt\n"},
 	}
 
-	entries, rerr := os.ReadDir(dst)
-	if rerr != nil {
-		t.Fatal(rerr)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			main, _ := seededRepo(t)
+			dst := t.TempDir()
 
-	if len(entries) != 0 {
-		t.Errorf("dst holds %d entries, want none", len(entries))
+			writeFile(t, main, ".gitignore", ".env\n")
+			writeFile(t, main, ".env", "x\n")
+			writeFile(t, main, "plain.txt", "x\n")
+
+			if tt.include != "" {
+				writeFile(t, main, IncludeFile, tt.include)
+			}
+
+			n, err := CopyIncluded(t.Context(), main, dst)
+			if n != 0 || err != nil {
+				t.Fatalf("CopyIncluded = %d, %v, want 0, nil", n, err)
+			}
+
+			entries, rerr := os.ReadDir(dst)
+			if rerr != nil {
+				t.Fatal(rerr)
+			}
+
+			if len(entries) != 0 {
+				t.Errorf("dst holds %d entries, want none", len(entries))
+			}
+		})
 	}
 }
 
