@@ -270,6 +270,9 @@ func allowedByKey() map[string]allowedSpec {
 		"diff.max_bytes":            {lo: core.MinDiffLimit, hi: -1, unit: "bytes"},
 		"diff.max_lines":            {lo: core.MinDiffLimit, hi: -1},
 		"worktrees.root":            {values: core.WorktreeRoots()},
+		"notifications.notify":      {values: core.NotifyModes()},
+		"notifications.bell":        bools,
+		"notifications.protocol":    {values: core.NotifyProtocols()},
 		"pull_requests.review_requested_days": {
 			lo: core.MinReviewRequestedDays, hi: core.MaxReviewRequestedDays, unit: "days",
 		},

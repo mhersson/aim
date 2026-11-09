@@ -115,6 +115,8 @@ type Event struct {
 	// hook is answered, so the server holds the answer until Done (as it does
 	// for Before).
 	TurnStart bool `json:"turn_start,omitempty"`
+	// TurnEnd marks the end of the agent's turn (Claude's Stop and StopFailure).
+	TurnEnd bool `json:"turn_end,omitempty"`
 	// Done releases the held answer. The server sets it on a held event; it is
 	// safe to call more than once and concurrently. Nil when nothing is held.
 	Done func() `json:"-"`

@@ -150,6 +150,11 @@ func TestLoadConfig(t *testing.T) {
 				tt.want.Worktrees = DefaultConfig().Worktrees
 			}
 
+			// And for Notifications.
+			if tt.want.Notifications == (NotificationsConfig{}) {
+				tt.want.Notifications = DefaultConfig().Notifications
+			}
+
 			// And for Plans.
 			if tt.want.Plans.Paths == nil {
 				tt.want.Plans = DefaultConfig().Plans
@@ -451,5 +456,47 @@ func TestAllowedValuesMatchValidate(t *testing.T) {
 
 	if got := LayoutModes(); !reflect.DeepEqual(got, want) {
 		t.Errorf("LayoutModes() after a write = %v, want %v", got, want)
+	}
+}
+
+func TestNotificationsConfig(t *testing.T) {
+	t.Parallel()
+
+	def := DefaultConfig().Notifications
+	if def.Mode() != "all" || def.Bell || def.Proto() != "auto" {
+		t.Errorf("defaults = %+v", def)
+	}
+
+	if (NotificationsConfig{}).Mode() != "all" || (NotificationsConfig{}).Proto() != "auto" {
+		t.Error("the zero value does not read as the defaults")
+	}
+
+	path := filepath.Join(t.TempDir(), "c.toml")
+	if err := os.WriteFile(path, []byte("[notifications]\nnotify = \"blocked\"\nbell = true\nprotocol = \"osc99\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want := (NotificationsConfig{Notify: "blocked", Bell: true, Protocol: "osc99"}); got.Notifications != want {
+		t.Errorf("loaded %+v, want %+v", got.Notifications, want)
+	}
+
+	tests := []struct {
+		c       NotificationsConfig
+		wantErr string
+	}{
+		{NotificationsConfig{Notify: "off", Protocol: "osc777"}, ""},
+		{NotificationsConfig{Notify: "some", Protocol: "auto"}, "notifications.notify"},
+		{NotificationsConfig{Notify: "all", Protocol: "osc52"}, "notifications.protocol"},
+	}
+	for _, tt := range tests {
+		err := tt.c.Validate()
+		if tt.wantErr == "" && err != nil || tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)) {
+			t.Errorf("Validate(%+v) = %v, want %q", tt.c, err, tt.wantErr)
+		}
 	}
 }

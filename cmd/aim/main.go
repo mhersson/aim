@@ -221,9 +221,10 @@ func run(ctx context.Context, env core.Env, configPath, recordDir string, fresh 
 		Keys:   cfg.Keys,
 		Themes: themes,
 
-		Worktrees:    cfg.Worktrees,
-		Plans:        cfg.Plans,
-		PullRequests: cfg.PullRequests,
+		Worktrees:     cfg.Worktrees,
+		Notifications: cfg.Notifications,
+		Plans:         cfg.Plans,
+		PullRequests:  cfg.PullRequests,
 
 		FocusFollowsMouse: cfg.Mouse.FocusFollowsMouse,
 		CopyOnSelect:      cfg.Mouse.CopyOnSelect,

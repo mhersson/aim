@@ -24,16 +24,17 @@ const DefaultTheme = "catppuccin-mocha"
 type Config struct {
 	Theme string `toml:"theme"`
 	// Icons is a pointer so an absent key (nil) can mean true.
-	Icons        *bool              `toml:"icons"`
-	Mouse        Mouse              `toml:"mouse"`
-	Clipboard    Clipboard          `toml:"clipboard"`
-	Shell        ShellConfig        `toml:"shell"`
-	Layout       LayoutConfig       `toml:"layout"`
-	Diff         DiffConfig         `toml:"diff"`
-	Worktrees    WorktreesConfig    `toml:"worktrees"`
-	Plans        PlansConfig        `toml:"plans"`
-	PullRequests PullRequestsConfig `toml:"pull_requests"`
-	Keys         KeysConfig         `toml:"keys"`
+	Icons         *bool               `toml:"icons"`
+	Mouse         Mouse               `toml:"mouse"`
+	Clipboard     Clipboard           `toml:"clipboard"`
+	Shell         ShellConfig         `toml:"shell"`
+	Layout        LayoutConfig        `toml:"layout"`
+	Diff          DiffConfig          `toml:"diff"`
+	Worktrees     WorktreesConfig     `toml:"worktrees"`
+	Notifications NotificationsConfig `toml:"notifications"`
+	Plans         PlansConfig         `toml:"plans"`
+	PullRequests  PullRequestsConfig  `toml:"pull_requests"`
+	Keys          KeysConfig          `toml:"keys"`
 }
 
 // LayoutConfig is the [layout] section. Validate rejects an out-of-range value
@@ -217,6 +218,52 @@ func (c WorktreesConfig) Validate() error {
 // root style.
 func (c WorktreesConfig) Sibling() bool { return c.Root == "sibling" }
 
+// NotifyModes lists the allowed notifications.notify values.
+func NotifyModes() []string { return []string{"all", "blocked", "off"} }
+
+// NotifyProtocols lists the allowed notifications.protocol values.
+func NotifyProtocols() []string { return []string{"auto", "osc9", "osc99", "osc777"} }
+
+// NotificationsConfig is the [notifications] section. Validate rejects an
+// unknown value from a file; Mode and Proto read a zero field as the default,
+// so a hand-built NotificationsConfig behaves as the defaults.
+type NotificationsConfig struct {
+	Notify   string `toml:"notify"`   // all | blocked | off: which events notify
+	Bell     bool   `toml:"bell"`     // ring the bell with a notice
+	Protocol string `toml:"protocol"` // auto | osc9 | osc99 | osc777: the escape to send
+}
+
+// Validate names the key when a value is unknown.
+func (c NotificationsConfig) Validate() error {
+	if !slices.Contains(NotifyModes(), c.Notify) {
+		return fmt.Errorf("notifications.notify: %q is not all, blocked or off", c.Notify)
+	}
+
+	if !slices.Contains(NotifyProtocols(), c.Protocol) {
+		return fmt.Errorf("notifications.protocol: %q is not auto, osc9, osc99 or osc777", c.Protocol)
+	}
+
+	return nil
+}
+
+// Mode is the notify setting, "all" when unset.
+func (c NotificationsConfig) Mode() string {
+	if c.Notify == "" {
+		return "all"
+	}
+
+	return c.Notify
+}
+
+// Proto is the protocol setting, "auto" when unset.
+func (c NotificationsConfig) Proto() string {
+	if c.Protocol == "" {
+		return "auto"
+	}
+
+	return c.Protocol
+}
+
 // PlansConfig is the [plans] section: folder paths matched anywhere in the path
 // of an edited file; markdown files under one count as plans.
 type PlansConfig struct {
@@ -301,10 +348,11 @@ func DefaultConfig() Config {
 			DefaultMode: string(ModeBSP), AutoScheme: "spiral", MasterRatio: 50, MasterPosition: tiling.MasterPositionLeft,
 			MasterCount: 1, MasterGrid: new(true), ColumnWidth: 50,
 		},
-		Diff:         DiffConfig{Layout: "unified", Mode: string(ReviewBranch), MaxFiles: 400, MaxBytes: 2 << 20, MaxLines: 5000},
-		Worktrees:    WorktreesConfig{Root: "inside"},
-		Plans:        PlansConfig{Paths: []string{"docs/superpowers/plans/", "docs/superpowers/specs/"}},
-		PullRequests: PullRequestsConfig{ReviewRequestedDays: 7},
+		Diff:          DiffConfig{Layout: "unified", Mode: string(ReviewBranch), MaxFiles: 400, MaxBytes: 2 << 20, MaxLines: 5000},
+		Worktrees:     WorktreesConfig{Root: "inside"},
+		Notifications: NotificationsConfig{Notify: "all", Protocol: "auto"},
+		Plans:         PlansConfig{Paths: []string{"docs/superpowers/plans/", "docs/superpowers/specs/"}},
+		PullRequests:  PullRequestsConfig{ReviewRequestedDays: 7},
 	}
 }
 

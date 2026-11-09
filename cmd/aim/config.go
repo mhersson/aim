@@ -14,7 +14,7 @@ func validateConfig(cfg core.Config, themes theme.Set) error {
 	}
 
 	for _, check := range []func() error{
-		cfg.Layout.Validate, cfg.Diff.Validate, cfg.Worktrees.Validate,
+		cfg.Layout.Validate, cfg.Diff.Validate, cfg.Worktrees.Validate, cfg.Notifications.Validate,
 		cfg.Plans.Validate, cfg.PullRequests.Validate, cfg.Keys.Validate,
 		func() error { return ui.CheckKeys(cfg.Keys, themes) },
 	} {

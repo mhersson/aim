@@ -131,6 +131,29 @@ A percent takes the theme's warning colour from 70 % and its error colour, bold,
 
 Click the module or press `ctrl+space u` (command "Claude usage") for the details: each window's bar and percent, when it resets (`resets in 2d 4h (Wed 14:00)`), and how long ago the figures last changed. `esc`, `ctrl+space u` again or a click outside them closes them. While they are open the leader works as usual and every other key and a paste are dropped. With no figures yet, `ctrl+space u` says `no Claude usage yet`. When the module has left the bar, the details open at the right edge.
 
+## Notifications
+
+AIM sends a desktop notification to the terminal it runs in when an agent needs you or has finished, and only for an agent you cannot see. It notifies when:
+
+- an agent becomes blocked: a permission prompt or a question waits for you;
+- an agent's turn ends: Claude stopped, with or without an error, after working.
+
+An agent that goes quiet for a few seconds is not a finished turn, and an agent already blocked does not notify again until it has been in another state. Panes with no hooks never notify.
+
+You cannot see an agent when the terminal window does not have focus, or when its pane is not drawn: it is on another tab, hidden behind a zoomed pane or off-screen in a scrolling layout, or the review drawer is zoomed over the tab. A pane under the half-width drawer, a dialog or the palette counts as seen. A terminal that never reports focus leaves only the pane rule.
+
+The notification is titled `AIM` and reads `<agent name> needs you` or `<agent name> is done`, with the name the rail shows.
+
+Three settings in the `[notifications]` section of the config change this:
+
+- `notify`: `all` (the default), `blocked` (no done notices) or `off` (nothing, the bell included);
+- `bell`: `true` rings the terminal bell with each notification; the default is `false`;
+- `protocol`: `auto` (the default), `osc9`, `osc99` or `osc777`.
+
+With `auto`, AIM picks the escape from the terminal: kitty gets OSC 99; Ghostty, WezTerm, foot and urxvt get OSC 777; iTerm2 and every other terminal get OSC 9. Set `protocol` when it guesses wrong. urxvt needs its notify extension. With `bell = false` kitty (0.36 or newer) is asked to make the notification silent; on other terminals the sound is the operating system's setting.
+
+Inside tmux, AIM wraps the notification in tmux's passthrough, which needs `set -g allow-passthrough on` in `tmux.conf`; the choice of escape comes from the variables the terminal leaves in the environment.
+
 ## The command palette and themes
 
 Every action is a command, and the palette runs any that is not specific to one view: press `ctrl+space :`, type part of the name, move with `up` and `down` (or `ctrl+n`, `ctrl+p`, `tab`, `shift+tab`), and press `enter` to run it. `esc` closes it. Each row shows the leader key of its command, if it has one. Commands without a key, such as "Layout: BSP", are listed in [Keys](keys.md#commands-without-a-default-key).
