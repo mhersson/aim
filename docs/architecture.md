@@ -582,6 +582,9 @@ the followed place back, and one after a session change records nothing.
   the agent's diff and pull request; `.git/info/exclude` is local. A worktree
   may hold the only copy of uncommitted work, so only the cleanup confirm
   removes one, and `git worktree remove` is never forced.
+  The `.worktreeinclude` copy writes only into the worktree AIM just created,
+  through an `os.Root` on it so a symlinked folder cannot lead out, and never
+  over a file already there.
   Shell startup files hold the user's setup for every terminal, so the
   integration lives in the run dir and reaches only the shells AIM starts,
   through their argv and environment.

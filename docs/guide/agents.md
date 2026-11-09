@@ -42,7 +42,8 @@ The last row, `new worktree…` (`+ new worktree…` with `icons = false`), open
 
 - An existing branch is checked out; a new one is created from the base.
 - A failure shows on the page: `enter a branch name`, `that path already exists`, `not a valid branch name`, `no usable base branch; name one in the base field`, `no main checkout; set root = "sibling" in [worktrees]`, or git's own reason. While git works the page reads `creating the worktree…`.
-- On success the notice is `created <path>`.
+- A `.worktreeinclude` file in the main checkout's root names the files a new worktree gets copies of, such as a `.env`. Its patterns use `.gitignore` syntax, and a file is copied only when git also ignores it, so a tracked file never is. Only regular files are copied, with their permission bits; symlinks and files the worktree already has are left alone. A repository without the file copies nothing.
+- On success the notice is `created <path>`, or `created <path>; copied <n> files from .worktreeinclude` when files were copied. A file that could not be copied shows as an error naming the first one and why; the worktree and the agent start all the same.
 - For a worktree inside the repository's `.worktrees` folder, the first one in a repository adds `/.worktrees/` to the repository's `.git/info/exclude`, and the page lists tools that need their own ignore entry, such as an editor's file watcher.
 - `root` under `[worktrees]` in [`config.example.toml`](../../config.example.toml) sets where new worktrees go.
 

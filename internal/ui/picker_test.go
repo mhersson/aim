@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -718,6 +719,53 @@ func TestNewWorktreeCreatedAnswer(t *testing.T) {
 
 		if !strings.Contains(a.notice, ".worktrees/x") || !strings.Contains(a.notice, "boom") {
 			t.Errorf("notice = %q, want the creation and why there is no pane", a.notice)
+		}
+	})
+
+	t.Run("the notice carries the copy count", func(t *testing.T) {
+		a, st := pickerApp(t, "/work")
+		injectPicker(t, a, sampleRepo, sampleTrees())
+		openSampleForm(t, a)
+
+		a.Update(pickerCreatedMsg{seq: a.picker.open.seq, created: git.Created{Worktree: git.Worktree{Path: path}, Copied: 3}})
+
+		want := fmt.Sprintf(noticeIncludeCopied, plural(3, "file"))
+		if st.count() != 2 || !strings.Contains(a.notice, want) || a.noticeLevel() != levelNotice {
+			t.Errorf("starts = %d, notice = %q (level %v), want the agent and %q at notice level", st.count(), a.notice, a.noticeLevel(), want)
+		}
+	})
+
+	t.Run("a copy failure still starts the agent", func(t *testing.T) {
+		plain := errors.New("git ls-files: exit status 128: bad pattern")
+		tests := []struct {
+			name string
+			err  error
+			want string
+		}{
+			{
+				name: "a file",
+				err:  &git.CopyError{Path: ".env", Err: &fs.PathError{Op: "open", Path: "/x/.env", Err: fs.ErrPermission}},
+				want: fmt.Sprintf(noticeIncludeFailed, ".env", fs.ErrPermission.Error()),
+			},
+			{name: "the list", err: plain, want: fmt.Sprintf(noticeIncludeUnread, gitReason(plain))},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				a, st := pickerApp(t, "/work")
+				injectPicker(t, a, sampleRepo, sampleTrees())
+				openSampleForm(t, a)
+
+				a.Update(pickerCreatedMsg{seq: a.picker.open.seq, created: git.Created{Worktree: git.Worktree{Path: path}, CopyErr: tt.err}})
+
+				if st.count() != 2 || a.picker.open != nil {
+					t.Errorf("starts = %d, picker open = %v, want the agent opened", st.count(), a.picker.open != nil)
+				}
+
+				if !strings.Contains(a.notice, tt.want) || a.noticeLevel() != levelError {
+					t.Errorf("notice = %q (level %v), want %q at error level", a.notice, a.noticeLevel(), tt.want)
+				}
+			})
 		}
 	})
 }
