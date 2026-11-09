@@ -51,6 +51,8 @@ type Created struct {
 	Worktree Worktree
 	Excluded bool   // this call added /.worktrees/ to info/exclude
 	Tools    []Tool // tools that need their own ignore entry (RootInside only)
+	Copied   int    // files copied from the main checkout as its .worktreeinclude names them
+	CopyErr  error  // the first copy failure; the worktree is made all the same
 }
 
 // ListWorktrees lists the repository's worktrees; the first is the main checkout.
@@ -181,7 +183,8 @@ func isExitCode(err error, code int) bool {
 // CreateWorktree adds a worktree for nw.Branch under the chosen root, creating
 // the branch from the base unless it exists (then the base is ignored). A
 // non-empty Worktree.Path in the result means the worktree exists, even when
-// the error is not nil.
+// the error is not nil. It also copies what the main checkout's
+// .worktreeinclude names; a copy failure is Created.CopyErr, not the error.
 func CreateWorktree(ctx context.Context, r Repo, nw NewWorktree) (Created, error) {
 	if err := checkBranch(ctx, r, nw.Branch); err != nil {
 		return Created{}, err
@@ -217,9 +220,13 @@ func CreateWorktree(ctx context.Context, r Repo, nw NewWorktree) (Created, error
 
 	created.Worktree = Worktree{Path: path, Branch: nw.Branch}
 
+	main, mainErr := r.MainRoot()
+	if mainErr == nil {
+		created.Copied, created.CopyErr = CopyIncluded(ctx, main, path)
+	}
+
 	if nw.Root == RootInside {
-		main, _ := r.MainRoot()              // worktreeRoot succeeded, so this does too
-		created.Tools, _ = DetectTools(main) // advisory: keeps what it found
+		created.Tools, _ = DetectTools(main) // advisory: keeps what it found; the inside root has a main checkout
 	}
 
 	list, err := ListWorktrees(ctx, r)

@@ -3,6 +3,8 @@ package ui
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io/fs"
 	"path/filepath"
 	"strings"
 	"time"
@@ -25,6 +27,12 @@ const (
 
 // noticePrunable is shown for enter on a worktree whose directory is gone.
 const noticePrunable = "that worktree is gone; git worktree prune removes it"
+
+const (
+	noticeIncludeCopied = "copied %s from " + git.IncludeFile          // plural(n, "file")
+	noticeIncludeFailed = "could not copy %s: %s"                      // the file, why
+	noticeIncludeUnread = "could not read " + git.IncludeFile + ": %s" // why
+)
 
 const (
 	formLabelW  = len("branch")
@@ -478,7 +486,7 @@ func (a *App) pickerCreate(p *picker) tea.Cmd {
 func (a *App) onPickerCreated(msg pickerCreatedMsg) tea.Cmd {
 	p := a.picker.open
 	if p == nil || p.seq != msg.seq || p.form == nil {
-		a.log.Info("new worktree: answer after the picker closed", "path", msg.created.Worktree.Path, "err", msg.err)
+		a.log.Info("new worktree: answer after the picker closed", "path", msg.created.Worktree.Path, "err", msg.err, "copyErr", msg.created.CopyErr)
 
 		return nil
 	}
@@ -502,14 +510,40 @@ func (a *App) onPickerCreated(msg pickerCreatedMsg) tea.Cmd {
 	ver := a.storeVer
 	cmd := a.openPaneIn(core.KindAgent, core.SplitVertical, path)
 
-	notice := "created " + shortPath(path, p.main, p.home)
+	notice, level := "created "+shortPath(path, p.main, p.home), levelNotice
+
+	if n := msg.created.Copied; n > 0 {
+		notice += "; " + fmt.Sprintf(noticeIncludeCopied, plural(n, "file"))
+	}
+
+	if err := msg.created.CopyErr; err != nil {
+		a.log.Warn("new worktree: copy", "path", path, "err", err)
+
+		notice, level = notice+"; "+includeFailure(err), levelError
+	}
+
 	if a.storeVer == ver && a.notice != "" {
 		notice += "; " + a.notice
 	}
 
-	a.notice = notice
+	a.toast(level, notice)
 
 	return cmd
+}
+
+// includeFailure is a copy failure in a few words for the notice.
+func includeFailure(err error) string {
+	var ce *git.CopyError
+	if !errors.As(err, &ce) {
+		return fmt.Sprintf(noticeIncludeUnread, gitReason(err))
+	}
+
+	why := ce.Err
+	if pe, ok := errors.AsType[*fs.PathError](why); ok {
+		why = pe.Err
+	}
+
+	return fmt.Sprintf(noticeIncludeFailed, ce.Path, why.Error())
 }
 
 // worktreeReason is err in a few words for the page.
