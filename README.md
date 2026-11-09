@@ -25,6 +25,7 @@ Watch it as a [video (MP4)](https://github.com/user-attachments/assets/26f3b30c-
 - **Agents in panes.** BSP, master-stack and scrolling layouts, tabs, and a git worktree per agent from the picker.
 - **Agents rail.** Agents grouped as Blocked, Working, Idle or No hooks, with what it does now, its branch, its pull request and its diff stats.
 - **Claude usage.** Your Claude subscription's 5-hour and weekly usage in the tray, in the context meter's colours.
+- **Notifications.** A desktop notification when an agent you cannot see needs you or finishes its turn.
 - **Live review.** Turn and branch mode, unified or side by side, highlighted, with markdown rendered; the drawer follows the agent's edits from worktree to worktree.
 - **Pull requests and CI.** Push, open a pull request from the compose box, read its conversation and checks with their logs, approve, and merge the head you saw after a confirm.
 - **Plans and markdown.** The agent's plan, any markdown file and a pull request's conversation open in a reading box, with pictures over the Kitty graphics protocol.

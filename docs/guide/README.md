@@ -6,7 +6,7 @@ AIM's own keys sit behind a leader key, `ctrl+space` by default: press it, then 
 
 ## Pages, in reading order
 
-1. [Agents side by side](agents.md): start agents, move between panes and tabs, the rail, the command palette, closing things and what a restart restores.
+1. [Agents side by side](agents.md): start agents, move between panes and tabs, the rail, notifications, the command palette, closing things and what a restart restores.
 2. [Layouts](layouts.md): the three layout modes of a tab, switching between them, the layout commands, and moving panes between tabs.
 3. [Review an agent's work](review.md): the review drawer, its two modes, reading and marking the diff, and following the agent from worktree to worktree.
 4. [Pull requests](pull-requests.md): push, open a pull request, review it in the drawer, the checks, approve, merge and clean up.

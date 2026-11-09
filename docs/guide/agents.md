@@ -1,6 +1,6 @@
 # Agents side by side
 
-AIM runs Claude Code in panes next to each other, in tabs, with a rail that lists every agent and a layout that comes back after a restart. This page covers starting agents, moving between panes and tabs, the rail, the command palette, closing things and what a restart restores.
+AIM runs Claude Code in panes next to each other, in tabs, with a rail that lists every agent and a layout that comes back after a restart. This page covers starting agents, moving between panes and tabs, the rail, notifications, the command palette, closing things and what a restart restores.
 
 The keys here are the defaults. A changed `leader_key` or `[keys]` table changes them; see [Keys](keys.md) for the full list and [Configuration](config.md#remapping-keys) for how to remap.
 
@@ -131,6 +131,29 @@ A plan with only a weekly limit shows only `7d`. Without limits (API billing, Te
 A percent takes the theme's warning colour from 70 % and its error colour, bold, from 90 %, as the context meter does. A window leaves the tray when it resets, until an agent reports it again. On a narrow terminal the module leaves the bar right after the load module.
 
 Click the module or press `ctrl+space u` (command "Claude usage") for the details: each window's bar and percent, when it resets (`resets in 2d 4h (Wed 14:00)`), and how long ago the figures last changed. `esc`, `ctrl+space u` again or a click outside them closes them. While they are open the leader works as usual and every other key and a paste are dropped. With no figures yet, `ctrl+space u` says `no Claude usage yet`. When the module has left the bar, the details open at the right edge.
+
+## Notifications
+
+AIM sends a desktop notification to the terminal it runs in when an agent needs you or has finished, and only for an agent you cannot see. It notifies when:
+
+- an agent becomes blocked: a permission prompt or a question waits for you;
+- an agent's turn ends: Claude stopped, with or without an error, after working.
+
+An agent that goes quiet for a few seconds is not a finished turn, and an agent already blocked does not notify again until it has been in another state. Panes with no hooks never notify.
+
+You cannot see an agent when the terminal window does not have focus, or when its pane is not drawn: it is on another tab, hidden behind a zoomed pane or off-screen in a scrolling layout, or the review drawer is zoomed over the tab. A pane under the half-width drawer, a dialog or the palette counts as seen. A terminal that never reports focus leaves only the pane rule.
+
+Over OSC 99 and OSC 777 the notification is titled `AIM` and its text is `<agent name> needs you` or `<agent name> is done`. OSC 9 has no title, so its one text reads `AIM: <agent name> needs you` or `AIM: <agent name> is done`. The name is the one the rail shows.
+
+Three settings in the `[notifications]` section of the config change this:
+
+- `notify`: `all` (the default), `blocked` (no done notices) or `off` (nothing, the bell included);
+- `bell`: `true` rings the terminal bell with each notification; the default is `false`;
+- `protocol`: `auto` (the default), `osc9`, `osc99` or `osc777`.
+
+With `auto`, AIM picks the escape from the terminal: kitty gets OSC 99; Ghostty, WezTerm, foot and urxvt get OSC 777; iTerm2 and every other terminal get OSC 9. Set `protocol` when it guesses wrong. urxvt needs its notify extension. With `bell = false` kitty (0.36 or newer) is asked to make the notification silent; on other terminals the sound is the operating system's setting.
+
+Inside tmux, AIM wraps the notification in tmux's passthrough, which needs `set -g allow-passthrough all` in `tmux.conf`. With `on`, tmux passes a notification only while AIM's pane is visible, so it drops the ones sent while you are in another tmux window. tmux passes focus reports on only with `set -g focus-events on`; without it AIM learns nothing of focus inside tmux and only the pane rule applies. The choice of escape comes from the variables the terminal leaves in the environment.
 
 ## The command palette and themes
 

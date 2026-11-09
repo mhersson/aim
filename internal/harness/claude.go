@@ -447,7 +447,7 @@ func (Claude) ParseEvent(payload []byte) (Event, error) {
 			ev.State = core.AgentIdle
 		}
 	case "Stop", "StopFailure":
-		ev.State, ev.ActionSet = core.AgentIdle, true
+		ev.State, ev.ActionSet, ev.TurnEnd = core.AgentIdle, true, true
 	default:
 		return Event{}, fmt.Errorf("harness: unknown claude-code event %q", p.Name)
 	}

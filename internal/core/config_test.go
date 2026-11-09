@@ -100,6 +100,15 @@ func TestLoadConfig(t *testing.T) {
 			}(),
 		},
 		{
+			name: "notifications section", content: "[notifications]\nnotify = \"blocked\"\nbell = true\nprotocol = \"osc99\"\n",
+			want: func() Config {
+				c := DefaultConfig()
+				c.Notifications = NotificationsConfig{Notify: "blocked", Bell: true, Protocol: "osc99"}
+
+				return c
+			}(),
+		},
+		{
 			name: "pull_requests section", content: "[pull_requests]\nreview_requested_days = 30\n",
 			want: func() Config {
 				c := DefaultConfig()
@@ -148,6 +157,11 @@ func TestLoadConfig(t *testing.T) {
 			// And for Worktrees.
 			if tt.want.Worktrees == (WorktreesConfig{}) {
 				tt.want.Worktrees = DefaultConfig().Worktrees
+			}
+
+			// And for Notifications.
+			if tt.want.Notifications == (NotificationsConfig{}) {
+				tt.want.Notifications = DefaultConfig().Notifications
 			}
 
 			// And for Plans.
@@ -359,6 +373,8 @@ func TestAllowedValuesMatchValidate(t *testing.T) {
 		{"diff.layout", DiffLayouts(), func(c *Config, v string) { c.Diff.Layout = v }, func(c Config) error { return c.Diff.Validate() }},
 		{"diff.mode", reviews, func(c *Config, v string) { c.Diff.Mode = v }, func(c Config) error { return c.Diff.Validate() }},
 		{"layout.master_position", tiling.MasterPositions(), func(c *Config, v string) { c.Layout.MasterPosition = v }, func(c Config) error { return c.Layout.Validate() }},
+		{"notifications.notify", NotifyModes(), func(c *Config, v string) { c.Notifications.Notify = v }, func(c Config) error { return c.Notifications.Validate() }},
+		{"notifications.protocol", NotifyProtocols(), func(c *Config, v string) { c.Notifications.Protocol = v }, func(c Config) error { return c.Notifications.Validate() }},
 		{"worktrees.root", WorktreeRoots(), func(c *Config, v string) { c.Worktrees.Root = v }, func(c Config) error { return c.Worktrees.Validate() }},
 	}
 

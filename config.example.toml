@@ -115,6 +115,22 @@
 ## values: inside | sibling
 # root = "inside"
 
+[notifications]
+## Which events send a desktop notification to the terminal AIM runs in, for an
+## agent you cannot see: blocked is an agent that needs a decision, done is a
+## finished turn. "off" sends nothing, bell included.
+## values: all | blocked | off
+# notify = "all"
+
+## Ring the terminal bell with each notification. With false, kitty (0.36 or
+## newer) is asked to make the notification silent.
+## values: true | false
+# bell = false
+
+## The escape a notification uses. auto picks it from the terminal AIM runs in.
+## values: auto | osc9 | osc99 | osc777
+# protocol = "auto"
+
 [plans]
 ## Folders whose markdown files count as plans. Each is a relative folder path
 ## matched against the whole path of the file the agent edited, anywhere in it

@@ -124,7 +124,10 @@ func (a *App) onHook(ev harness.Event) tea.Cmd {
 		return probes
 	}
 
-	return tea.Batch(probes, a.setAgentState(ev.Pane, ev.State))
+	prev := a.store.State().Panes[ev.Pane].State
+	set := a.setAgentState(ev.Pane, ev.State)
+
+	return tea.Batch(probes, set, a.notifyHook(ev, prev))
 }
 
 // holdHook keeps an event for a pane still marked a shell until a probe decides

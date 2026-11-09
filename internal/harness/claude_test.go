@@ -84,6 +84,7 @@ func TestParseEvent(t *testing.T) {
 				End:        tt.end,
 				Cwd:        "/work",
 				TurnStart:  tt.name == "UserPromptSubmit",
+				TurnEnd:    tt.name == "Stop" || tt.name == "StopFailure",
 				Action:     tt.action,
 				ActionSet:  tt.set,
 

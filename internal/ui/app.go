@@ -84,6 +84,10 @@ type Options struct {
 	// Worktrees is the [worktrees] config: where a new worktree goes. The zero
 	// value means inside the main checkout.
 	Worktrees core.WorktreesConfig
+	// Notifications is the [notifications] config: which events send a desktop
+	// notification to the outer terminal, the bell and the escape used. The zero
+	// value means the defaults.
+	Notifications core.NotificationsConfig
 	// Plans is the [plans] config: the folders whose markdown files count as
 	// plans. Nil Paths records no plan files.
 	Plans core.PlansConfig
@@ -190,6 +194,7 @@ type App struct {
 	pictures    *pictures      // Kitty graphics support and the pictures sent
 	loader      *pictureLoader // loads the pictures off the update loop
 	getenv      func(string) string
+	notify      notifier
 	cwd         string
 	configPath  string // the config file AIM loaded, which the theme picker's ctrl+s saves to
 	recordDir   string // empty unless recording
@@ -350,6 +355,7 @@ func New(opts Options) (*App, error) {
 	a.drawer.caches, a.drawer.hl = caches, &caches.hl
 	a.drawer.cfg = opts.Diff
 	a.picker.cfg = opts.Worktrees
+	a.notify = newNotifier(opts.Notifications, getenv)
 	a.plans = opts.Plans
 	a.drawersOpen = anyReview(opts.Store.State())
 
