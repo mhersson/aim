@@ -48,10 +48,10 @@ quitting AIM ends its agents, and the next start resumes their sessions.
 **Off the update loop** run git, GitHub, file reads, markdown parsing
 (`md.Parse` recurses once per nesting level), syntax highlighting and image
 decoding and the copies of the images agents send (`copySent`), as `tea.Cmd`s
-or goroutines. Each runs under a context derived from
-the app's, which quit cancels, with its own limit as a named constant beside
-its caller (`reviewLoadTimeout`, `pushTimeout`, `mergeTimeout`). The rail's
-probes and the edit resolutions share 4 slots (`railProbeMax`).
+or goroutines. Each runs under a context derived from the app's, which quit
+cancels, with its own limit as a named constant beside its caller
+(`reviewLoadTimeout`, `pushTimeout`, `mergeTimeout`). The rail's probes and the
+edit resolutions share 4 slots (`railProbeMax`).
 
 **Late answers are normal.** The pane may have closed or been replaced under
 the same id, a newer request gone out, the session changed or the overlay

@@ -409,10 +409,7 @@ func (a *App) sentLines(lk look, w, h int) (out []string, pics []picRow) {
 	}
 
 	title = ansi.Truncate(title, w-4, "…")
-	out = append(out,
-		border.Render("╭─")+on(ui.Info).Bold(true).Render(title)+border.Render(strings.Repeat("─", w-3-ansi.StringWidth(title))+"╮"),
-		row("", 0),
-	)
+	out = append(out, titledTop(border, on(ui.Info).Bold(true), title, w), row("", 0))
 
 	slots := make([]sentSlot, len(page.images))
 	for k, i := range page.images {
@@ -460,7 +457,7 @@ func (a *App) sentLines(lk look, w, h int) (out []string, pics []picRow) {
 
 	ind := sentIndicator(pages, at)
 
-	return append(out, border.Render("╰"+strings.Repeat("─", w-3-ansi.StringWidth(ind)))+on(ui.Accent).Bold(true).Render(ind)+border.Render("─╯")), pics
+	return append(out, labelledBottom(border, on(ui.Accent).Bold(true), ind, w)), pics
 }
 
 // overlaySentView draws the viewer over base; a terminal too small for the box

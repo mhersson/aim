@@ -271,7 +271,12 @@ func copyOne(dir string, seq, i int, path string) (string, int, int, error) {
 
 	dst := filepath.Join(dir, strconv.Itoa(seq)+"-"+strconv.Itoa(i)+strings.ToLower(filepath.Ext(path)))
 
-	if err := errors.Join(werr, cerr, os.Chmod(tmp.Name(), 0o600), os.Rename(tmp.Name(), dst)); err != nil {
+	err = errors.Join(werr, cerr)
+	if err == nil {
+		err = os.Rename(tmp.Name(), dst)
+	}
+
+	if err != nil {
 		_ = os.Remove(tmp.Name())
 
 		return "", 0, 0, fmt.Errorf("write copy: %w", err)

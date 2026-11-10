@@ -276,8 +276,8 @@ func (a *App) sentCardLines(lk look, b sentBatch, w, picRows int) (out []string,
 	return append(out, tone.Render("╰"+strings.Repeat("─", w-2)+"╯")), pics
 }
 
-// sentCardSlot is a card slot: the picture, else one line with the name and
-// the reason, or "loading…".
+// sentCardSlot is a card slot: the picture, else one line - the name, with the
+// reason when the file did not decode, or "loading…".
 func (a *App) sentCardSlot(im sentImage, slotW, rows int, ui theme.UI) sentSlot {
 	return a.sentSlotCore(im, slotW, rows, 0, ui, func(tried, loading bool) []slotText {
 		name := printable(filepath.Base(im.path))

@@ -54,6 +54,12 @@ func remapTables(t *testing.T, a *App, cfg core.KeysConfig) {
 	a.keys = tables
 }
 
+// sentScopedCommands is the viewer's commands less images.view, which opens it
+// from anywhere and is in the palette.
+func sentScopedCommands() []command {
+	return slices.DeleteFunc(sentViewCommands(), func(c command) bool { return c.scope == "" })
+}
+
 func TestScopedCommands(t *testing.T) {
 	t.Parallel()
 
@@ -61,7 +67,7 @@ func TestScopedCommands(t *testing.T) {
 
 	var scoped []command
 
-	for _, fn := range []func() []command{railCommands, prListCommands, checksCommands, readerCommands, mergeCommands, composeCommands} {
+	for _, fn := range []func() []command{railCommands, prListCommands, checksCommands, readerCommands, mergeCommands, composeCommands, sentScopedCommands} {
 		scoped = append(scoped, fn()...)
 	}
 

@@ -303,14 +303,13 @@ func TestSentDropsALateCopy(t *testing.T) {
 		t.Fatal("no sentCopiedMsg")
 	}
 
-	if err := a.dispatch(core.ClosePane{ID: "p2"}); err != nil {
-		t.Fatal(err)
-	}
+	// The id stays in the state; the answer came from a pane since replaced.
+	copied.p = &pane{id: "p2"}
 
 	a.Update(*copied)
 
 	if n := len(a.sentBatches("p2")); n != 0 {
-		t.Fatalf("batches after close = %d, want 0", n)
+		t.Fatalf("batches after the pane was replaced = %d, want 0", n)
 	}
 
 	b, _ := sentApp(t)

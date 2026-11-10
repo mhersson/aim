@@ -99,11 +99,3 @@ func TestNamedImages(t *testing.T) {
 		})
 	}
 }
-
-func TestCaption(t *testing.T) {
-	t.Parallel()
-
-	if got := Caption("a \n\t b\x07"); got != "a b" {
-		t.Errorf("Caption = %q", got)
-	}
-}

@@ -175,6 +175,10 @@ func TestRunShowSaysWhenAIMDoesNotAnswer(t *testing.T) {
 	if err == nil {
 		t.Fatal("error = nil, want one")
 	}
+
+	if errors.Is(err, errSocketBlocked) {
+		t.Errorf("error = %v, want the not-answering one", err)
+	}
 }
 
 func TestShowCommandIsListed(t *testing.T) {

@@ -251,6 +251,10 @@ func TestPanesGetAIMBin(t *testing.T) {
 		})
 		chord(a, 'n')
 
+		if len(st.cmds) == 0 {
+			t.Fatal("no command started")
+		}
+
 		for i, c := range st.cmds {
 			if !slices.Contains(c.Env, "AIM_BIN=/run/1-aim") {
 				t.Errorf("command %d env lacks AIM_BIN", i)
@@ -261,6 +265,10 @@ func TestPanesGetAIMBin(t *testing.T) {
 	t.Run("without a socket", func(t *testing.T) {
 		a, st, _ := kindApp(t, gitOf(newFakeGit(t)), func(o *Options) { o.HookBin = "/run/1-aim" })
 		chord(a, 'n')
+
+		if len(st.cmds) == 0 {
+			t.Fatal("no command started")
+		}
 
 		for i, c := range st.cmds {
 			for _, kv := range c.Env {
