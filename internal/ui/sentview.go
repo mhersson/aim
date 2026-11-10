@@ -44,15 +44,14 @@ type sentPage struct {
 }
 
 // sentPages lays batches (oldest first) out as pages, newest batch first. A
-// batch of two shares a page when wide; any other image has a page of its own.
+// batch of two, when wide, has a page with both and then one for each; any
+// other image has a page of its own.
 func sentPages(batches []sentBatch, wide bool) []sentPage {
 	var pages []sentPage
 
 	for _, b := range slices.Backward(batches) {
 		if wide && len(b.images) == 2 {
 			pages = append(pages, sentPage{b, []int{0, 1}})
-
-			continue
 		}
 
 		for i := range b.images {
@@ -63,19 +62,26 @@ func sentPages(batches []sentBatch, wide bool) []sentPage {
 	return pages
 }
 
-// sentIndicator says which images page at shows, among all of the pages'.
+// sentIndicator says which images page at shows, among the images of all the
+// batches. Pages of one batch repeat its images, so it counts batches, not pages.
 func sentIndicator(pages []sentPage, at int) string {
-	first, total := 1, 0
+	before, total := 0, 0
 
 	for i, p := range pages {
-		if i < at {
-			first += len(p.images)
+		if i > 0 && pages[i-1].batch.seq == p.batch.seq {
+			continue
 		}
 
-		total += len(p.images)
+		if i < at && p.batch.seq != pages[at].batch.seq {
+			before += len(p.batch.images)
+		}
+
+		total += len(p.batch.images)
 	}
 
+	first := before + pages[at].images[0] + 1
 	n := strconv.Itoa(total)
+
 	if k := len(pages[at].images); k > 1 {
 		return " " + strconv.Itoa(first) + "-" + strconv.Itoa(first+k-1) + " of " + n + " "
 	}

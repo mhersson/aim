@@ -49,7 +49,7 @@ func TestSentPages(t *testing.T) {
 		wide bool
 		want string
 	}{
-		{"wide", true, "3:0 3:1 3:2 2:0,1 1:0"},
+		{"wide", true, "3:0 3:1 3:2 2:0,1 2:0 2:1 1:0"},
 		{"narrow", false, "3:0 3:1 3:2 2:0 2:1 1:0"},
 	}
 
@@ -69,7 +69,7 @@ func TestSentIndicator(t *testing.T) {
 
 	pages := sentPages(testBatches(), true)
 
-	for at, want := range map[int]string{0: " 1 of 6 ", 3: " 4-5 of 6 ", 4: " 6 of 6 "} {
+	for at, want := range map[int]string{0: " 1 of 6 ", 3: " 4-5 of 6 ", 4: " 4 of 6 ", 5: " 5 of 6 ", 6: " 6 of 6 "} {
 		if got := sentIndicator(pages, at); got != want {
 			t.Errorf("sentIndicator(%d) = %q, want %q", at, got, want)
 		}
@@ -470,6 +470,22 @@ func TestSentOpenRunsTheOpener(t *testing.T) {
 				t.Fatalf("opened %v, want the copies %v", got, want)
 			}
 		})
+	}
+}
+
+func TestSentOpenOnAPairsSinglePage(t *testing.T) {
+	t.Parallel()
+
+	for step, idx := range []int{0, 1} {
+		a, f := sentOpenScene(t, 2)
+		want := shownImages(a)[idx].copy
+
+		pressRun(a, slices.Repeat([]tea.KeyPressMsg{keyRune('l')}, step+1)...)
+		pressRun(a, keyRune('o'))
+
+		if got := f.urls(); !slices.Equal(got, []string{want}) {
+			t.Fatalf("image %d: opened %v, want only %v", idx, got, want)
+		}
 	}
 }
 
