@@ -227,13 +227,13 @@ func TestSentViewKeepsItsPageWhenABatchArrives(t *testing.T) {
 
 	seq, part := shownAt(a)
 	if seq != 1 || part != 1 {
-		t.Fatalf("shown = batch %d part %d, want batch 1 part 1", seq, part)
+		t.Fatalf("shown = batch %d image %d, want batch 1 image 1", seq, part)
 	}
 
 	sentSend(t, a, "p2", 1, "")
 
 	if s, p := shownAt(a); s != seq || p != part {
-		t.Fatalf("after a new batch: batch %d part %d, want batch %d part %d", s, p, seq, part)
+		t.Fatalf("after a new batch: batch %d image %d, want batch %d image %d", s, p, seq, part)
 	}
 }
 
@@ -338,11 +338,16 @@ func TestSentViewZoomEndsWithTheViewer(t *testing.T) {
 	sized(t, a, 120, 40)
 	sentSend(t, a, "p2", 1, "")
 	run(a, a.openSentView())
-	pressRun(a, keyRune('z'), keyEsc)
+	pressRun(a, keyRune('z'))
 
+	if x, _, _, _, _ := a.sentBox(); x != sentZoomX {
+		t.Fatal("z did not zoom")
+	}
+
+	pressRun(a, keyEsc)
 	run(a, a.openSentView())
 
-	if x, _, _, _, _ := a.sentBox(); x == 2 {
+	if x, _, _, _, _ := a.sentBox(); x == sentZoomX {
 		t.Fatal("the viewer reopened zoomed")
 	}
 }
@@ -358,7 +363,13 @@ func TestSentViewZoomedKeysWork(t *testing.T) {
 	}
 
 	run(a, a.openSentView())
-	pressRun(a, keyRune('z'), keyRune('l'))
+	pressRun(a, keyRune('z'))
+
+	if x, _, _, _, _ := a.sentBox(); x != sentZoomX {
+		t.Fatal("z did not zoom")
+	}
+
+	pressRun(a, keyRune('l'))
 
 	if seq, _ := shownAt(a); seq != 1 {
 		t.Fatalf("l zoomed: batch %d, want 1", seq)
@@ -509,7 +520,7 @@ func TestSentViewTooSmall(t *testing.T) {
 	pressRun(a, keyRune('l'))
 
 	if s, p := shownAt(a); s != before || p != part {
-		t.Fatalf("l moved to batch %d part %d in a box that is not drawn", s, p)
+		t.Fatalf("l moved to batch %d image %d in a box that is not drawn", s, p)
 	}
 
 	if cmd := a.openSentImages(); cmd != nil {
