@@ -798,7 +798,7 @@ func TestHooksRecordTurnsWithGit(t *testing.T) {
 	base := runtime.NumGoroutine()
 
 	// Long enough that a loaded machine cannot turn a snapshot into a marker.
-	h, err := setupHooks(discardLogger(), shortDir(t), "", testWatches(t), testPlaces(), false,
+	h, err := setupHooks(discardLogger(), shortDir(t), "", testWatches(t), testPlaces(), hookConfig{},
 		hookTimes{hold: 10 * time.Second, budget: 9 * time.Second})
 	if err != nil {
 		t.Fatal(err)
@@ -887,7 +887,7 @@ func TestHookBudgetSlowSnapshot(t *testing.T) {
 
 	base := runtime.NumGoroutine()
 
-	h, err := setupHooks(discardLogger(), shortDir(t), "", testWatches(t), testPlaces(), false,
+	h, err := setupHooks(discardLogger(), shortDir(t), "", testWatches(t), testPlaces(), hookConfig{},
 		hookTimes{hold: 200 * time.Millisecond, budget: 50 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
@@ -928,7 +928,7 @@ func TestHookBudgetServerClosingMidSnapshot(t *testing.T) {
 	base := runtime.NumGoroutine()
 
 	// Long enough that only Stop, not a loaded machine, ends the snapshot.
-	h, err := setupHooks(discardLogger(), shortDir(t), "", testWatches(t), testPlaces(), false,
+	h, err := setupHooks(discardLogger(), shortDir(t), "", testWatches(t), testPlaces(), hookConfig{},
 		hookTimes{hold: 10 * time.Second, budget: 9 * time.Second})
 	if err != nil {
 		t.Fatal(err)

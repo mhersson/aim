@@ -171,6 +171,8 @@ When a send arrives, on any tab, a card appears at the bottom right, about a thi
 
 Pictures need a terminal with the Kitty graphics protocol (kitty and Ghostty), not inside tmux. Without them the viewer shows each image's file name instead.
 
+AIM tells each agent about `aim show` at every session start, resume, `/clear` and compaction, so it can send you an image by itself. `tell_agents = false` under `[images]` in the config stops that. In Claude Code's auto mode `aim show` ran without asking in AIM's tests. In manual mode the agent asks every time it runs it, since the command starts with a variable, which no permission rule can match. Inside Claude's Bash sandbox `aim show` cannot reach AIM, and the agent names the image in its final reply instead.
+
 ## The command palette and themes
 
 Every action is a command, and the palette runs any that is not specific to one view: press `ctrl+space :`, type part of the name, move with `up` and `down` (or `ctrl+n`, `ctrl+p`, `tab`, `shift+tab`), and press `enter` to run it. `esc` closes it. Each row shows the leader key of its command, if it has one. Commands without a key, such as "Layout: BSP", are listed in [Keys](keys.md#commands-without-a-default-key).

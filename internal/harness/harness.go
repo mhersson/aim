@@ -19,7 +19,8 @@ type Harness interface {
 	// empty resume starts a fresh session.
 	Launch(settings string, resume core.SessionID) []string
 	// Settings returns the hooks file whose handlers run `exe hook <ID()>`.
-	Settings(exe string) ([]byte, error)
+	// With note, the session-start handler also gets --note.
+	Settings(exe string, note bool) ([]byte, error)
 	// ParseEvent reads one hook payload as received on stdin.
 	ParseEvent(payload []byte) (Event, error)
 	// CustomName reads the name the user gave the session from its transcript

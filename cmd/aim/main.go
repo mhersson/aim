@@ -169,7 +169,7 @@ func run(ctx context.Context, env core.Env, configPath, recordDir string, fresh 
 
 	places := git.NewPlaceCache(git.EditPlace, time.Now)
 
-	hooks := startHooks(logger, stateDir, indexCache, watches, places, cfg.Shell.IntegrationOn())
+	hooks := startHooks(logger, stateDir, indexCache, watches, places, hookConfig{shell: cfg.Shell.IntegrationOn(), note: cfg.Images.TellAgentsOn()})
 	defer hooks.Stop()
 
 	st, saver, notices := openState(logger, stateDir, cfg, fresh, held)

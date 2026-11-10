@@ -32,6 +32,7 @@ type Config struct {
 	Diff          DiffConfig          `toml:"diff"`
 	Worktrees     WorktreesConfig     `toml:"worktrees"`
 	Notifications NotificationsConfig `toml:"notifications"`
+	Images        ImagesConfig        `toml:"images"`
 	Plans         PlansConfig         `toml:"plans"`
 	PullRequests  PullRequestsConfig  `toml:"pull_requests"`
 	Keys          KeysConfig          `toml:"keys"`
@@ -334,6 +335,16 @@ type ShellConfig struct {
 // IntegrationOn reports whether a claude typed in a pane's shell gets AIM's
 // hooks; the default is on.
 func (c ShellConfig) IntegrationOn() bool { return c.Integration == nil || *c.Integration }
+
+// ImagesConfig is the [images] section. The pointer lets an absent key (nil)
+// mean true.
+type ImagesConfig struct {
+	TellAgents *bool `toml:"tell_agents"`
+}
+
+// TellAgentsOn reports whether each agent is told, at session start, how to
+// show an image with aim show; the default is on.
+func (c ImagesConfig) TellAgentsOn() bool { return c.TellAgents == nil || *c.TellAgents }
 
 // IconsOn reports whether Nerd Font glyphs are drawn; the default is on.
 func (c Config) IconsOn() bool {

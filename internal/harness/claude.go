@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -77,7 +78,7 @@ func (Claude) WithSettings(args []string, settings string) []string {
 // Settings registers the hooks in the exec form, so no shell parses exe. The
 // status line has no exec form: it runs through a shell, so exe goes through
 // QuotePath, and a refused path leaves the hooks without a status line.
-func (c Claude) Settings(exe string) ([]byte, error) {
+func (c Claude) Settings(exe string, note bool) ([]byte, error) {
 	if !filepath.IsAbs(exe) {
 		return nil, fmt.Errorf("harness: hook executable %q is not an absolute path", exe)
 	}
@@ -103,7 +104,12 @@ func (c Claude) Settings(exe string) ([]byte, error) {
 
 	hooks := make(map[string][]group, len(events))
 	for _, name := range events {
-		hooks[name] = []group{{Hooks: []handler{h}}}
+		hh := h
+		if note && name == "SessionStart" {
+			hh.Args = append(slices.Clone(h.Args), "--note")
+		}
+
+		hooks[name] = []group{{Hooks: []handler{hh}}}
 	}
 
 	settings := struct {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -115,7 +116,7 @@ func TestStartHooksFailureTurnsHooksOff(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces(), false)
+	h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces(), hookConfig{})
 	defer h.Stop()
 
 	if h.Settings != "" || h.Sock != "" || h.Events != nil {
@@ -130,7 +131,7 @@ func TestStartHooksFailureTurnsHooksOff(t *testing.T) {
 func TestStartHooksNamesAnOverlongSocketPath(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), strings.Repeat("d", maxSockPath))
 
-	h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces(), false)
+	h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces(), hookConfig{})
 	defer h.Stop()
 
 	if h.Settings != "" || h.Sock != "" || h.Events != nil {
@@ -240,7 +241,7 @@ func TestStartHooksSweepsDeadInstances(t *testing.T) {
 		files[name] = shellDirs[name]
 	}
 
-	h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces(), false)
+	h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces(), hookConfig{})
 	defer h.Stop()
 
 	if h.Notice != "" {
@@ -270,7 +271,7 @@ func TestStartHooksWritesTheShellIntegration(t *testing.T) {
 	t.Run("on", func(t *testing.T) {
 		stateDir := shortDir(t)
 
-		h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces(), true)
+		h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces(), hookConfig{shell: true})
 		defer h.Stop()
 
 		if h.Notice != "" {
@@ -307,7 +308,7 @@ func TestStartHooksWritesTheShellIntegration(t *testing.T) {
 	t.Run("off", func(t *testing.T) {
 		stateDir := shortDir(t)
 
-		h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces(), false)
+		h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces(), hookConfig{})
 		defer h.Stop()
 
 		if h.Shell != (term.Integration{}) {
@@ -333,7 +334,7 @@ func TestStartHooksWritesTheShellIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces(), true)
+		h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces(), hookConfig{shell: true})
 		defer h.Stop()
 
 		if h.Settings != "" || h.Notice == "" {
@@ -357,7 +358,7 @@ func TestStartHooksWritesTheShellIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces(), true)
+		h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces(), hookConfig{shell: true})
 		defer h.Stop()
 
 		if h.Settings != "" || h.Notice == "" {
@@ -384,7 +385,7 @@ func TestStartHooksRunsHooksFromTheInstanceBinary(t *testing.T) {
 
 	stateDir := shortDir(t)
 
-	h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces(), false)
+	h := startHooks(discardLogger(), stateDir, "", testWatches(t), testPlaces(), hookConfig{})
 	defer h.Stop()
 
 	if h.Notice != "" {
@@ -436,7 +437,7 @@ func TestStartHooksKeepsTheInstalledPathsWhenTheBinaryCannotBePlaced(t *testing.
 
 	var log bytes.Buffer
 
-	h := startHooks(slog.New(slog.NewTextHandler(&log, nil)), stateDir, "", testWatches(t), testPlaces(), true)
+	h := startHooks(slog.New(slog.NewTextHandler(&log, nil)), stateDir, "", testWatches(t), testPlaces(), hookConfig{shell: true})
 	defer h.Stop()
 
 	if h.Notice != "" {
@@ -792,5 +793,39 @@ func TestWatchSeqResolvesTheRootFromASubdirectory(t *testing.T) {
 
 	if _, _, ok := seq(ctx, t.TempDir()); ok {
 		t.Fatal("a directory outside any repository reported a watcher")
+	}
+}
+
+func TestStartHooksWritesTheNote(t *testing.T) {
+	t.Parallel()
+
+	for _, note := range []bool{true, false} {
+		t.Run(fmt.Sprintf("note=%v", note), func(t *testing.T) {
+			t.Parallel()
+
+			h := startHooks(discardLogger(), shortDir(t), "", testWatches(t), testPlaces(), hookConfig{note: note})
+			defer h.Stop()
+
+			raw, err := os.ReadFile(h.Settings)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			var s struct {
+				Hooks map[string][]struct {
+					Hooks []struct {
+						Args []string `json:"args"`
+					} `json:"hooks"`
+				} `json:"hooks"`
+			}
+			if err := json.Unmarshal(raw, &s); err != nil {
+				t.Fatal(err)
+			}
+
+			args := s.Hooks["SessionStart"][0].Hooks[0].Args
+			if got := args[len(args)-1] == "--note"; got != note {
+				t.Errorf("SessionStart args = %q, note = %v", args, note)
+			}
+		})
 	}
 }

@@ -192,7 +192,8 @@ the project's hooks keep running. The status line has no exec form, so
 `harness.QuotePath` single-quotes the path and refuses one holding `'`, `\`, a
 control character or invalid UTF-8; such a binary gets hooks and no status line.
 The wrapper reads the instance's file from `AIM_SOCK` (`settingsForSock`), the
-same name `setupHooks` writes.
+same name `setupHooks` writes. The file carries no permission rule, since a
+rule cannot match a command that starts with a variable (`"$AIM_BIN" show`).
 
 **The instance's binary.** The hooks, the status line and the wrapper run
 `<state dir>/run/<pid>-aim`, which `setupHooks` places and `Stop` removes: a
@@ -212,8 +213,11 @@ with hooks.
 `aim statusline` for its status line (`cmd/aim/hook.go`, `statusline.go`). Each
 reads stdin, parses it with the harness, adds `AIM_PANE` and sends one JSON
 line to `AIM_SOCK`, within 2 s (1 s for the status line). Both always exit 0
-and print nothing: Claude adds the stdout of `SessionStart` and
-`UserPromptSubmit` hooks to the model's context.
+and print nothing, except the `SessionStart` note: when its handler carries
+`--note` and `AIM_BIN` is set, `aim hook` prints a fixed text about `aim show`,
+which Claude adds to the model's context, so the agent learns the command. The
+`[images] tell_agents` setting reaches the hook through the generated file
+because the hook cannot read AIM's config (`--config`).
 
 `aim show <file>... [--caption <text>]` (`cmd/aim/show.go`) is run by an agent
 or by hand and does report. It checks every file (a regular file, one of the

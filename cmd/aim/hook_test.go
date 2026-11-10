@@ -141,7 +141,7 @@ func TestRunHookDelivers(t *testing.T) {
 		}
 	})
 
-	runHook(context.Background(), "claude-code", strings.NewReader(sessionStart),
+	runHook(context.Background(), "claude-code", false, strings.NewReader(sessionStart), io.Discard,
 		env(map[string]string{"AIM_SOCK": path, "AIM_PANE": "p7"}))
 
 	select {
@@ -195,7 +195,7 @@ func TestRunHookIsSilentAndHonoursItsBudget(t *testing.T) {
 
 			captureStdio(t, func() {
 				returns(t, "runHook", func() {
-					runHook(ctx, tt.id, strings.NewReader(tt.stdin), env(tt.env))
+					runHook(ctx, tt.id, false, strings.NewReader(tt.stdin), io.Discard, env(tt.env))
 				})
 			})
 
@@ -252,5 +252,66 @@ func TestHookCommandReturnsNilWithoutEnvironment(t *testing.T) {
 
 	if buf.Len() != 0 {
 		t.Fatalf("output = %q, want none", buf.String())
+	}
+}
+
+func TestRunHookPrintsTheNote(t *testing.T) {
+	stop := `{"hook_event_name":"Stop","session_id":"s1"}`
+
+	tests := []struct {
+		name      string
+		note      bool
+		stdin     string
+		bin       string
+		wantPrint bool
+	}{
+		{"session start with the note", true, sessionStart, "/run/aim", true},
+		{"no AIM_BIN", true, sessionStart, "", false},
+		{"no --note", false, sessionStart, "/run/aim", false},
+		{"other event", true, stop, "/run/aim", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := shortSock(t)
+
+			srv, err := harness.Listen(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			out := make(chan harness.Event, 1)
+			done := make(chan error, 1)
+
+			go func() { done <- srv.Serve(context.Background(), out) }()
+
+			t.Cleanup(func() {
+				_ = srv.Close()
+
+				if err := <-done; err != nil {
+					t.Errorf("Serve() error = %v", err)
+				}
+			})
+
+			var stdout strings.Builder
+
+			runHook(context.Background(), "claude-code", tt.note, strings.NewReader(tt.stdin), &stdout,
+				env(map[string]string{"AIM_SOCK": path, "AIM_PANE": "p7", "AIM_BIN": tt.bin}))
+
+			want := ""
+			if tt.wantPrint {
+				want = showNote + "\n"
+			}
+
+			if stdout.String() != want {
+				t.Errorf("stdout = %q, want %q", stdout.String(), want)
+			}
+
+			select {
+			case <-out:
+			default:
+				t.Error("no event delivered")
+			}
+		})
 	}
 }

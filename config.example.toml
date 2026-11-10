@@ -131,6 +131,11 @@
 ## values: auto | osc9 | osc99 | osc777
 # protocol = "auto"
 
+[images]
+## Tell each agent, when its session starts, how to show you an image with "$AIM_BIN" show.
+## values: true | false
+# tell_agents = true
+
 [plans]
 ## Folders whose markdown files count as plans. Each is a relative folder path
 ## matched against the whole path of the file the agent edited, anywhere in it

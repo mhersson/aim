@@ -752,11 +752,32 @@ type settingsFile struct {
 }
 
 func TestSettings(t *testing.T) {
+	for _, note := range []bool{false, true} {
+		t.Run(fmt.Sprintf("note=%v", note), func(t *testing.T) {
+			testSettings(t, note)
+		})
+	}
+}
+
+func testSettings(t *testing.T, note bool) {
+	t.Helper()
+
 	const exe = "/opt/my tools/aim"
 
-	raw, err := Claude{}.Settings(exe)
+	raw, err := Claude{}.Settings(exe, note)
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &keys); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, k := range []string{"permissions", "sandbox"} {
+		if _, ok := keys[k]; ok {
+			t.Errorf("settings carry a %q key", k)
+		}
 	}
 
 	var s settingsFile
@@ -786,7 +807,13 @@ func TestSettings(t *testing.T) {
 		}
 
 		h := groups[0].Hooks[0]
-		if h.Type != "command" || h.Command != exe || !slices.Equal(h.Args, []string{"hook", "claude-code"}) || h.Timeout != 5 {
+
+		wantArgs := []string{"hook", "claude-code"}
+		if note && name == "SessionStart" {
+			wantArgs = append(wantArgs, "--note")
+		}
+
+		if h.Type != "command" || h.Command != exe || !slices.Equal(h.Args, wantArgs) || h.Timeout != 5 {
 			t.Errorf("%s: handler = %+v", name, h)
 		}
 		// Every registered event must be one ParseEvent accepts.
@@ -808,7 +835,7 @@ func TestSettingsStatusLine(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			raw, err := Claude{}.Settings(tt.exe)
+			raw, err := Claude{}.Settings(tt.exe, false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -838,7 +865,7 @@ func TestSettingsStatusLine(t *testing.T) {
 	}
 	for _, tt := range refused {
 		t.Run("refused "+tt.name, func(t *testing.T) {
-			raw, err := Claude{}.Settings(tt.exe)
+			raw, err := Claude{}.Settings(tt.exe, false)
 			if err != nil {
 				t.Fatalf("Settings: %v, want the hooks without a status line", err)
 			}
@@ -911,7 +938,7 @@ func TestStatusLineCommandInShells(t *testing.T) {
 					t.Fatal(err)
 				}
 
-				raw, err := Claude{}.Settings(exe)
+				raw, err := Claude{}.Settings(exe, false)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -974,7 +1001,7 @@ func TestQuotePath(t *testing.T) {
 
 func TestSettingsRejectsBadExe(t *testing.T) {
 	for _, exe := range []string{"", "aim", "./aim", "bin/aim"} {
-		if _, err := (Claude{}).Settings(exe); err == nil {
+		if _, err := (Claude{}).Settings(exe, false); err == nil {
 			t.Errorf("Settings(%q): want an error", exe)
 		}
 	}
