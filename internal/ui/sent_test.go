@@ -3,6 +3,7 @@ package ui
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"image"
 	"image/png"
 	"os"
@@ -163,6 +164,34 @@ func TestSentNamedSkipsWhatIsNotAFile(t *testing.T) {
 
 	if n := len(a.sentBatches("p2")); n != 1 {
 		t.Fatalf("batches = %d, want 1", n)
+	}
+}
+
+func TestSentNamedKeepsTheFirstEight(t *testing.T) {
+	t.Parallel()
+
+	a, _ := sentApp(t)
+	d := t.TempDir()
+	paths := []string{filepath.Join(d, "missing.png")}
+
+	for i := range harness.MaxImages + 1 {
+		p := filepath.Join(d, fmt.Sprintf("%d.png", i))
+		writePNG(t, p, 1, 1)
+
+		paths = append(paths, p)
+	}
+
+	ev := sentEvent("Stop", paths...)
+	ev.Named = true
+	sentHook(a, ev)
+
+	got := a.sentBatches("p2")
+	if len(got) != 1 || len(got[0].images) != harness.MaxImages {
+		t.Fatalf("batches = %+v", got)
+	}
+
+	if last := got[0].images[harness.MaxImages-1].path; last != paths[harness.MaxImages] {
+		t.Fatalf("last kept = %s, want %s", last, paths[harness.MaxImages])
 	}
 }
 

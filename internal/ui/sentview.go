@@ -193,7 +193,7 @@ func noticeNotOpening(name, reason string) string {
 // openSentImages is images.open: AIM's copy of each image on the shown page
 // goes to the system opener, which never sees a file AIM did not decode.
 func (a *App) openSentImages() tea.Cmd {
-	if a.sent.view == nil {
+	if _, _, _, _, ok := a.sentBox(); !ok || a.sent.view == nil {
 		return nil
 	}
 

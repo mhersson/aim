@@ -86,6 +86,32 @@ func TestRunShowSends(t *testing.T) {
 	}
 }
 
+func TestRunShowDropsRepeats(t *testing.T) {
+	t.Parallel()
+
+	sock, out := showServer(t)
+	dir := t.TempDir()
+	a, b := filepath.Join(dir, "a.png"), filepath.Join(dir, "b.png")
+	writePNG(t, a)
+	writePNG(t, b)
+
+	getenv := env(map[string]string{"AIM_SOCK": sock, "AIM_PANE": "p1"})
+
+	line, err := runShow(context.Background(), []string{"a.png", b, a}, "", getenv,
+		func() (string, error) { return dir, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want := "sent 2 images to AIM"; line != want {
+		t.Errorf("line = %q, want %q", line, want)
+	}
+
+	if ev := <-out; !slices.Equal(ev.Images, []string{a, b}) {
+		t.Errorf("images = %v", ev.Images)
+	}
+}
+
 func TestRunShowRefuses(t *testing.T) {
 	t.Parallel()
 

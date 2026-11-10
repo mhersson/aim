@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"syscall"
 
@@ -84,7 +85,9 @@ func runShow(ctx context.Context, files []string, caption string, getenv func(st
 			return "", fmt.Errorf("%s: %w", f, err)
 		}
 
-		paths = append(paths, p)
+		if !slices.Contains(paths, p) {
+			paths = append(paths, p)
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, hookBudget)

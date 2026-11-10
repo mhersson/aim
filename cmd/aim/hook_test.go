@@ -256,6 +256,8 @@ func TestHookCommandReturnsNilWithoutEnvironment(t *testing.T) {
 }
 
 func TestRunHookPrintsTheNote(t *testing.T) {
+	t.Parallel()
+
 	stop := `{"hook_event_name":"Stop","session_id":"s1"}`
 
 	tests := []struct {
@@ -273,6 +275,8 @@ func TestRunHookPrintsTheNote(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			path := shortSock(t)
 
 			srv, err := harness.Listen(path)

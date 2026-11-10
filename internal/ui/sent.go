@@ -177,7 +177,8 @@ func (a *App) sentAfterUpdate() tea.Cmd {
 
 // copySent copies each path into dir as <seq>-<i><ext>, so a later send of the
 // same name keeps its own bytes. An entry that cannot be copied keeps its path
-// and the reason; with named, one that is not a regular file is left out.
+// and the reason; with named, one that is not a regular file is left out. A batch keeps at most
+// harness.MaxImages.
 func copySent(ctx context.Context, dir string, seq int, paths []string, named bool) []sentImage {
 	var out []sentImage
 
@@ -188,7 +189,7 @@ func copySent(ctx context.Context, dir string, seq int, paths []string, named bo
 	}
 
 	for i, path := range paths {
-		if ctx.Err() != nil {
+		if ctx.Err() != nil || len(out) == harness.MaxImages {
 			break
 		}
 

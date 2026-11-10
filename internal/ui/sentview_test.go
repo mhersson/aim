@@ -308,6 +308,10 @@ func TestSentViewTooSmall(t *testing.T) {
 		t.Fatalf("l moved to batch %d part %d in a box that is not drawn", s, p)
 	}
 
+	if cmd := a.openSentImages(); cmd != nil {
+		t.Fatal("o opened an image in a box that is not drawn")
+	}
+
 	pressRun(a, keyEsc)
 
 	if a.sent.view != nil {
@@ -363,6 +367,9 @@ func sentViewScene(t *testing.T, width, height int, pictures bool) *App {
 	if a.sent.view == nil {
 		t.Fatal("viewer did not open")
 	}
+
+	// The toast of the missing worktree is not what the goldens are about.
+	a.notice = ""
 
 	if pictures {
 		a.View()
