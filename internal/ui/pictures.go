@@ -19,10 +19,10 @@ import (
 )
 
 const (
-	pictureMaxBytes = 5 << 20 // the most a fetch reads
-	pictureMaxRows  = 20      // the tallest picture, in cells
-	pictureMaxSent  = 64      // the most images sent at a time
-	pictureMaxCols  = 100     // the widest picture, in cells
+	pictureMaxBytes = kitty.MaxFileBytes // the most a fetch reads
+	pictureMaxRows  = 20                 // the tallest picture, in cells
+	pictureMaxSent  = 64                 // the most images sent at a time
+	pictureMaxCols  = 100                // the widest picture, in cells
 )
 
 // pictureKey identifies a source. scope is the root for a local source, and for

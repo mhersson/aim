@@ -30,7 +30,7 @@ func TestPaneEnv(t *testing.T) {
 		},
 		{
 			"pane identity dropped",
-			[]string{"AIM_PANE=p1", "AIM_SOCK=/s", "AIM_OTHER=1"},
+			[]string{"AIM_PANE=p1", "AIM_SOCK=/s", "AIM_BIN=/b", "AIM_OTHER=1"},
 			[]string{"AIM_OTHER=1", "TERM=xterm-256color", "COLORTERM=truecolor"},
 		},
 		{

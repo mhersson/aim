@@ -160,7 +160,8 @@ Inside tmux, AIM wraps the notification in tmux's passthrough, which needs `set 
 An image counts as sent when the agent:
 
 - sends it with `SendUserFile` (Claude Code offers that tool only with Remote Control on or in a cloud session), or
-- names its path in the final reply of a turn: an absolute, `~/` or relative path, as plain text, in code or as a markdown link or image. Only files that exist count.
+- names its path in the final reply of a turn: an absolute, `~/` or relative path, as plain text, in code or as a markdown link or image. Only files that exist count, or
+- runs `"$AIM_BIN" show <file>... --caption "<text>"` in any of AIM's panes, which you can also type yourself. `AIM_BIN` is the binary AIM runs its hooks with, set in every pane; it is quoted because the macOS state folder holds a space. The caption is optional. It checks each file first (a regular file, one of the image types below, at most 5 MiB that decodes) and sends nothing when one fails. It prints `sent 1 image to AIM` or `sent 3 images to AIM`; otherwise it prints `aim: ` and the reason, and exits 1.
 
 Only `png`, `jpg`, `jpeg`, `gif` and `webp` files are shown, a GIF as its first frame; any other file sent is not shown. A send holds at most 8 files at a time and each file at most 5 MiB. AIM copies each image when it arrives, so the viewer keeps what the agent sent even when the agent overwrites the file next. The list lasts for this run only.
 

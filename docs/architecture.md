@@ -125,9 +125,12 @@ nothing, and anywhere else it closes the popover and goes no further.
   `[shell] integration = false`, or when the files were not written, every pane
   gets today's argv and environment.
 - Every pane gets `TERM=xterm-256color` and `COLORTERM=truecolor` and loses an
-  inherited `TMUX`, `TMUX_PANE`, `AIM_PANE`, `AIM_SOCK`, `AIM_TTY`,
+  inherited `TMUX`, `TMUX_PANE`, `AIM_PANE`, `AIM_SOCK`, `AIM_BIN`, `AIM_TTY`,
   `AIM_SHELL_DIR`, `AIM_ZDOTDIR` and `AIM_ENV` (`term.PaneEnv`). `term.Start`
   opens the pty itself and sets `AIM_TTY` to the slave's path.
+- Every pane that gets `AIM_SOCK` also gets `AIM_BIN`, the binary the hooks run
+  (the instance's own copy, below, else the installed one), so a pane can run
+  `"$AIM_BIN" show` without AIM being on its PATH.
 
 **A `claude` typed in a pane.** A `claude` typed in a pane's shell gets the
 instance's settings file from two pieces, both from
@@ -212,6 +215,12 @@ line to `AIM_SOCK`, within 2 s (1 s for the status line). Both always exit 0
 and print nothing: Claude adds the stdout of `SessionStart` and
 `UserPromptSubmit` hooks to the model's context.
 
+`aim show <file>... [--caption <text>]` (`cmd/aim/show.go`) is run by an agent
+or by hand and does report. It checks every file (a regular file, one of the
+four image types, at most 5 MiB, decodable), sends one `Show` line for the
+batch and prints one line, or exits 1 with the reason and sends nothing. It is
+accepted from any pane, past the shell-pane hold, because it names its pane.
+
 **The one-off.** The compose box's `ctrl+g` asks the harness for a pull
 request body (`Harness.Describe`, `internal/harness/describe.go`). The Claude
 adapter runs `claude --print --model sonnet --no-session-persistence --tools ""
@@ -227,7 +236,8 @@ in a new session, with no controlling terminal, and `describeTimeout`
 **The socket.** `<state dir>/run/<pid>.sock` is 0600 in a 0700 directory
 (`internal/harness/socket.go`). A connection carries one line of at most
 64 KiB, answered `ok` once queued, except a prompt or an edit's `PreToolUse`,
-held until its snapshot is written or 1.5 s pass (`turnHold`). The adapter caps
+held until its snapshot is written or 1.5 s pass (`turnHold`); an `aim show`
+line is answered `ok` once queued. The adapter caps
 what one event carries (16 changed paths, 32 KiB) to stay inside the line. When
 the socket or settings file cannot be set up, agents run without `--settings`
 and a notice says why; AIM still starts.
@@ -247,7 +257,7 @@ payloads in `internal/harness/testdata`. Two rules cover what hooks miss:
 **Images an agent sends.** An event with `Images` makes a batch in
 `App.onSent` (`internal/ui/sent.go`), from three sources: `SendUserFile`'s
 `PostToolUse`, the paths in `Stop`'s `last_assistant_message` (kept only when
-they are regular files) and an `aim show` line, which passes the shell-pane hold
+they are regular files) and an `aim show` line (above), which passes the shell-pane hold
 because it names its pane. Each image is copied into `<cache>/aim/sent/<pid>`
 off the loop at arrival, since an agent overwrites the same name for its next
 picture and the batch must keep the old one. On an agent pane a final reply's

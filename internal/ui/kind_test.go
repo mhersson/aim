@@ -241,6 +241,37 @@ func TestKindFollowsForeground(t *testing.T) {
 	})
 }
 
+func TestPanesGetAIMBin(t *testing.T) {
+	t.Parallel()
+
+	t.Run("with a socket", func(t *testing.T) {
+		a, st, _ := kindApp(t, gitOf(newFakeGit(t)), func(o *Options) {
+			o.HookSock = "/run/1.sock"
+			o.HookBin = "/run/1-aim"
+		})
+		chord(a, 'n')
+
+		for i, c := range st.cmds {
+			if !slices.Contains(c.Env, "AIM_BIN=/run/1-aim") {
+				t.Errorf("command %d env lacks AIM_BIN", i)
+			}
+		}
+	})
+
+	t.Run("without a socket", func(t *testing.T) {
+		a, st, _ := kindApp(t, gitOf(newFakeGit(t)), func(o *Options) { o.HookBin = "/run/1-aim" })
+		chord(a, 'n')
+
+		for i, c := range st.cmds {
+			for _, kv := range c.Env {
+				if strings.HasPrefix(kv, "AIM_BIN=") {
+					t.Errorf("command %d env holds %q without a socket", i, kv)
+				}
+			}
+		}
+	})
+}
+
 func TestAgentLaunch(t *testing.T) {
 	t.Parallel()
 	t.Run("hooks and pane environment", func(t *testing.T) {

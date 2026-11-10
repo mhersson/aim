@@ -30,6 +30,7 @@ const eventBuffer = 256
 // are empty, and Notice says why, when the setup failed.
 type hookRuntime struct {
 	Settings, Sock string
+	Bin            string // the binary the hooks run; AIM_BIN in every pane with the socket
 	RunDir         string // where temporary git indexes go; empty when setup failed
 	Notice         string
 	Events         <-chan harness.Event
@@ -234,7 +235,7 @@ func setupHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.W
 		}
 	})
 
-	return hookRuntime{Settings: settingsPath, Sock: sockPath, RunDir: runDir, Events: events, Shell: ig, stop: stop}, nil
+	return hookRuntime{Settings: settingsPath, Sock: sockPath, Bin: hookExe, RunDir: runDir, Events: events, Shell: ig, stop: stop}, nil
 }
 
 // warnStatusLineOff logs why Settings leaves out the status line for exe. The

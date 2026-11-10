@@ -394,6 +394,10 @@ func TestStartHooksRunsHooksFromTheInstanceBinary(t *testing.T) {
 	bin := filepath.Join(stateDir, "run", strconv.Itoa(os.Getpid())+"-aim")
 	sameBinary(t, bin, exe)
 
+	if h.Bin != bin {
+		t.Errorf("Bin = %q, want %q", h.Bin, bin)
+	}
+
 	hooks, status := hookCommands(t, h.Settings)
 	for _, c := range hooks {
 		if c != bin {
@@ -437,6 +441,10 @@ func TestStartHooksKeepsTheInstalledPathsWhenTheBinaryCannotBePlaced(t *testing.
 
 	if h.Notice != "" {
 		t.Fatalf("notice = %q, want hooks on", h.Notice)
+	}
+
+	if h.Bin != exe {
+		t.Errorf("Bin = %q, want the running binary %q", h.Bin, exe)
 	}
 
 	hooks, status := hookCommands(t, h.Settings)
