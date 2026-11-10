@@ -680,6 +680,8 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.FocusMsg:
 		a.outerFocused = true
 		a.sendToFocused(func(p *pane) { p.sendFocus(true) })
+	case sentCardDueMsg:
+		a.onSentCardDue(msg)
 	case tea.BlurMsg:
 		a.outerFocused = false
 		a.sendToFocused(func(p *pane) { p.sendFocus(false) })
@@ -968,6 +970,10 @@ func (a *App) View() tea.View {
 	if r, ok := a.drawerRect(st); ok {
 		lines, pics, fits := a.drawerDrawn(st, r)
 		content = a.drawDrawer(f, content, r, lines, pics, fits)
+	}
+
+	if a.sent.card != nil {
+		content = a.overlaySentCard(f, content, lk)
 	}
 
 	content = overlayToast(f, content, a.width, a.height, a.notice, a.noticeLevel(), a.icons, lk.styles)

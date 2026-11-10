@@ -59,6 +59,9 @@ type sentState struct {
 	seq   int
 	panes map[core.PaneID]*sentPane
 	view  *sentView // the open viewer
+
+	card    *sentCard
+	cardSeq int
 }
 
 // sentCopiedMsg answers onSent's command with the batch once its images are copied.
@@ -139,6 +142,7 @@ func (a *App) onSentCopied(msg sentCopiedMsg) {
 	sp := a.sentPane(msg.batch.pane)
 	i, _ := slices.BinarySearchFunc(sp.batches, msg.batch.seq, func(b sentBatch, seq int) int { return b.seq - seq })
 	sp.batches = slices.Insert(sp.batches, i, msg.batch)
+	a.sentCardSet(msg.batch)
 }
 
 // sentBatches returns a pane's batches, oldest first.
@@ -151,8 +155,8 @@ func (a *App) sentBatches(id core.PaneID) []sentBatch {
 }
 
 // sentAfterUpdate forgets the panes the state no longer holds, and closes the
-// viewer of one that went.
-func (a *App) sentAfterUpdate() tea.Cmd { //nolint:unparam // shaped like the other after-update hooks, whose commands join a.later
+// viewer of one that went, and starts the card's countdown once it can be seen.
+func (a *App) sentAfterUpdate() tea.Cmd {
 	panes := a.store.State().Panes
 	for id := range a.sent.panes {
 		if _, ok := panes[id]; !ok {
@@ -164,7 +168,11 @@ func (a *App) sentAfterUpdate() tea.Cmd { //nolint:unparam // shaped like the ot
 		a.sent.view = nil
 	}
 
-	return nil
+	if _, ok := a.sentCardBatch(); !ok {
+		a.sent.card = nil
+	}
+
+	return a.sentCardArm()
 }
 
 // copySent copies each path into dir as <seq>-<i><ext>, so a later send of the

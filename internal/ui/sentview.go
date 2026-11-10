@@ -132,13 +132,15 @@ func (a *App) sentRemember(pages []sentPage, at int) {
 	a.sent.view.batch, a.sent.view.part = pages[at].batch.seq, part
 }
 
-// openSentView is images.view: the focused agent's images, else those of the
-// agent that sent the newest.
+// openSentView is images.view: the images of the agent on the card, else the
+// focused agent's, else those of the agent that sent the newest.
 func (a *App) openSentView() tea.Cmd {
 	a.endLeader()
 
 	id, newest := a.store.State().Tab().Focus, 0
-	if len(a.sentBatches(id)) == 0 {
+	if b, ok := a.sentCardBatch(); ok {
+		id = b.pane
+	} else if len(a.sentBatches(id)) == 0 {
 		id = ""
 
 		for pid, sp := range a.sent.panes {
@@ -167,6 +169,7 @@ func (a *App) showSentView(id core.PaneID) {
 		return
 	}
 
+	a.sent.card = nil
 	a.sent.view = &sentView{pane: id, batch: b[len(b)-1].seq}
 }
 

@@ -158,6 +158,9 @@ func TestSentViewPicksTheAgent(t *testing.T) {
 				t.Fatal(err)
 			}
 
+			// The card of the batch just sent is not what this test picks by.
+			a.sent.card = nil
+
 			run(a, a.openSentView())
 
 			switch {

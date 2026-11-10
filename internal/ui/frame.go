@@ -362,12 +362,12 @@ func printable(t string) string {
 
 // cursorView places the cursor on screen: the prompt's, copy mode's block or
 // the focused pane's. It is nil under an overlay, confirm, popup, the usage
-// popover or the toast.
+// popover, the toast or the sent-image card.
 func (a *App) cursorView() *tea.Cursor { return a.cursorAt(a.geometry()) }
 
 func (a *App) cursorAt(g geometry) *tea.Cursor {
 	cur := a.cursorBase(g)
-	if cur != nil && toastCovers(a.width, a.height, a.notice, a.icons, cur.X, cur.Y) {
+	if cur != nil && (toastCovers(a.width, a.height, a.notice, a.icons, cur.X, cur.Y) || a.sentCardCovers(cur.X, cur.Y)) {
 		return nil
 	}
 

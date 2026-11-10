@@ -583,6 +583,11 @@ the followed place back, and one after a session change records nothing.
   follows the same rule, so an idle AIM costs next to no CPU. The usage module
   and popover have no tick of their own; the clock's minute wake redraws their
   relative times and drops a window once its reset passes.
+- The sent-image card's 15 seconds are one `a.tick` with a sequence number, armed
+  once the card can be seen with the window focused; a stale due message is
+  ignored, and no tick runs while the card waits. The card shares the bottom
+  right corner, directly above the toast's rows, and the which-key popup may
+  cover it.
 
 ## Why the safety rules
 
