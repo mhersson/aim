@@ -362,7 +362,7 @@ func TestStaleWhichKey(t *testing.T) {
 func TestWhichKeySizes(t *testing.T) {
 	t.Parallel()
 
-	for _, sz := range [][2]int{{80, 25}, {40, 12}, {20, 5}, {1, 1}} {
+	for _, sz := range [][2]int{{80, 24}, {40, 12}, {20, 5}, {1, 1}} {
 		t.Run(fmt.Sprintf("%dx%d", sz[0], sz[1]), func(t *testing.T) {
 			a := newTestApp(t)
 			sized(t, a, sz[0], sz[1])
@@ -444,5 +444,49 @@ func TestDispatchSyncsOnlyThemeChanges(t *testing.T) {
 
 	if len(a.sample) == 1 && a.sample[0] == "sentinel" {
 		t.Error("a theme change did not rebuild the sample")
+	}
+}
+
+func TestWhichKeyRightColumnGaps(t *testing.T) {
+	t.Parallel()
+
+	h := func(group string, n int) []hint {
+		var out []hint
+		for i := range n {
+			out = append(out, hint{key: string(rune('a' + i)), title: "x", group: group})
+		}
+
+		return out
+	}
+
+	// rowOf is the popup row the Git header is drawn on.
+	rowOf := func(hints []hint) int {
+		for i, l := range whichKeyPopup("ctrl+space", hints, false, styles{}) {
+			if strings.Contains(ansi.Strip(l), "Git") {
+				return i
+			}
+		}
+
+		return -1
+	}
+
+	tests := []struct {
+		name  string
+		hints []hint
+		want  int
+	}{
+		// Left has 2+2 rows; the right column with gaps would be taller, so Tabs' 3 rows are followed by Git at once.
+		{"taller than the left drops the gaps", slices.Concat(h("Panes", 1), h("Layout", 1), h("Tabs", 2), h("Git", 2), h("App", 2)), 4},
+		// Left has 4+4 rows; the right column is shorter, so one blank row stays above Git.
+		{"shorter than the left keeps the gaps", slices.Concat(h("Panes", 3), h("Layout", 3), h("Tabs", 1), h("Git", 1)), 4},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := rowOf(tt.hints); got != tt.want {
+				t.Fatalf("Git header on row %d, want %d", got, tt.want)
+			}
+		})
 	}
 }

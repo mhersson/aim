@@ -433,8 +433,15 @@ func whichKeyPopup(leader string, hints []hint, icons bool, st styles) []string 
 	}
 
 	cols := []column{l}
+
 	if len(right) > 0 {
-		cols = append(cols, whichKeyColumn(right, true, icons, st))
+		// The gaps go when they would make the right column taller than the left: the popup must fit an 80x24 terminal.
+		r := whichKeyColumn(right, true, icons, st)
+		if len(r.rows) > len(l.rows) {
+			r = whichKeyColumn(right, false, icons, st)
+		}
+
+		cols = append(cols, r)
 	}
 
 	height := 0

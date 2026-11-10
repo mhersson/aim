@@ -22,7 +22,6 @@ Keys pressed after the leader key. Remap them under `[keys.leader]`.
 | `a` | `rail.toggle` | Agents rail |
 | `d` | `review.toggle` | Review drawer |
 | `p` | `plan.open` | Open the agent's plan |
-| `i` | `images.view` | Show images an agent sent |
 | `s` | `pane.split.down` | Split: shell below |
 | `v` | `pane.split.right` | Split: shell right |
 | `h` | `pane.focus.left` | Focus left |
@@ -109,6 +108,7 @@ Keys pressed after the leader key. Remap them under `[keys.leader]`.
 | `:` | `palette.open` | Open command palette |
 | `t` | `theme.pick` | Pick theme |
 | `m` | `md.open` | Open a markdown file |
+| `i` | `images.view` | Show images an agent sent |
 | `u` | `usage.toggle` | Claude usage |
 | `q` | `app.quit` | Quit AIM |
 
