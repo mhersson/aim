@@ -47,10 +47,11 @@ quitting AIM ends its agents, and the next start resumes their sessions.
 
 **Off the update loop** run git, GitHub, file reads, markdown parsing
 (`md.Parse` recurses once per nesting level), syntax highlighting and image
-decoding, as `tea.Cmd`s or goroutines. Each runs under a context derived from
-the app's, which quit cancels, with its own limit as a named constant beside
-its caller (`reviewLoadTimeout`, `pushTimeout`, `mergeTimeout`). The rail's
-probes and the edit resolutions share 4 slots (`railProbeMax`).
+decoding and the copies of the images agents send (`copySent`), as `tea.Cmd`s
+or goroutines. Each runs under a context derived from the app's, which quit
+cancels, with its own limit as a named constant beside its caller
+(`reviewLoadTimeout`, `pushTimeout`, `mergeTimeout`). The rail's probes and the
+edit resolutions share 4 slots (`railProbeMax`).
 
 **Late answers are normal.** The pane may have closed or been replaced under
 the same id, a newer request gone out, the session changed or the overlay
@@ -124,9 +125,12 @@ nothing, and anywhere else it closes the popover and goes no further.
   `[shell] integration = false`, or when the files were not written, every pane
   gets today's argv and environment.
 - Every pane gets `TERM=xterm-256color` and `COLORTERM=truecolor` and loses an
-  inherited `TMUX`, `TMUX_PANE`, `AIM_PANE`, `AIM_SOCK`, `AIM_TTY`,
+  inherited `TMUX`, `TMUX_PANE`, `AIM_PANE`, `AIM_SOCK`, `AIM_BIN`, `AIM_TTY`,
   `AIM_SHELL_DIR`, `AIM_ZDOTDIR` and `AIM_ENV` (`term.PaneEnv`). `term.Start`
   opens the pty itself and sets `AIM_TTY` to the slave's path.
+- Every pane that gets `AIM_SOCK` also gets `AIM_BIN`, the binary the hooks run
+  (the instance's own copy, below, else the installed one), so a pane can run
+  `"$AIM_BIN" show` without AIM being on its PATH.
 
 **A `claude` typed in a pane.** A `claude` typed in a pane's shell gets the
 instance's settings file from two pieces, both from
@@ -188,7 +192,8 @@ the project's hooks keep running. The status line has no exec form, so
 `harness.QuotePath` single-quotes the path and refuses one holding `'`, `\`, a
 control character or invalid UTF-8; such a binary gets hooks and no status line.
 The wrapper reads the instance's file from `AIM_SOCK` (`settingsForSock`), the
-same name `setupHooks` writes.
+same name `setupHooks` writes. The file carries no permission rule, since a
+rule cannot match a command that starts with a variable (`"$AIM_BIN" show`).
 
 **The instance's binary.** The hooks, the status line and the wrapper run
 `<state dir>/run/<pid>-aim`, which `setupHooks` places and `Stop` removes: a
@@ -208,8 +213,17 @@ with hooks.
 `aim statusline` for its status line (`cmd/aim/hook.go`, `statusline.go`). Each
 reads stdin, parses it with the harness, adds `AIM_PANE` and sends one JSON
 line to `AIM_SOCK`, within 2 s (1 s for the status line). Both always exit 0
-and print nothing: Claude adds the stdout of `SessionStart` and
-`UserPromptSubmit` hooks to the model's context.
+and print nothing, except the `SessionStart` note: when its handler carries
+`--note` and `AIM_BIN` is set, `aim hook` prints a fixed text about `aim show`,
+which Claude adds to the model's context, so the agent learns the command. The
+`[images] tell_agents` setting reaches the hook through the generated file
+because the hook cannot read AIM's config (`--config`).
+
+`aim show <file>... [--caption <text>]` (`cmd/aim/show.go`) is run by an agent
+or by hand and does report. It checks every file (a regular file, one of the
+four image types, at most 5 MiB, decodable), sends one `Show` line for the
+batch and prints one line, or exits 1 with the reason and sends nothing. It is
+accepted from any pane, past the shell-pane hold, because it names its pane.
 
 **The one-off.** The compose box's `ctrl+g` asks the harness for a pull
 request body (`Harness.Describe`, `internal/harness/describe.go`). The Claude
@@ -226,7 +240,8 @@ in a new session, with no controlling terminal, and `describeTimeout`
 **The socket.** `<state dir>/run/<pid>.sock` is 0600 in a 0700 directory
 (`internal/harness/socket.go`). A connection carries one line of at most
 64 KiB, answered `ok` once queued, except a prompt or an edit's `PreToolUse`,
-held until its snapshot is written or 1.5 s pass (`turnHold`). The adapter caps
+held until its snapshot is written or 1.5 s pass (`turnHold`); an `aim show`
+line is answered `ok` once queued. The adapter caps
 what one event carries (16 changed paths, 32 KiB) to stay inside the line. When
 the socket or settings file cannot be set up, agents run without `--settings`
 and a notice says why; AIM still starts.
@@ -242,6 +257,22 @@ payloads in `internal/harness/testdata`. Two rules cover what hooks miss:
 - One `esc` interrupts a Claude turn, so after an `esc` that hands a pane the
   keyboard, further ones are held back briefly (`handleKey`,
   `internal/ui/input.go`; [Esc and Claude Code](guide/agents.md#esc-and-claude-code)).
+
+**Images an agent sends.** An event with `Images` makes a batch in
+`App.onSent` (`internal/ui/sent.go`), from three sources: `SendUserFile`'s
+`PostToolUse`, the paths in `Stop`'s `last_assistant_message` (kept only when
+they are regular files) and an `aim show` line (above), which passes the shell-pane hold
+because it names its pane. Each image is copied into `<cache>/aim/sent/<pid>`
+off the loop at arrival, since an agent overwrites the same name for its next
+picture and the batch must keep the old one. On an agent pane a final reply's
+path already sent or named in the same turn is dropped, while an explicit send
+always makes a batch. The batches live per pane for this run only and go with
+the pane. The viewer (`internal/ui/sentview.go`) draws in the reading box's
+geometry (`z` zooms it to the whole terminal less a thin margin, over the rail
+and the tab row) and sizes its pictures through the `pictures` registry with its
+own caps (`sizeIn`), from AIM's copies, so a picture is never read from where
+the agent put it. `images.open` hands the system opener only AIM's own copy of an
+image AIM decoded, never an entry it could not read, and never the agent's path.
 
 The status line also carries the account's usage. `rate_limits` becomes
 `Event.FiveHour` and `SevenDay` (a window counts only with a percent and a reset
@@ -533,7 +564,7 @@ the followed place back, and one after a session change records nothing.
 | `<state dir>/aim-<pid>.log` | a second instance's log | per run, appended; the saver sweeps one at start once its pid is dead and it is untouched 7 days |
 | `<state dir>/reviews/*.json` | reviewed-hunk marks, per repository | atomic, not fsynced |
 | `<state dir>/run/` | socket, settings, the instance's binary, shell integration, temporary indexes | per run; swept |
-| `<user cache dir>/aim/` | index copies, fetched images, pull request copies (`prs/<host>/<owner>/<name>`) | as used; swept at start: index copies not refreshed for 14 days, images untouched 30, copies unused 30 (only the instance that holds `state.lock`) |
+| `<user cache dir>/aim/` | index copies, fetched images, pull request copies (`prs/<host>/<owner>/<name>`), sent images (`sent/<pid>`) | as used; swept at start: index copies not refreshed for 14 days, images untouched 30, copies unused 30 (only the instance that holds `state.lock`); `sent/<pid>` is per run, removed at quit, and a dead instance's is swept at start by any instance |
 
 - **Only what cannot come back is saved.** Agent states, actions, reported
   directories, edits, models, Claude usage, pull request data and a drawer's pin
@@ -567,6 +598,11 @@ the followed place back, and one after a session change records nothing.
   follows the same rule, so an idle AIM costs next to no CPU. The usage module
   and popover have no tick of their own; the clock's minute wake redraws their
   relative times and drops a window once its reset passes.
+- The sent-image card's 15 seconds are one `a.tick` with a sequence number, armed
+  once the card can be seen with the window focused; a stale due message is
+  ignored, and no tick runs while the card waits. The card shares the bottom
+  right corner, directly above the toast's rows, and the which-key popup may
+  cover it.
 
 ## Why the safety rules
 

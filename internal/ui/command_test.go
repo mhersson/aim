@@ -170,6 +170,7 @@ func TestDefaultCommands(t *testing.T) {
 		"review.refresh",
 		"review.back",
 		"plan.open",
+		"images.view",
 		"md.open",
 		"pr.list",
 		"git.push",

@@ -469,3 +469,46 @@ func TestAllowedValuesMatchValidate(t *testing.T) {
 		t.Errorf("LayoutModes() after a write = %v, want %v", got, want)
 	}
 }
+
+func TestConfigImages(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		content string
+		want    bool
+		wantErr bool
+	}{
+		{name: "absent", content: "", want: true},
+		{name: "off", content: "[images]\ntell_agents = false\n", want: false},
+		{name: "wrong type", content: "[images]\ntell_agents = \"x\"\n", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			path := filepath.Join(t.TempDir(), "config.toml")
+			if err := os.WriteFile(path, []byte(tt.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			got, err := LoadConfig(path)
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "images.tell_agents") {
+					t.Fatalf("LoadConfig() error = %v, want one naming images.tell_agents", err)
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if got.Images.TellAgentsOn() != tt.want {
+				t.Errorf("TellAgentsOn() = %v, want %v", got.Images.TellAgentsOn(), tt.want)
+			}
+		})
+	}
+}

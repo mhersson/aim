@@ -86,7 +86,7 @@ func newRootCmd() *cobra.Command {
 	cmd.Flags().StringVar(&recordDir, "record", "", "write each pane's terminal output to a recording in this directory")
 	// Diagnostics for bench inputs and VT fixtures, not a user feature.
 	_ = cmd.Flags().MarkHidden("record")
-	cmd.AddCommand(newHookCmd(os.Getenv), newStatuslineCmd(os.Getenv))
+	cmd.AddCommand(newHookCmd(os.Getenv), newStatuslineCmd(os.Getenv), newShowCmd(os.Getenv))
 
 	return cmd
 }
@@ -148,6 +148,10 @@ func run(ctx context.Context, env core.Env, configPath, recordDir string, fresh 
 		logger.Info("swept index cache", "removed", n)
 	}
 
+	if indexCache != "" {
+		sweepSent(logger, filepath.Join(indexCache, "sent"), pidAlive)
+	}
+
 	if held {
 		if n, err := git.SweepPRCopies(prCopyDir(indexCache), time.Now()); err != nil {
 			logger.Warn("sweep pull request copies", "err", err)
@@ -165,7 +169,7 @@ func run(ctx context.Context, env core.Env, configPath, recordDir string, fresh 
 
 	places := git.NewPlaceCache(git.EditPlace, time.Now)
 
-	hooks := startHooks(logger, stateDir, indexCache, watches, places, cfg.Shell.IntegrationOn())
+	hooks := startHooks(logger, stateDir, indexCache, watches, places, hookConfig{shell: cfg.Shell.IntegrationOn(), note: cfg.Images.TellAgentsOn()})
 	defer hooks.Stop()
 
 	st, saver, notices := openState(logger, stateDir, cfg, fresh, held)
@@ -237,6 +241,7 @@ func run(ctx context.Context, env core.Env, configPath, recordDir string, fresh 
 		Shell:        hooks.Shell,
 		HookSettings: hooks.Settings,
 		HookSock:     hooks.Sock,
+		HookBin:      hooks.Bin,
 		Events:       hooks.Events,
 		GitTempDir:   hooks.RunDir,
 		IndexCache:   indexCache,
@@ -244,6 +249,7 @@ func run(ctx context.Context, env core.Env, configPath, recordDir string, fresh 
 		Pictures:     github.NewImageFetcher(github.ImageOptions{}),
 		ImageCache:   imageCacheDir(indexCache),
 		PRCopies:     prCopyDir(indexCache),
+		SentDir:      sentDir(indexCache, os.Getpid()),
 		Git:          ui.SystemGit{},
 		Watches:      watches,
 		Places:       places,
@@ -273,6 +279,12 @@ func run(ctx context.Context, env core.Env, configPath, recordDir string, fresh 
 	defer cancel()
 
 	closeRun(closeCtx, logger, app, prs)
+
+	if dir := sentDir(indexCache, os.Getpid()); dir != "" {
+		if err := os.RemoveAll(dir); err != nil {
+			logger.Warn("remove sent images", "err", err)
+		}
+	}
 
 	if err != nil && ctx.Err() == nil {
 		logger.Error("run", "err", err)

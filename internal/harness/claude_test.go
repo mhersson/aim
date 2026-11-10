@@ -752,11 +752,32 @@ type settingsFile struct {
 }
 
 func TestSettings(t *testing.T) {
+	for _, note := range []bool{false, true} {
+		t.Run(fmt.Sprintf("note=%v", note), func(t *testing.T) {
+			testSettings(t, note)
+		})
+	}
+}
+
+func testSettings(t *testing.T, note bool) {
+	t.Helper()
+
 	const exe = "/opt/my tools/aim"
 
-	raw, err := Claude{}.Settings(exe)
+	raw, err := Claude{}.Settings(exe, note)
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &keys); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, k := range []string{"permissions", "sandbox"} {
+		if _, ok := keys[k]; ok {
+			t.Errorf("settings carry a %q key", k)
+		}
 	}
 
 	var s settingsFile
@@ -786,7 +807,13 @@ func TestSettings(t *testing.T) {
 		}
 
 		h := groups[0].Hooks[0]
-		if h.Type != "command" || h.Command != exe || !slices.Equal(h.Args, []string{"hook", "claude-code"}) || h.Timeout != 5 {
+
+		wantArgs := []string{"hook", "claude-code"}
+		if note && name == "SessionStart" {
+			wantArgs = append(wantArgs, "--note")
+		}
+
+		if h.Type != "command" || h.Command != exe || !slices.Equal(h.Args, wantArgs) || h.Timeout != 5 {
 			t.Errorf("%s: handler = %+v", name, h)
 		}
 		// Every registered event must be one ParseEvent accepts.
@@ -808,7 +835,7 @@ func TestSettingsStatusLine(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			raw, err := Claude{}.Settings(tt.exe)
+			raw, err := Claude{}.Settings(tt.exe, false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -838,7 +865,7 @@ func TestSettingsStatusLine(t *testing.T) {
 	}
 	for _, tt := range refused {
 		t.Run("refused "+tt.name, func(t *testing.T) {
-			raw, err := Claude{}.Settings(tt.exe)
+			raw, err := Claude{}.Settings(tt.exe, false)
 			if err != nil {
 				t.Fatalf("Settings: %v, want the hooks without a status line", err)
 			}
@@ -911,7 +938,7 @@ func TestStatusLineCommandInShells(t *testing.T) {
 					t.Fatal(err)
 				}
 
-				raw, err := Claude{}.Settings(exe)
+				raw, err := Claude{}.Settings(exe, false)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -974,7 +1001,7 @@ func TestQuotePath(t *testing.T) {
 
 func TestSettingsRejectsBadExe(t *testing.T) {
 	for _, exe := range []string{"", "aim", "./aim", "bin/aim"} {
-		if _, err := (Claude{}).Settings(exe); err == nil {
+		if _, err := (Claude{}).Settings(exe, false); err == nil {
 			t.Errorf("Settings(%q): want an error", exe)
 		}
 	}
@@ -1015,6 +1042,51 @@ func TestWithSettings(t *testing.T) {
 
 			if got := (Claude{}).WithSettings(tt.args, tt.settings); !slices.Equal(got, tt.want) {
 				t.Errorf("WithSettings(%q, %q) = %q, want %q", tt.args, tt.settings, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseEventImages(t *testing.T) {
+	t.Parallel()
+
+	c := Claude{home: func() (string, error) { return "/home/user", nil }}
+	send := `"cwd":"/work","tool_name":"SendUserFile","tool_input":{"files":["/work/shots/before.png","after.png","notes.md"],"caption":"Before\nand after"}`
+	text := `"cwd":"/work","last_assistant_message":"Here is ![shot](proof.png), ` + "`./proof.png`" +
+		`, ~/aim-proof-none.png and https://example.com/x.png."`
+	named := []string{"/work/proof.png", "/home/user/aim-proof-none.png"}
+	sent := []string{"/work/shots/before.png", "/work/after.png"}
+
+	tests := []struct {
+		name    string
+		payload []byte
+		images  []string
+		caption string
+		named   bool
+	}{
+		{"send", payload("PostToolUse", send), sent, "Before and after", false},
+		{"send failed", payload("PostToolUseFailure", send), nil, "", false},
+		{
+			"send no image",
+			payload("PostToolUse", `"cwd":"/work","tool_name":"SendUserFile","tool_input":{"files":["notes.md"]}`),
+			nil, "", false,
+		},
+		{"stop", payload("Stop", text), named, "", true},
+		{"stop failure", payload("StopFailure", text), nil, "", false},
+		{"send fixture", readFixture(t, "post_tool_use_send_user_file.constructed"), sent, "Before and after", false},
+		{"stop fixture", readFixture(t, "stop_named_images"), named, "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ev, err := c.ParseEvent(tt.payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if !reflect.DeepEqual(ev.Images, tt.images) || ev.Caption != tt.caption || ev.Named != tt.named {
+				t.Errorf("got %q %q %v, want %q %q %v", ev.Images, ev.Caption, ev.Named, tt.images, tt.caption, tt.named)
 			}
 		})
 	}

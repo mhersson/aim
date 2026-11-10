@@ -1,6 +1,6 @@
 # Configuration
 
-AIM runs without a config file. A file changes what you want changed: the theme, the layout a new tab starts in, the mouse and clipboard behaviour, the shell integration, the diff limits, the desktop notifications and the keys. This page covers where the file lives, how to start one, what happens when it has a mistake, and the rules for remapping keys. The settings themselves, each with its meaning, default and allowed values, are in [`config.example.toml`](../../config.example.toml).
+AIM runs without a config file. A file changes what you want changed: the theme, the layout a new tab starts in, the mouse and clipboard behaviour, the shell integration, the diff limits, the desktop notifications, whether agents are told about `aim show` and the keys. This page covers where the file lives, how to start one, what happens when it has a mistake, and the rules for remapping keys. The settings themselves, each with its meaning, default and allowed values, are in [`config.example.toml`](../../config.example.toml).
 
 ## Where the file lives
 
@@ -129,7 +129,7 @@ leader_key = "ctrl+a"
 
 ### Keep a way to close a view
 
-The leader closes the drawer and the rail. The pull request list, the checks overlay, the reading overlays, the merge box and the compose box are closed by their own command, so after your entries are laid over the defaults, a key must remain for that command: `prlist.close` under `[keys.pr_list]`, `checks.close` under `[keys.checks]`, `reader.close` under `[keys.reader]`, `merge.cancel` under `[keys.merge]` and `compose.cancel` under `[keys.compose]`. Binding the default `esc` to `"none"` without another key for the command is refused:
+The leader closes the drawer and the rail. The pull request list, the checks overlay, the reading overlays, the image viewer, the merge box and the compose box are closed by their own command, so after your entries are laid over the defaults, a key must remain for that command: `prlist.close` under `[keys.pr_list]`, `checks.close` under `[keys.checks]`, `reader.close` under `[keys.reader]`, `images.close` under `[keys.images]`, `merge.cancel` under `[keys.merge]` and `compose.cancel` under `[keys.compose]`. Binding the default `esc` to `"none"` without another key for the command is refused:
 
 ```text
 aim: config <path>: keys.pr_list: nothing is bound to prlist.close, so the PR list could not close

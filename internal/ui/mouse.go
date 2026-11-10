@@ -196,6 +196,13 @@ func (a *App) handleClick(msg tea.MouseClickMsg) tea.Cmd {
 		return nil
 	}
 
+	if !a.pending && a.sentCardClick(msg.Mouse()) {
+		a.releaseForwarded()
+		a.endPress()
+
+		return nil
+	}
+
 	if a.textClick(msg.Mouse()) {
 		return nil
 	}

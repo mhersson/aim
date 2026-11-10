@@ -24,6 +24,7 @@ var keysContexts = []struct {
 	{"pr_list", "PR list", "These keys apply while the pull request list is open.", func(t keyTables) keyTable { return t.prList }},
 	{"checks", "Checks overlay", "These keys apply while the checks overlay is open.", func(t keyTables) keyTable { return t.checks }},
 	{"reader", "Reading overlays", "These keys apply in the plan overlay, a markdown file overlay and the conversation.", func(t keyTables) keyTable { return t.reader }},
+	{"images", "Image viewer", "These keys apply while the image viewer is open.", func(t keyTables) keyTable { return t.images }},
 	{"merge", "Merge box", "These keys apply while the merge box is open.", func(t keyTables) keyTable { return t.merge }},
 	{"compose", "Compose box", "These keys apply while the compose box is open.", func(t keyTables) keyTable { return t.compose }},
 }
@@ -51,6 +52,8 @@ func keysWith(context, key, command string) core.KeysConfig {
 		cfg.Checks = m
 	case "reader":
 		cfg.Reader = m
+	case "images":
+		cfg.Images = m
 	case "merge":
 		cfg.Merge = m
 	case "compose":

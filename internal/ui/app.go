@@ -49,6 +49,8 @@ type Options struct {
 	HookSettings string
 	// HookSock is AIM_SOCK for every pane; empty sets none.
 	HookSock string
+	// HookBin is AIM_BIN, the binary the hooks run, for every pane that gets AIM_SOCK.
+	HookBin string
 	// Shell is the shell integration every pane gets; the zero value is off.
 	Shell term.Integration
 	// Events delivers hook events; nil means none arrive.
@@ -122,6 +124,9 @@ type Options struct {
 	// PRCopies is where AIM's private copies of repositories live, for pull
 	// requests of repositories no pane is in; empty turns that route off.
 	PRCopies string
+	// SentDir is where copies of the images agents send are kept for this run;
+	// empty keeps none.
+	SentDir string
 }
 
 // markFiles is the persistence of the reviewed-hunk marks, one file per
@@ -184,6 +189,7 @@ type App struct {
 	actions                prActions               // GitHub writes; nil means they are off
 	reads                  prReads                 // GitHub reads beyond the poller; nil means they are off
 	prCopies               string                  // where the pull request copies live; "" means none
+	sent                   sentState               // the images agents sent this run
 	pullRequests           core.PullRequestsConfig // how far back the Review requested search goes
 	search                 prSearchState
 
@@ -228,6 +234,7 @@ type App struct {
 	harness                    harness.Harness
 	tick                       func(time.Duration, func(time.Time) tea.Msg) tea.Cmd // tea.Tick; tests replace it
 	hookSettings, hookSock     string
+	hookBin                    string
 	shell                      term.Integration
 	events                     <-chan harness.Event
 	spin                       int         // badge spinner frame
@@ -314,7 +321,7 @@ func New(opts Options) (*App, error) {
 	}
 
 	a := &App{
-		git: opts.Git, harness: h, tick: tea.Tick, hookSettings: opts.HookSettings, hookSock: opts.HookSock, shell: opts.Shell,
+		git: opts.Git, harness: h, tick: tea.Tick, hookSettings: opts.HookSettings, hookSock: opts.HookSock, hookBin: opts.HookBin, shell: opts.Shell,
 		events: opts.Events, notice: opts.Notice, save: opts.Save, marks: opts.Marks,
 		log: opts.Logger, store: opts.Store, themes: themes, reg: reg, keymap: km, keys: tables,
 		panes: map[core.PaneID]*pane{}, outerFocused: true,
@@ -336,6 +343,7 @@ func New(opts Options) (*App, error) {
 	a.actions = opts.PRActions
 	a.reads = opts.PRReads
 	a.prCopies = opts.PRCopies
+	a.sent.dir = opts.SentDir
 	a.pullRequests = opts.PullRequests
 
 	a.openLink = opts.OpenURL
@@ -511,6 +519,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	a.syncPaneColors()
 	a.railAfterUpdate()
 
+	if c := a.sentAfterUpdate(); c != nil {
+		a.later = append(a.later, c)
+	}
+
 	if c := a.watchSync(); c != nil {
 		a.later = append(a.later, c)
 	}
@@ -671,6 +683,8 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.FocusMsg:
 		a.outerFocused = true
 		a.sendToFocused(func(p *pane) { p.sendFocus(true) })
+	case sentCardDueMsg:
+		a.onSentCardDue(msg)
 	case tea.BlurMsg:
 		a.outerFocused = false
 		a.sendToFocused(func(p *pane) { p.sendFocus(false) })
@@ -688,6 +702,14 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, a.onCwdDue(msg)
 	case paneKindDueMsg:
 		return a, a.onKindDue(msg)
+	case sentCopiedMsg:
+		a.onSentCopied(msg)
+
+		return a, nil
+	case sentOpenedMsg:
+		a.onSentOpened(msg)
+
+		return a, nil
 	case hookMsg:
 		return a, tea.Batch(a.onHook(msg.ev), a.waitEvent())
 	case editPlaceMsg:
@@ -953,6 +975,10 @@ func (a *App) View() tea.View {
 		content = a.drawDrawer(f, content, r, lines, pics, fits)
 	}
 
+	if a.sent.card != nil {
+		content = a.overlaySentCard(f, content, lk)
+	}
+
 	content = overlayToast(f, content, a.width, a.height, a.notice, a.noticeLevel(), a.icons, lk.styles)
 	if lines, r, ok := a.usagePopover(lk); ok {
 		content = overlayAt(f, content, a.width, a.height, r.X, r.Y, lines, nil)
@@ -996,6 +1022,10 @@ func (a *App) View() tea.View {
 
 	if a.plan != nil {
 		content = a.overlayPlan(f, content, lk)
+	}
+
+	if a.sent.view != nil {
+		content = a.overlaySentView(f, content, lk)
 	}
 
 	if a.composeShown() {

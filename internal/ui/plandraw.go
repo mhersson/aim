@@ -229,6 +229,16 @@ func (a *App) planHead(v *planView) (lead, path, tag string) {
 	return lead, path, tag
 }
 
+// titledTop is the top row of a box w cells wide with title at its left.
+func titledTop(border, titleStyle lipgloss.Style, title string, w int) string {
+	return border.Render("╭─") + titleStyle.Render(title) + border.Render(strings.Repeat("─", w-3-ansi.StringWidth(title))+"╮")
+}
+
+// labelledBottom is the bottom row of a box w cells wide with label at its right.
+func labelledBottom(border, labelStyle lipgloss.Style, label string, w int) string {
+	return border.Render("╰"+strings.Repeat("─", w-3-ansi.StringWidth(label))) + labelStyle.Render(label) + border.Render("─╯")
+}
+
 // planLines draws the box w x h: the title and tag in the top border, the view
 // centred in the inner width, the hints and the indicator. pics are the view's
 // picture rows in the box's cells, less any picture the link chooser overlaps.
@@ -256,19 +266,20 @@ func (a *App) planLines(lk look, w, h int) (out []string, pics []picRow) {
 	}
 
 	title, tag := planTop(lead, shortPath(path, main, a.getenv("HOME")), tag, w)
-	top := border.Render("╭─") + on(ui.Info).Bold(true).Render(title)
+	titleStyle := on(ui.Info).Bold(true)
 
+	var top string
 	if tag != "" {
-		top += border.Render(strings.Repeat("─", w-4-ansi.StringWidth(title)-ansi.StringWidth(tag))) + planTagStyled(tag, on(ui.Muted), on(ui.Accent).Bold(true)) + border.Render("─╮")
+		top = border.Render("╭─") + titleStyle.Render(title) + border.Render(strings.Repeat("─", w-4-ansi.StringWidth(title)-ansi.StringWidth(tag))) + planTagStyled(tag, on(ui.Muted), on(ui.Accent).Bold(true)) + border.Render("─╮")
 	} else {
-		top += border.Render(strings.Repeat("─", w-3-ansi.StringWidth(title)) + "╮")
+		top = titledTop(border, titleStyle, title, w)
 	}
 
 	a.sizePlan()
 
 	shown := v.shown()
 	ind := planIndicator(len(shown.layout().Lines), rows, shown.top)
-	bottom := border.Render("╰"+strings.Repeat("─", w-3-ansi.StringWidth(ind))) + on(ui.Accent).Bold(true).Render(ind) + border.Render("─╯")
+	bottom := labelledBottom(border, on(ui.Accent).Bold(true), ind, w)
 
 	out = []string{top}
 	if blanks {
@@ -328,19 +339,27 @@ func (a *App) chooserLines(c *linkChooser, ui theme.UI, lines []string) image.Re
 
 // planHintRow is the hints that fit w cells, a gap apart.
 func (a *App) planHintRow(ui theme.UI, w int) string {
-	on := func(fg theme.Hex) lipgloss.Style { return lipgloss.NewStyle().Foreground(fg).Background(ui.Panel) }
-
 	if a.plan.searching {
 		return a.planPromptRow(ui, w)
 	}
 
+	pairs := planHints(a.keys.reader, w)
+	for i := range pairs {
+		if pairs[i][1] == "close" && a.finder != nil {
+			pairs[i][1] = "back"
+		}
+	}
+
+	return hintRow(ui, pairs, w)
+}
+
+// hintRow is the pairs of key and label that fit w cells, a gap apart.
+func hintRow(ui theme.UI, pairs [][2]string, w int) string {
+	on := func(fg theme.Hex) lipgloss.Style { return lipgloss.NewStyle().Foreground(fg).Background(ui.Panel) }
+
 	var b strings.Builder
 
-	for i, p := range planHints(a.keys.reader, w) {
-		if p[1] == "close" && a.finder != nil {
-			p[1] = "back"
-		}
-
+	for i, p := range pairs {
 		if i > 0 {
 			b.WriteString(on(ui.Fg).Render(strings.Repeat(" ", planHintGap)))
 		}

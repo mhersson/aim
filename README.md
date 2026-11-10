@@ -29,6 +29,7 @@ Watch it as a [video (MP4)](https://github.com/user-attachments/assets/26f3b30c-
 - **Live review.** Turn and branch mode, unified or side by side, highlighted, with markdown rendered; the drawer follows the agent's edits from worktree to worktree.
 - **Pull requests and CI.** Push, open a pull request from the compose box, read its conversation and checks with their logs, approve, and merge the head you saw after a confirm.
 - **Plans and markdown.** The agent's plan, any markdown file and a pull request's conversation open in a reading box, with pictures over the Kitty graphics protocol.
+- **Images agents send.** A screenshot an agent sends you opens in a viewer, with pictures over the Kitty graphics protocol.
 - **Keyboard first.** One leader key, which-key, a command palette, every key remappable, copy mode and mouse selection.
 - **Picks up where you left off.** Tabs, layouts and each agent's Claude session come back on restart.
 - **Themes.** Catppuccin Latte, Frappé, Macchiato and Mocha, plus [themes of your own](docs/guide/themes.md) from files beside the config, switched from the palette while AIM runs.
@@ -128,6 +129,7 @@ Everything starts with the leader, `ctrl+space`; every key can be remapped. [The
 | `ctrl+space a` | Agents rail |
 | `ctrl+space d` | Review drawer |
 | `ctrl+space p` | Open the agent's plan |
+| `ctrl+space i` | Show images an agent sent |
 | `ctrl+space g P` | Push branch |
 | `ctrl+space g o` | Open a pull request |
 | `ctrl+space g l` | Pull requests |

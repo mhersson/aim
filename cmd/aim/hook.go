@@ -18,10 +18,16 @@ const (
 	maxHookPayload = 16 << 20
 )
 
+// showNote is what a session-start hook tells the agent about aim show.
+const showNote = "You are running inside AIM, a terminal multiplexer. To show the user an image, such as a screenshot or a before and after pair, save it as PNG, JPEG, GIF or WebP and run `\"$AIM_BIN\" show <file>... --caption \"<text>\"` (at most 8 files); AIM displays it to them straight away."
+
 // newHookCmd is run by the agent for every hook event. It always succeeds
-// quietly: a failing or noisy hook would disturb the agent it reports on.
+// and prints only the SessionStart note: a failing or noisy hook would disturb
+// the agent it reports on.
 func newHookCmd(getenv func(string) string) *cobra.Command {
-	return &cobra.Command{
+	var note bool
+
+	cmd := &cobra.Command{
 		Use:    "hook <harness>",
 		Short:  "Report an agent hook event to the running AIM",
 		Hidden: true,
@@ -30,23 +36,23 @@ func newHookCmd(getenv func(string) string) *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), hookBudget)
 			defer cancel()
 
-			runHook(ctx, args[0], cmd.InOrStdin(), getenv)
+			runHook(ctx, args[0], note, cmd.InOrStdin(), cmd.OutOrStdout(), getenv)
 
 			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&note, "note", false, "print the aim show note at session start")
+
+	return cmd
 }
 
-// runHook forwards one hook payload to the AIM socket. It writes nothing
-// to stdout or stderr and drops the event on any failure.
-func runHook(ctx context.Context, id string, stdin io.Reader, getenv func(string) string) {
+// runHook forwards one hook payload to the AIM socket. Its only output is the
+// session-start note, which Claude Code adds to the agent's context; it drops
+// the event on any failure.
+func runHook(ctx context.Context, id string, note bool, stdin io.Reader, stdout io.Writer, getenv func(string) string) {
 	payload, ok := readPayload(ctx, stdin)
 	if !ok {
-		return
-	}
-
-	sock, pane := getenv("AIM_SOCK"), getenv("AIM_PANE")
-	if sock == "" || pane == "" {
 		return
 	}
 
@@ -57,6 +63,15 @@ func runHook(ctx context.Context, id string, stdin io.Reader, getenv func(string
 
 	ev, err := h.ParseEvent(payload)
 	if err != nil {
+		return
+	}
+
+	if note && ev.Name == "SessionStart" && getenv("AIM_BIN") != "" {
+		_, _ = io.WriteString(stdout, showNote+"\n")
+	}
+
+	sock, pane := getenv("AIM_SOCK"), getenv("AIM_PANE")
+	if sock == "" || pane == "" {
 		return
 	}
 

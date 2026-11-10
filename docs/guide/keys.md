@@ -108,6 +108,7 @@ Keys pressed after the leader key. Remap them under `[keys.leader]`.
 | `:` | `palette.open` | Open command palette |
 | `t` | `theme.pick` | Pick theme |
 | `m` | `md.open` | Open a markdown file |
+| `i` | `images.view` | Show images an agent sent |
 | `u` | `usage.toggle` | Claude usage |
 | `q` | `app.quit` | Quit AIM |
 
@@ -249,6 +250,20 @@ The table is `[keys.reader]`. These keys apply in the plan overlay, a markdown f
 | `e` | `reader.edit` | Reader: open in the editor |
 | `r` | `reader.refresh` | Reader: read again |
 | `esc` | `reader.close` | Reader: close the page or the overlay |
+
+## Image viewer
+
+The table is `[keys.images]`. These keys apply while the image viewer is open.
+
+| Key | Command | Title |
+| --- | --- | --- |
+| `left` | `images.prev` | Image viewer: newer images |
+| `h` | `images.prev` | Image viewer: newer images |
+| `right` | `images.next` | Image viewer: older images |
+| `l` | `images.next` | Image viewer: older images |
+| `o` | `images.open` | Image viewer: open in your image viewer |
+| `z` | `images.zoom` | Image viewer: zoom |
+| `esc` | `images.close` | Image viewer: close |
 
 ## Merge box
 

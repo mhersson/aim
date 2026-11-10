@@ -183,6 +183,9 @@ func (a *App) startPaneRunning(id core.PaneID, kind core.PaneKind, cwd string, c
 	env := []string{"AIM_PANE=" + string(id)}
 	if a.hookSock != "" {
 		env = append(env, "AIM_SOCK="+a.hookSock)
+		if a.hookBin != "" {
+			env = append(env, "AIM_BIN="+a.hookBin)
+		}
 	}
 
 	c := term.ShellCommand(a.getenv, a.shell, cwd, env)

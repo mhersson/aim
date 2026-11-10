@@ -30,6 +30,7 @@ const eventBuffer = 256
 // are empty, and Notice says why, when the setup failed.
 type hookRuntime struct {
 	Settings, Sock string
+	Bin            string // the binary the hooks run; AIM_BIN in every pane with the socket
 	RunDir         string // where temporary git indexes go; empty when setup failed
 	Notice         string
 	Events         <-chan harness.Event
@@ -85,9 +86,9 @@ func prCopyDir(indexCache string) string {
 // startHooks prepares <stateDir>/run: it sweeps files of dead instances, places
 // this instance's binary, writes its settings file and serves its socket. A
 // failure leaves nothing behind and yields a runtime with a notice, so agents
-// start without hooks. With shell it also writes the shell integration dir.
-func startHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.WatchSet, places *git.PlaceCache, shell bool) hookRuntime {
-	h, err := setupHooks(logger, stateDir, indexCache, watches, places, shell, defaultHookTimes())
+// start without hooks. With cfg.shell it also writes the shell integration dir.
+func startHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.WatchSet, places *git.PlaceCache, cfg hookConfig) hookRuntime {
+	h, err := setupHooks(logger, stateDir, indexCache, watches, places, cfg, defaultHookTimes())
 	if err != nil {
 		logger.Warn("agent hooks are off", "err", err)
 
@@ -97,12 +98,16 @@ func startHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.W
 	return h
 }
 
+// hookConfig is what the settings turn on: the shell integration and the
+// session-start note about aim show.
+type hookConfig struct{ shell, note bool }
+
 // hookTimes are the hook server's hold and the turn snapshot's budget.
 type hookTimes struct{ hold, budget time.Duration }
 
 func defaultHookTimes() hookTimes { return hookTimes{hold: turnHold, budget: turnBudget} }
 
-func setupHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.WatchSet, places *git.PlaceCache, shell bool, times hookTimes) (_ hookRuntime, err error) {
+func setupHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.WatchSet, places *git.PlaceCache, cfg hookConfig, times hookTimes) (_ hookRuntime, err error) {
 	runDir := filepath.Join(stateDir, "run")
 	if err := os.MkdirAll(runDir, 0o700); err != nil {
 		return hookRuntime{}, fmt.Errorf("run dir: %w", err)
@@ -144,7 +149,7 @@ func setupHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.W
 
 	hookExe := cmp.Or(bin, exe)
 
-	settings, err := harness.Claude{}.Settings(hookExe)
+	settings, err := harness.Claude{}.Settings(hookExe, cfg.note)
 	if err != nil {
 		return hookRuntime{}, err
 	}
@@ -161,7 +166,7 @@ func setupHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.W
 		ig       term.Integration
 	)
 
-	if shell {
+	if cfg.shell {
 		target := bin
 		if target == "" {
 			target = wrapperTarget(os.Args[0], exe, exec.LookPath)
@@ -234,7 +239,7 @@ func setupHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.W
 		}
 	})
 
-	return hookRuntime{Settings: settingsPath, Sock: sockPath, RunDir: runDir, Events: events, Shell: ig, stop: stop}, nil
+	return hookRuntime{Settings: settingsPath, Sock: sockPath, Bin: hookExe, RunDir: runDir, Events: events, Shell: ig, stop: stop}, nil
 }
 
 // warnStatusLineOff logs why Settings leaves out the status line for exe. The

@@ -84,6 +84,7 @@ type keyTables struct {
 	prList  keyTable
 	checks  keyTable
 	reader  keyTable
+	images  keyTable
 	merge   keyTable
 	compose keyTable
 }
@@ -216,6 +217,7 @@ func resolveKeys(cfg core.KeysConfig, reg *registry) (keymap, keyTables, error) 
 		{"pr_list", "PR list", prListKeys, scopedTo(reg, "pr_list"), &tables.prList, "prlist.close", "PR list"},
 		{"checks", "checks", checksKeys, scopedTo(reg, "checks"), &tables.checks, "checks.close", "checks overlay"},
 		{"reader", "reader", readerKeys, scopedTo(reg, "reader"), &tables.reader, "reader.close", "overlay"},
+		{"images", "image viewer", imagesKeys, scopedTo(reg, "images"), &tables.images, "images.close", "image viewer"},
 		{"merge", "merge", mergeKeys, scopedTo(reg, "merge"), &tables.merge, "merge.cancel", "merge box"},
 		{"compose", "compose", composeKeys, scopedTo(reg, "compose"), &tables.compose, "compose.cancel", "compose box"},
 	}

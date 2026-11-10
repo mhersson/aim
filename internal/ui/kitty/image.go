@@ -23,6 +23,9 @@ const (
 	MaxDecodedBytes = 160_000_000
 )
 
+// MaxFileBytes is the most an image file may hold.
+const MaxFileBytes = 5 << 20
+
 var (
 	// ErrFormat means the data is not a PNG, JPEG, GIF or WebP image.
 	ErrFormat = errors.New("not a PNG, JPEG, GIF or WebP image")

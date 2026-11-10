@@ -1,0 +1,4 @@
+{
+  "session_id": "11111111-2222-4333-8444-555555555555", "transcript_path": "/home/user/.claude/projects/-work/11111111-2222-4333-8444-555555555555.jsonl", "cwd": "/work",
+  "hook_event_name": "PostToolUse", "tool_name": "SendUserFile", "tool_input": {"files": ["/work/shots/before.png", "after.png", "notes.md"], "caption": "Before and after", "status": "normal", "display": "render"}, "tool_response": "2 files delivered to user", "tool_use_id": "toolu_01", "duration_ms": 12
+}

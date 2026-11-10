@@ -27,6 +27,7 @@ func defaultKeymap() keymap {
 			{key: ":", command: "palette.open", group: "App"},
 			{key: "t", command: "theme.pick", group: "App"},
 			{key: "m", command: "md.open", group: "App"},
+			{key: "i", command: "images.view", group: "App"},
 			{key: "u", command: "usage.toggle", group: "App"},
 			{key: "n", command: "agent.new", group: "Panes"},
 			{key: "a", command: "rail.toggle", group: "Panes"},

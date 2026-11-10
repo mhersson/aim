@@ -202,7 +202,10 @@ func commands(themes theme.Set) []command {
 		icon:  iconPlan,
 		title: "Open the agent's plan",
 		run:   (*App).planCommand,
-	}, command{
+	})
+	cmds = append(cmds, sentViewCommands()...)
+
+	cmds = append(cmds, command{
 		id:    "md.open",
 		icon:  iconMarkdown,
 		title: "Open a markdown file",

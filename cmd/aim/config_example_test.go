@@ -213,6 +213,7 @@ func normalized(c core.Config) core.Config {
 	c.Clipboard.OSC52 = new(c.Clipboard.OSC52On())
 	c.Clipboard.Native = new(c.Clipboard.NativeOn())
 	c.Shell.Integration = new(c.Shell.IntegrationOn())
+	c.Images.TellAgents = new(c.Images.TellAgentsOn())
 	c.Layout.MasterGrid = new(c.Layout.MasterGrid == nil || *c.Layout.MasterGrid)
 	c.Keys.WhichKeyDelay = new(int(c.Keys.Delay() / time.Millisecond))
 	c.Keys.LeaderKey = c.Keys.LeaderName()
@@ -220,7 +221,7 @@ func normalized(c core.Config) core.Config {
 
 	for _, m := range []*map[string]string{
 		&c.Keys.Leader, &c.Keys.Drawer, &c.Keys.Rail, &c.Keys.PRList,
-		&c.Keys.Checks, &c.Keys.Reader, &c.Keys.Merge, &c.Keys.Compose,
+		&c.Keys.Checks, &c.Keys.Reader, &c.Keys.Images, &c.Keys.Merge, &c.Keys.Compose,
 	} {
 		if len(*m) == 0 {
 			*m = nil
@@ -264,6 +265,7 @@ func allowedByKey() map[string]allowedSpec {
 		"clipboard.osc52":           bools,
 		"clipboard.native":          bools,
 		"shell.integration":         bools,
+		"images.tell_agents":        bools,
 		"diff.layout":               {values: core.DiffLayouts()},
 		"diff.mode":                 {values: names(core.ReviewModes())},
 		"diff.max_files":            {lo: core.MinDiffLimit, hi: -1},

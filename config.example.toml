@@ -131,6 +131,11 @@
 ## values: auto | osc9 | osc99 | osc777
 # protocol = "auto"
 
+[images]
+## Tell each agent, when its session starts, how to show you an image with "$AIM_BIN" show.
+## values: true | false
+# tell_agents = true
+
 [plans]
 ## Folders whose markdown files count as plans. Each is a relative folder path
 ## matched against the whole path of the file the agent edited, anywhere in it
@@ -200,6 +205,12 @@
 [keys.reader]
 ## Close a reading overlay on q.
 # "q" = "reader.close"
+
+## The image viewer's keys, while it is open.
+## Defaults: docs/guide/keys.md#image-viewer. Rules: docs/guide/config.md#remapping-keys.
+[keys.images]
+## Close the image viewer on q.
+# "q" = "images.close"
 
 ## The merge box's keys, while the box is open.
 ## Defaults: docs/guide/keys.md#merge-box. Rules: docs/guide/config.md#remapping-keys.
