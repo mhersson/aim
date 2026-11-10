@@ -32,8 +32,9 @@ const (
 // sentView is the open image viewer: one agent's pages, on one of them.
 type sentView struct {
 	pane  core.PaneID
-	batch int // seq of the shown page's batch
-	part  int // which page of that batch
+	batch int  // seq of the shown page's batch
+	image int  // first image of the shown page
+	pair  bool // the page shows both images of a pair
 }
 
 // sentPage is what one screen of the viewer shows: images of one batch, as
@@ -97,29 +98,25 @@ func (a *App) sentBox() (x, y, w, h int, ok bool) {
 	return x, y, w, h, ok && h >= sentChrome+1
 }
 
-// sentPos is the viewer's pages and the one on show. A page the width no
-// longer has gives the batch's last.
+// sentPos is the viewer's pages and the one on show: the page of its image. A
+// pair the width cannot show gives its first image alone.
 func (a *App) sentPos() (pages []sentPage, at int) {
 	v := a.sent.view
 
 	_, _, w, _, ok := a.sentBox()
 	pages = sentPages(a.sentBatches(v.pane), ok && w >= sentSideBySide)
-	part := 0
 
+	// A pair page the width lacks falls back to its first image alone.
 	for i, p := range pages {
-		if p.batch.seq != v.batch {
-			part = 0
-
+		if p.batch.seq != v.batch || p.images[0] != v.image {
 			continue
 		}
 
 		at = i
 
-		if part == v.part {
+		if (len(p.images) == 2) == v.pair {
 			break
 		}
-
-		part++
 	}
 
 	return pages, at
@@ -127,15 +124,8 @@ func (a *App) sentPos() (pages []sentPage, at int) {
 
 // sentRemember records page at as the one on show.
 func (a *App) sentRemember(pages []sentPage, at int) {
-	part := 0
-
-	for _, p := range pages[:at] {
-		if p.batch.seq == pages[at].batch.seq {
-			part++
-		}
-	}
-
-	a.sent.view.batch, a.sent.view.part = pages[at].batch.seq, part
+	p := pages[at]
+	a.sent.view.batch, a.sent.view.image, a.sent.view.pair = p.batch.seq, p.images[0], len(p.images) == 2
 }
 
 // openSentView is images.view: the images of the agent on the card, else the
@@ -176,7 +166,9 @@ func (a *App) showSentView(id core.PaneID) {
 	}
 
 	a.sent.card = nil
-	a.sent.view = &sentView{pane: id, batch: b[len(b)-1].seq}
+	newest := b[len(b)-1]
+	_, _, w, _, ok := a.sentBox()
+	a.sent.view = &sentView{pane: id, batch: newest.seq, pair: ok && w >= sentSideBySide && len(newest.images) == 2}
 }
 
 // sentStep moves the viewer by d pages, towards older ones when d is positive.

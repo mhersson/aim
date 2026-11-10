@@ -107,12 +107,12 @@ func keyOf(s string) tea.KeyPressMsg {
 	return keyRune([]rune(s)[0])
 }
 
-func shownAt(a *App) (seq, part int) {
+func shownAt(a *App) (seq, image int) {
 	if a.sent.view == nil {
 		return 0, 0
 	}
 
-	return a.sent.view.batch, a.sent.view.part
+	return a.sent.view.batch, a.sent.view.image
 }
 
 func TestSentViewPicksTheAgent(t *testing.T) {
@@ -234,6 +234,47 @@ func TestSentViewKeepsItsPageWhenABatchArrives(t *testing.T) {
 
 	if s, p := shownAt(a); s != seq || p != part {
 		t.Fatalf("after a new batch: batch %d part %d, want batch %d part %d", s, p, seq, part)
+	}
+}
+
+func TestSentViewKeepsItsImageAcrossAResize(t *testing.T) {
+	t.Parallel()
+
+	const wide, narrow = 120, 70
+
+	tests := []struct {
+		name     string
+		from, to int
+		steps    int // presses of l from the newest page
+		want     []int
+	}{
+		{"wide pair to narrow", wide, narrow, 0, []int{0}},
+		{"wide image 0 to narrow", wide, narrow, 1, []int{0}},
+		{"wide image 1 to narrow", wide, narrow, 2, []int{1}},
+		{"narrow image 0 to wide", narrow, wide, 0, []int{0}},
+		{"narrow image 1 to wide", narrow, wide, 1, []int{1}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			a, _ := sentApp(t)
+			sized(t, a, tt.from, 40)
+			sentSend(t, a, "p2", 2, "")
+			run(a, a.openSentView())
+
+			for range tt.steps {
+				pressRun(a, keyRune('l'))
+			}
+
+			sized(t, a, tt.to, 40)
+
+			pages, at := a.sentPos()
+			if got := pages[at].images; !slices.Equal(got, tt.want) {
+				t.Fatalf("shows images %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
