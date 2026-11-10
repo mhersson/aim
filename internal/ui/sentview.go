@@ -217,6 +217,7 @@ func (a *App) openSentImages() tea.Cmd {
 		defer cancel()
 
 		for _, c := range copies {
+			// A broken opener fails every file; one toast says why.
 			if err := open(ctx, c); err != nil {
 				return sentOpenedMsg{err: err}
 			}
@@ -269,6 +270,7 @@ func sentHints(kt keyTable) [][2]string {
 		ids   []string
 	}{
 		{"step", []string{"images.prev", "images.next"}},
+		{"open", []string{"images.open"}},
 		{"close", []string{"images.close"}},
 	} {
 		if k := kt.hint(d.ids...); k != "" {

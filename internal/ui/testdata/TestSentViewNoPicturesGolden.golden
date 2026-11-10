@@ -24,7 +24,7 @@
 │ │                                                                                              │ │
 │ │                                                                                              │ │
 │ │                                   before and after the fix                                   │ │
-│ │  left/right step    esc close                                                                │ │
+│ │  left/right step    o open    esc close                                                      │ │
 │ ╰─────────────────────────────────────────────────────────────────────────────────── 1-2 of 2 ─╯╮│
 │       │ 󰋽 worktrees unavailable: open /work: chdir /work: stat /work: no such file or directory ││
 ╰───────╰─────────────────────────────────────────────────────────────────────────────────────────╯╯

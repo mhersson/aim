@@ -472,8 +472,8 @@ func TestSentOpenRefusesWhatAIMCouldNotRead(t *testing.T) {
 	pressRun(a, keyRune('o'))
 
 	bad := a.sent.panes["p2"].batches[0].images[1]
-	if want := noticeNotOpening(filepath.Base(bad.path), bad.reason); a.notice != want {
-		t.Fatalf("notice = %q, want %q", a.notice, want)
+	if want := noticeNotOpening(filepath.Base(bad.path), bad.reason); a.notice != want || a.noticeLevel() != levelNotice {
+		t.Fatalf("notice = %q at level %d, want %q at level %d", a.notice, a.noticeLevel(), want, levelNotice)
 	}
 
 	if got := f.urls(); len(got) != 0 {
