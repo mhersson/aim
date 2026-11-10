@@ -256,7 +256,8 @@ always makes a batch. The batches live per pane for this run only and go with
 the pane. The viewer (`internal/ui/sentview.go`) draws in the reading box's
 geometry and sizes its pictures through the `pictures` registry with its own
 caps (`sizeIn`), from AIM's copies, so a picture is never read from where the
-agent put it.
+agent put it. `images.open` hands the system opener only AIM's own copy of an
+image AIM decoded, never an entry it could not read, and never the agent's path.
 
 The status line also carries the account's usage. `rate_limits` becomes
 `Event.FiveHour` and `SevenDay` (a window counts only with a percent and a reset

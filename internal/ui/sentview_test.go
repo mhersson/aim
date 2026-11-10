@@ -1,8 +1,10 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"unicode"
@@ -408,4 +410,86 @@ func TestSentViewNoPicturesGolden(t *testing.T) {
 
 	a := sentViewScene(t, 100, 30, false)
 	golden.RequireEqual(t, []byte(plain(a.View().Content)))
+}
+
+// sentOpenScene opens the viewer on one batch of n images at 120x40, with a
+// fake opener.
+func sentOpenScene(t *testing.T, n int) (*App, *fakeOpen) {
+	t.Helper()
+
+	a, _ := sentApp(t)
+	sized(t, a, 120, 40)
+
+	f := &fakeOpen{}
+	a.openLink = f.open
+
+	sentSend(t, a, "p2", n, "")
+	run(a, a.openSentView())
+
+	return a, f
+}
+
+func shownImages(a *App) []sentImage {
+	pages, at := a.sentPos()
+
+	var out []sentImage
+	for _, i := range pages[at].images {
+		out = append(out, pages[at].batch.images[i])
+	}
+
+	return out
+}
+
+func TestSentOpenRunsTheOpener(t *testing.T) {
+	t.Parallel()
+
+	for _, n := range []int{1, 2} {
+		t.Run(fmt.Sprint(n, " images"), func(t *testing.T) {
+			t.Parallel()
+
+			a, f := sentOpenScene(t, n)
+
+			var want []string
+			for _, im := range shownImages(a) {
+				want = append(want, im.copy)
+			}
+
+			pressRun(a, keyRune('o'))
+
+			if got := f.urls(); !slices.Equal(got, want) || len(want) != n {
+				t.Fatalf("opened %v, want the copies %v", got, want)
+			}
+		})
+	}
+}
+
+func TestSentOpenRefusesWhatAIMCouldNotRead(t *testing.T) {
+	t.Parallel()
+
+	a, f := sentOpenScene(t, 2)
+	a.sent.panes["p2"].batches[0].images[1].reason = "not an image"
+
+	pressRun(a, keyRune('o'))
+
+	bad := a.sent.panes["p2"].batches[0].images[1]
+	if want := noticeNotOpening(filepath.Base(bad.path), bad.reason); a.notice != want {
+		t.Fatalf("notice = %q, want %q", a.notice, want)
+	}
+
+	if got := f.urls(); len(got) != 0 {
+		t.Fatalf("opened %v, want nothing", got)
+	}
+}
+
+func TestSentOpenSaysWhyTheViewerFailed(t *testing.T) {
+	t.Parallel()
+
+	a, f := sentOpenScene(t, 1)
+	f.fail = errors.New("no xdg-open")
+
+	pressRun(a, keyRune('o'))
+
+	if a.noticeLevel() != levelError || !strings.Contains(a.notice, f.fail.Error()) {
+		t.Fatalf("notice = %q at level %d, want an error with %q", a.notice, a.noticeLevel(), f.fail)
+	}
 }

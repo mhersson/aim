@@ -44,6 +44,7 @@ var (
 		{"h", "images.prev"},
 		{"right", "images.next"},
 		{"l", "images.next"},
+		{"o", "images.open"},
 		{"esc", "images.close"},
 	}
 	checksKeys = []reviewKey{

@@ -261,6 +261,7 @@ The table is `[keys.images]`. These keys apply while the image viewer is open.
 | `h` | `images.prev` | Image viewer: newer images |
 | `right` | `images.next` | Image viewer: older images |
 | `l` | `images.next` | Image viewer: older images |
+| `o` | `images.open` | Image viewer: open in your image viewer |
 | `esc` | `images.close` | Image viewer: close |
 
 ## Merge box

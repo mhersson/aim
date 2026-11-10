@@ -701,6 +701,10 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.onSentCopied(msg)
 
 		return a, nil
+	case sentOpenedMsg:
+		a.onSentOpened(msg)
+
+		return a, nil
 	case hookMsg:
 		return a, tea.Batch(a.onHook(msg.ev), a.waitEvent())
 	case editPlaceMsg:

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -179,6 +180,56 @@ func (a *App) sentStep(d int) {
 	a.sentRemember(pages, min(max(at+d, 0), len(pages)-1))
 }
 
+// sentOpenedMsg answers the system opener: err is why it failed.
+type sentOpenedMsg struct{ err error }
+
+func noticeNotOpening(name, reason string) string {
+	return "not opening " + name + ": " + reason
+}
+
+// openSentImages is images.open: AIM's copy of each image on the shown page
+// goes to the system opener, which never sees a file AIM did not decode.
+func (a *App) openSentImages() tea.Cmd {
+	if a.sent.view == nil {
+		return nil
+	}
+
+	pages, at := a.sentPos()
+	page := pages[at]
+
+	var copies []string
+
+	for _, i := range page.images {
+		im := page.batch.images[i]
+		if !im.decoded() {
+			a.notice = noticeNotOpening(printable(filepath.Base(im.path)), printable(im.reason))
+
+			return nil
+		}
+
+		copies = append(copies, im.copy)
+	}
+
+	open, ctx := a.openLink, a.ctx
+
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(ctx, openTimeout)
+		defer cancel()
+
+		for _, c := range copies {
+			if err := open(ctx, c); err != nil {
+				return sentOpenedMsg{err: err}
+			}
+		}
+
+		return nil
+	}
+}
+
+func (a *App) onSentOpened(msg sentOpenedMsg) {
+	a.toast(levelError, "image viewer: "+gitReason(msg.err))
+}
+
 func sentViewCommands() []command {
 	cmd := func(id, title string, run func(*App)) command {
 		return command{id: id, title: "Image viewer: " + title, run: func(a *App) tea.Cmd {
@@ -199,6 +250,7 @@ func sentViewCommands() []command {
 		cmd("images.prev", "newer images", func(a *App) { a.sentStep(-1) }),
 		cmd("images.next", "older images", func(a *App) { a.sentStep(1) }),
 		cmd("images.close", "close", func(a *App) { a.sent.view = nil }),
+		{id: "images.open", title: "Image viewer: open in your image viewer", run: (*App).openSentImages},
 	})...)
 }
 
@@ -240,6 +292,15 @@ type sentPic struct {
 	dy             int
 }
 
+// sentOpenHint says which key opens an image, or "" when none does.
+func (a *App) sentOpenHint() string {
+	if k := a.keys.images.hint("images.open"); k != "" {
+		return k + " opens it in your image viewer"
+	}
+
+	return ""
+}
+
 // sentSlotOf lays im out in slotW x area cells: its picture centred when the
 // registry answers one, else its name and the reason, centred.
 func (a *App) sentSlotOf(im sentImage, slotW, area int, ui theme.UI) sentSlot {
@@ -271,9 +332,15 @@ func (a *App) sentSlotOf(im sentImage, slotW, area int, ui theme.UI) sentSlot {
 		lines = append(lines, text(name, ui.Fg))
 		if sz.Loading {
 			lines = append(lines, text("loading…", ui.Muted))
+		} else if h := a.sentOpenHint(); h != "" {
+			lines = append(lines, text(h, ui.Muted))
 		}
 	} else {
 		lines = append(lines, text(name, ui.Fg))
+		if h := a.sentOpenHint(); h != "" && im.decoded() {
+			lines = append(lines, text(h, ui.Muted))
+		}
+
 		if im.reason != "" {
 			lines = append(lines, text(printable(im.reason), ui.Muted))
 		}
