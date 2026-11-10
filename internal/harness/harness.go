@@ -56,7 +56,7 @@ type RateWindow struct {
 	ResetsAt int64   `json:"resets_at"`
 }
 
-// Event is one hook or statusline payload reduced to what the app needs.
+// Event is one hook, statusline or aim show payload reduced to what the app needs.
 type Event struct {
 	Pane       core.PaneID     `json:"pane"`
 	Name       string          `json:"name"` // the harness's hook event name, or "statusline", for logs
@@ -91,6 +91,16 @@ type Event struct {
 	// command changed, as Claude Code lists them: one per directory, at most 16
 	// and 32 KiB once encoded.
 	Changed []string `json:"changed,omitempty"`
+
+	// Images are the cleaned absolute image paths sent to the user, in order,
+	// without repeats.
+	Images []string `json:"images,omitempty"`
+	// Caption is printable and cut like an action.
+	Caption string `json:"caption,omitempty"`
+	// Named marks Images that came from the final reply; AIM keeps those that are regular files.
+	Named bool `json:"named,omitempty"`
+	// Show marks an aim show line, not a hook: it carries Pane, Name "show", Images and Caption.
+	Show bool `json:"show,omitempty"`
 
 	// Status marks a status update from the agent's statusline, not a hook. It
 	// carries Session and the fields below, and leaves state, action and cwd alone.

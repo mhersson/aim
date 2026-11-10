@@ -1019,3 +1019,48 @@ func TestWithSettings(t *testing.T) {
 		})
 	}
 }
+
+func TestParseEventImages(t *testing.T) {
+	t.Parallel()
+
+	c := Claude{home: func() (string, error) { return "/home/user", nil }}
+	send := `"cwd":"/work","tool_name":"SendUserFile","tool_input":{"files":["/work/shots/before.png","after.png","notes.md"],"caption":"Before\nand after"}`
+	text := `"cwd":"/work","last_assistant_message":"Here is ![shot](proof.png), ` + "`./proof.png`" +
+		`, ~/aim-proof-none.png and https://example.com/x.png."`
+	named := []string{"/work/proof.png", "/home/user/aim-proof-none.png"}
+	sent := []string{"/work/shots/before.png", "/work/after.png"}
+
+	tests := []struct {
+		name    string
+		payload []byte
+		images  []string
+		caption string
+		named   bool
+	}{
+		{"send", payload("PostToolUse", send), sent, "Before and after", false},
+		{"send failed", payload("PostToolUseFailure", send), nil, "", false},
+		{
+			"send no image",
+			payload("PostToolUse", `"cwd":"/work","tool_name":"SendUserFile","tool_input":{"files":["notes.md"]}`),
+			nil, "", false,
+		},
+		{"stop", payload("Stop", text), named, "", true},
+		{"stop failure", payload("StopFailure", text), nil, "", false},
+		{"send fixture", readFixture(t, "post_tool_use_send_user_file.constructed"), sent, "Before and after", false},
+		{"stop fixture", readFixture(t, "stop_named_images"), named, "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ev, err := c.ParseEvent(tt.payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if !reflect.DeepEqual(ev.Images, tt.images) || ev.Caption != tt.caption || ev.Named != tt.named {
+				t.Errorf("got %q %q %v, want %q %q %v", ev.Images, ev.Caption, ev.Named, tt.images, tt.caption, tt.named)
+			}
+		})
+	}
+}

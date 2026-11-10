@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"path/filepath"
 	"strings"
 	"unicode"
@@ -19,6 +20,8 @@ type Claude struct {
 	// oneOff runs claude in dir with args and stdin and returns its stdout;
 	// nil runs the claude on PATH.
 	oneOff func(ctx context.Context, dir string, args []string, stdin string) (string, error)
+	// home returns the user's home directory; nil uses os.UserHomeDir.
+	home func() (string, error)
 }
 
 // settingsFlag is Claude Code's flag for an extra settings file.
@@ -165,6 +168,8 @@ type claudePayload struct {
 	ToolInput    json.RawMessage `json:"tool_input"`
 	ToolResponse json.RawMessage `json:"tool_response"`
 	Message      json.RawMessage `json:"message"`
+
+	LastAssistantMessage string `json:"last_assistant_message"`
 }
 
 // maxActionRunes bounds the action shown on a card.
@@ -375,7 +380,7 @@ func firstLine(s string) string {
 	return line
 }
 
-func (Claude) ParseEvent(payload []byte) (Event, error) {
+func (c Claude) ParseEvent(payload []byte) (Event, error) {
 	var p claudePayload
 	if err := json.Unmarshal(payload, &p); err != nil {
 		return Event{}, fmt.Errorf("harness: parse claude-code payload: %w", err)
@@ -416,6 +421,17 @@ func (Claude) ParseEvent(payload []byte) (Event, error) {
 		if p.Name == "PostToolUse" {
 			ev.Edit = editPath(p.ToolName, p.ToolInput)
 			ev.Changed = changedPaths(p.ToolName, p.ToolResponse)
+
+			if p.ToolName == "SendUserFile" {
+				fields := objectFields(p.ToolInput)
+
+				var files []string
+				if json.Unmarshal(fields["files"], &files) == nil {
+					ev.Images = imagePaths(files, p.Cwd, MaxImages)
+				}
+
+				ev.Caption = Caption(jsonString(fields["caption"]))
+			}
 		}
 	case "ElicitationResult":
 		ev.State = core.AgentWorking
@@ -448,11 +464,31 @@ func (Claude) ParseEvent(payload []byte) (Event, error) {
 		}
 	case "Stop", "StopFailure":
 		ev.State, ev.ActionSet, ev.TurnEnd = core.AgentIdle, true, true
+
+		if p.Name == "Stop" {
+			ev.Images = namedImages(p.LastAssistantMessage, p.Cwd, c.homeDir())
+			ev.Named = len(ev.Images) > 0
+		}
 	default:
 		return Event{}, fmt.Errorf("harness: unknown claude-code event %q", p.Name)
 	}
 
 	return ev, nil
+}
+
+// homeDir is the user's home directory, or "" when it is unknown.
+func (c Claude) homeDir() string {
+	f := c.home
+	if f == nil {
+		f = os.UserHomeDir
+	}
+
+	home, err := f()
+	if err != nil {
+		return ""
+	}
+
+	return home
 }
 
 // permissionAction is "Allow <tool> <target>?".
