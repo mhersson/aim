@@ -196,7 +196,7 @@ func (a *App) handleClick(msg tea.MouseClickMsg) tea.Cmd {
 		return nil
 	}
 
-	if a.sentCardClick(msg.Mouse()) {
+	if !a.pending && a.sentCardClick(msg.Mouse()) {
 		a.releaseForwarded()
 		a.endPress()
 

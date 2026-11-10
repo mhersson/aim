@@ -306,59 +306,72 @@ func (a *App) sentOpenHint() string {
 	return ""
 }
 
-// sentSlotOf lays im out in slotW x area cells: its picture centred when the
-// registry answers one, else its name and the reason, centred.
-func (a *App) sentSlotOf(im sentImage, slotW, area int, ui theme.UI) sentSlot {
+// slotText is one centred line of a slot.
+type slotText struct {
+	s  string
+	fg theme.Hex
+}
+
+// sentSlotCore lays im out in slotW x area cells: its picture centred when the
+// registry answers one and area is at least minArea, else the lines text gives,
+// centred. text is told whether the picture was tried and still loads.
+func (a *App) sentSlotCore(im sentImage, slotW, area, minArea int, ui theme.UI, text func(tried, loading bool) []slotText) sentSlot {
 	on := func(fg theme.Hex) lipgloss.Style { return lipgloss.NewStyle().Foreground(fg).Background(ui.Panel) }
 	pad := func(n int) string { return on(ui.Fg).Render(strings.Repeat(" ", max(n, 0))) }
-
-	var lines []string
-
-	name := printable(filepath.Base(im.path))
-	text := func(s string, fg theme.Hex) string {
-		s = ansi.Truncate(s, slotW, "…")
-		sw := ansi.StringWidth(s)
-
-		return pad((slotW-sw)/2) + on(fg).Render(s) + pad(slotW-sw-(slotW-sw)/2)
-	}
 
 	rows := make([]string, area)
 	for i := range rows {
 		rows[i] = pad(slotW)
 	}
 
-	if im.decoded() && area >= sentMinArea {
+	tried, loading := im.decoded() && area >= minArea, false
+
+	if tried {
 		sz := a.pictures.sizeIn(docPictures{reg: a.pictures, root: a.sent.dir}, im.copy, slotW, area)
 
 		if sz.Cols > 0 && sz.Rows > 0 {
 			return sentSlot{rows: rows, pic: &sentPic{id: sz.ID, cols: sz.Cols, rows: sz.Rows, dx: (slotW - sz.Cols) / 2, dy: (area - sz.Rows) / 2}}
 		}
 
-		lines = append(lines, text(name, ui.Fg))
-		if sz.Loading {
-			lines = append(lines, text("loading…", ui.Muted))
-		} else if h := a.sentOpenHint(); h != "" {
-			lines = append(lines, text(h, ui.Muted))
-		}
-	} else {
-		lines = append(lines, text(name, ui.Fg))
-		if h := a.sentOpenHint(); h != "" && im.decoded() {
-			lines = append(lines, text(h, ui.Muted))
-		}
-
-		if im.reason != "" {
-			lines = append(lines, text(printable(im.reason), ui.Muted))
-		}
+		loading = sz.Loading
 	}
 
+	lines := text(tried, loading)
 	top := max((area-len(lines))/2, 0)
+
 	for i, l := range lines {
-		if top+i < area {
-			rows[top+i] = l
+		if top+i >= area {
+			break
 		}
+
+		s := ansi.Truncate(l.s, slotW, "…")
+		sw := ansi.StringWidth(s)
+		rows[top+i] = pad((slotW-sw)/2) + on(l.fg).Render(s) + pad(slotW-sw-(slotW-sw)/2)
 	}
 
 	return sentSlot{rows: rows}
+}
+
+// sentSlotOf is a viewer slot: the picture, else the name with the open hint
+// and the reason.
+func (a *App) sentSlotOf(im sentImage, slotW, area int, ui theme.UI) sentSlot {
+	return a.sentSlotCore(im, slotW, area, sentMinArea, ui, func(tried, loading bool) []slotText {
+		lines := []slotText{{printable(filepath.Base(im.path)), ui.Fg}}
+		hint := a.sentOpenHint()
+
+		switch {
+		case tried && loading:
+			lines = append(lines, slotText{"loading…", ui.Muted})
+		case hint != "" && im.decoded():
+			lines = append(lines, slotText{hint, ui.Muted})
+		}
+
+		if !tried && im.reason != "" {
+			lines = append(lines, slotText{printable(im.reason), ui.Muted})
+		}
+
+		return lines
+	})
 }
 
 // sentLines draws the box w x h and the picture rows in the box's cells.

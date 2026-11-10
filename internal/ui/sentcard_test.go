@@ -262,6 +262,27 @@ func TestSentCardClickOpensTheViewer(t *testing.T) {
 	}
 }
 
+func TestSentCardClickWaitsForTheLeader(t *testing.T) {
+	t.Parallel()
+
+	a, _ := cardApp(t)
+	sentSend(t, a, "p2", 1, "")
+
+	x, y, _, _, _, _ := sentCardLayout(a.width, a.height, a.pictures.on())
+
+	press(a, keyLeader)
+
+	if !a.pending {
+		t.Fatal("leader not pending")
+	}
+
+	a.Update(tea.MouseClickMsg{X: x + 1, Y: y + 1, Button: tea.MouseLeft})
+
+	if a.sent.view != nil || a.sent.card == nil {
+		t.Fatalf("view = %+v, card = %+v after a click with the leader pending, want no viewer and the card kept", a.sent.view, a.sent.card)
+	}
+}
+
 func TestSentViewOpensTheCardsAgent(t *testing.T) {
 	t.Parallel()
 
@@ -354,7 +375,12 @@ func TestSentCardHidesTheCursor(t *testing.T) {
 		t.Fatalf("cursor = %+v, want (92, 22) without a card", cur)
 	}
 
-	a.sent.card = &sentCard{batch: 1, seq: 1}
+	a.sent.dir = t.TempDir()
+	sentSend(t, a, "p2", 1, "")
+
+	if a.sent.card == nil {
+		t.Fatal("no card after a batch")
+	}
 
 	if cur := a.cursorView(); cur != nil {
 		t.Fatalf("cursor = %+v under the card, want none", cur)
@@ -403,6 +429,7 @@ func TestSentCardGolden(t *testing.T) {
 	}{
 		{"two-pictures", 2, "before and after the fix", true},
 		{"three-images", 3, "", true},
+		{"three-images-caption", 3, "before and after the fix", true},
 		{"no-pictures", 2, "before and after the fix", false},
 	}
 

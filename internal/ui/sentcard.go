@@ -250,13 +250,16 @@ func (a *App) sentCardLines(lk look, b sentBatch, w, picRows int) (out []string,
 			}
 		}
 
-		text := caption
+		text, more := caption, ""
 		if text == "" {
 			text = strings.Join(names[:n], ", ")
-			if more := len(names) - n; more > 0 {
-				text += "  +" + strconv.Itoa(more) + " more"
-			}
 		}
+
+		if k := len(names) - n; k > 0 {
+			more = "  +" + strconv.Itoa(k) + " more"
+		}
+
+		text = ansi.Truncate(text, content-ansi.StringWidth(more), "…") + more
 
 		out = append(out, centred(text, ui.Fg))
 	} else {
@@ -273,38 +276,21 @@ func (a *App) sentCardLines(lk look, b sentBatch, w, picRows int) (out []string,
 	return append(out, tone.Render("╰"+strings.Repeat("─", w-2)+"╯")), pics
 }
 
-// sentCardSlot lays im out in slotW x rows cells: its picture centred, else its
-// name with the reason or "loading…".
+// sentCardSlot is a card slot: the picture, else one line with the name and
+// the reason, or "loading…".
 func (a *App) sentCardSlot(im sentImage, slotW, rows int, ui theme.UI) sentSlot {
-	on := func(fg theme.Hex) lipgloss.Style { return lipgloss.NewStyle().Foreground(fg).Background(ui.Panel) }
-	pad := func(n int) string { return on(ui.Fg).Render(strings.Repeat(" ", max(n, 0))) }
+	return a.sentSlotCore(im, slotW, rows, 0, ui, func(tried, loading bool) []slotText {
+		name := printable(filepath.Base(im.path))
 
-	out := make([]string, rows)
-	for i := range out {
-		out[i] = pad(slotW)
-	}
-
-	var text string
-
-	if im.decoded() {
-		sz := a.pictures.sizeIn(docPictures{reg: a.pictures, root: a.sent.dir}, im.copy, slotW, rows)
-		if sz.Cols > 0 && sz.Rows > 0 {
-			return sentSlot{rows: out, pic: &sentPic{id: sz.ID, cols: sz.Cols, rows: sz.Rows, dx: (slotW - sz.Cols) / 2, dy: (rows - sz.Rows) / 2}}
+		switch {
+		case loading:
+			name = "loading…"
+		case !tried:
+			name += ": " + printable(im.reason)
 		}
 
-		text = printable(filepath.Base(im.path))
-		if sz.Loading {
-			text = "loading…"
-		}
-	} else {
-		text = printable(filepath.Base(im.path)) + ": " + printable(im.reason)
-	}
-
-	text = ansi.Truncate(text, slotW, "…")
-	sw := ansi.StringWidth(text)
-	out[(rows-1)/2] = pad((slotW-sw)/2) + on(ui.Fg).Render(text) + pad(slotW-sw-(slotW-sw)/2)
-
-	return sentSlot{rows: out}
+		return []slotText{{name, ui.Fg}}
+	})
 }
 
 // overlaySentCard draws the card over base; it takes no keys of its own.
