@@ -148,6 +148,10 @@ func run(ctx context.Context, env core.Env, configPath, recordDir string, fresh 
 		logger.Info("swept index cache", "removed", n)
 	}
 
+	if indexCache != "" {
+		sweepSent(logger, filepath.Join(indexCache, "sent"), pidAlive)
+	}
+
 	if held {
 		if n, err := git.SweepPRCopies(prCopyDir(indexCache), time.Now()); err != nil {
 			logger.Warn("sweep pull request copies", "err", err)
@@ -244,6 +248,7 @@ func run(ctx context.Context, env core.Env, configPath, recordDir string, fresh 
 		Pictures:     github.NewImageFetcher(github.ImageOptions{}),
 		ImageCache:   imageCacheDir(indexCache),
 		PRCopies:     prCopyDir(indexCache),
+		SentDir:      sentDir(indexCache, os.Getpid()),
 		Git:          ui.SystemGit{},
 		Watches:      watches,
 		Places:       places,
@@ -273,6 +278,12 @@ func run(ctx context.Context, env core.Env, configPath, recordDir string, fresh 
 	defer cancel()
 
 	closeRun(closeCtx, logger, app, prs)
+
+	if dir := sentDir(indexCache, os.Getpid()); dir != "" {
+		if err := os.RemoveAll(dir); err != nil {
+			logger.Warn("remove sent images", "err", err)
+		}
+	}
 
 	if err != nil && ctx.Err() == nil {
 		logger.Error("run", "err", err)

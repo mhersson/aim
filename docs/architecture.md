@@ -47,7 +47,8 @@ quitting AIM ends its agents, and the next start resumes their sessions.
 
 **Off the update loop** run git, GitHub, file reads, markdown parsing
 (`md.Parse` recurses once per nesting level), syntax highlighting and image
-decoding, as `tea.Cmd`s or goroutines. Each runs under a context derived from
+decoding and the copies of the images agents send (`copySent`), as `tea.Cmd`s
+or goroutines. Each runs under a context derived from
 the app's, which quit cancels, with its own limit as a named constant beside
 its caller (`reviewLoadTimeout`, `pushTimeout`, `mergeTimeout`). The rail's
 probes and the edit resolutions share 4 slots (`railProbeMax`).
@@ -242,6 +243,17 @@ payloads in `internal/harness/testdata`. Two rules cover what hooks miss:
 - One `esc` interrupts a Claude turn, so after an `esc` that hands a pane the
   keyboard, further ones are held back briefly (`handleKey`,
   `internal/ui/input.go`; [Esc and Claude Code](guide/agents.md#esc-and-claude-code)).
+
+**Images an agent sends.** An event with `Images` makes a batch in
+`App.onSent` (`internal/ui/sent.go`), from three sources: `SendUserFile`'s
+`PostToolUse`, the paths in `Stop`'s `last_assistant_message` (kept only when
+they are regular files) and an `aim show` line, which passes the shell-pane hold
+because it names its pane. Each image is copied into `<cache>/aim/sent/<pid>`
+off the loop at arrival, since an agent overwrites the same name for its next
+picture and the batch must keep the old one. On an agent pane a final reply's
+path already sent or named in the same turn is dropped, while an explicit send
+always makes a batch. The batches live per pane for this run only and go with
+the pane.
 
 The status line also carries the account's usage. `rate_limits` becomes
 `Event.FiveHour` and `SevenDay` (a window counts only with a percent and a reset
@@ -533,7 +545,7 @@ the followed place back, and one after a session change records nothing.
 | `<state dir>/aim-<pid>.log` | a second instance's log | per run, appended; the saver sweeps one at start once its pid is dead and it is untouched 7 days |
 | `<state dir>/reviews/*.json` | reviewed-hunk marks, per repository | atomic, not fsynced |
 | `<state dir>/run/` | socket, settings, the instance's binary, shell integration, temporary indexes | per run; swept |
-| `<user cache dir>/aim/` | index copies, fetched images, pull request copies (`prs/<host>/<owner>/<name>`) | as used; swept at start: index copies not refreshed for 14 days, images untouched 30, copies unused 30 (only the instance that holds `state.lock`) |
+| `<user cache dir>/aim/` | index copies, fetched images, pull request copies (`prs/<host>/<owner>/<name>`), sent images (`sent/<pid>`) | as used; swept at start: index copies not refreshed for 14 days, images untouched 30, copies unused 30 (only the instance that holds `state.lock`); `sent/<pid>` is per run, removed at quit, and a dead instance's is swept at start by any instance |
 
 - **Only what cannot come back is saved.** Agent states, actions, reported
   directories, edits, models, Claude usage, pull request data and a drawer's pin

@@ -47,6 +47,10 @@ func (a *App) waitEvent() tea.Cmd {
 // onHook applies a hook or status event. An event for a pane that is not open is
 // ignored, and one for a shell pane is held until the probe answers (holdHook).
 func (a *App) onHook(ev harness.Event) tea.Cmd {
+	if ev.Show {
+		return a.onSent(ev)
+	}
+
 	m, ok := a.store.State().Panes[ev.Pane]
 	if ok && m.Kind != core.KindAgent {
 		return a.holdHook(ev)
@@ -117,8 +121,19 @@ func (a *App) onHook(ev harness.Event) tea.Cmd {
 
 	plans := a.notePlans(m, ev.Pane, ev)
 
+	if ev.TurnStart {
+		if sp := a.sent.panes[ev.Pane]; sp != nil {
+			clear(sp.turn)
+		}
+	}
+
+	var sent tea.Cmd
+	if len(ev.Images) > 0 {
+		sent = a.onSent(ev)
+	}
+
 	// After the session is recorded: the name probe reads the transcript it reports.
-	probes := tea.Batch(a.railHook(ev.Pane, ev.Start, ev.State == core.AgentIdle), a.reviewHook(ev.Pane, ev.TurnStart, ev.Snapped), edit, changed, plans)
+	probes := tea.Batch(a.railHook(ev.Pane, ev.Start, ev.State == core.AgentIdle), a.reviewHook(ev.Pane, ev.TurnStart, ev.Snapped), edit, changed, plans, sent)
 
 	if ev.State == core.AgentUnknown {
 		return probes

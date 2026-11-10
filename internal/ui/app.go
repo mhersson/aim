@@ -122,6 +122,9 @@ type Options struct {
 	// PRCopies is where AIM's private copies of repositories live, for pull
 	// requests of repositories no pane is in; empty turns that route off.
 	PRCopies string
+	// SentDir is where copies of the images agents send are kept for this run;
+	// empty keeps none.
+	SentDir string
 }
 
 // markFiles is the persistence of the reviewed-hunk marks, one file per
@@ -184,6 +187,7 @@ type App struct {
 	actions                prActions               // GitHub writes; nil means they are off
 	reads                  prReads                 // GitHub reads beyond the poller; nil means they are off
 	prCopies               string                  // where the pull request copies live; "" means none
+	sent                   sentState               // the images agents sent this run
 	pullRequests           core.PullRequestsConfig // how far back the Review requested search goes
 	search                 prSearchState
 
@@ -336,6 +340,7 @@ func New(opts Options) (*App, error) {
 	a.actions = opts.PRActions
 	a.reads = opts.PRReads
 	a.prCopies = opts.PRCopies
+	a.sent.dir = opts.SentDir
 	a.pullRequests = opts.PullRequests
 
 	a.openLink = opts.OpenURL
@@ -510,6 +515,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	check()
 	a.syncPaneColors()
 	a.railAfterUpdate()
+
+	if c := a.sentAfterUpdate(); c != nil {
+		a.later = append(a.later, c)
+	}
 
 	if c := a.watchSync(); c != nil {
 		a.later = append(a.later, c)
@@ -688,6 +697,10 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, a.onCwdDue(msg)
 	case paneKindDueMsg:
 		return a, a.onKindDue(msg)
+	case sentCopiedMsg:
+		a.onSentCopied(msg)
+
+		return a, nil
 	case hookMsg:
 		return a, tea.Batch(a.onHook(msg.ev), a.waitEvent())
 	case editPlaceMsg:
