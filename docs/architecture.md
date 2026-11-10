@@ -268,7 +268,9 @@ picture and the batch must keep the old one. On an agent pane a final reply's
 path already sent or named in the same turn is dropped, while an explicit send
 always makes a batch. The batches live per pane for this run only and go with
 the pane. The viewer (`internal/ui/sentview.go`) draws in the reading box's
-geometry and sizes its pictures through the `pictures` registry with its own
+geometry (`z` zooms it to the whole terminal less a thin
+margin, over the rail and the tab row) and sizes its pictures through the
+`pictures` registry with its own
 caps (`sizeIn`), from AIM's copies, so a picture is never read from where the
 agent put it. `images.open` hands the system opener only AIM's own copy of an
 image AIM decoded, never an entry it could not read, and never the agent's path.

@@ -278,6 +278,169 @@ func TestSentViewKeepsItsImageAcrossAResize(t *testing.T) {
 	}
 }
 
+func TestSentViewZoomTogglesTheBox(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		w, h          int
+		x, y, bw, bh  int
+		zoomedInPlace bool // the zoomed box is drawn where the reading box is not
+	}{
+		{"margin", 120, 40, 2, 1, 116, 38, false},
+		{"margin dropped", 24, 8, 0, 0, 24, 8, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			a, _ := sentApp(t)
+			sized(t, a, tt.w, tt.h)
+			sentSend(t, a, "p2", 1, "")
+			run(a, a.openSentView())
+
+			px, py, pw, ph, pok := planBox(tt.w, tt.h)
+			if pok {
+				pok = ph >= sentChrome+1
+			}
+
+			x, y, w, h, ok := a.sentBox()
+			if ok != pok || ok && (x != px || y != py || w != pw || h != ph) {
+				t.Fatalf("before z: box %d,%d %dx%d ok=%v, want the reading box", x, y, w, h, ok)
+			}
+
+			pressRun(a, keyRune('z'))
+
+			x, y, w, h, ok = a.sentBox()
+			if !ok || x != tt.x || y != tt.y || w != tt.bw || h != tt.bh {
+				t.Fatalf("zoomed: box %d,%d %dx%d ok=%v, want %d,%d %dx%d", x, y, w, h, ok, tt.x, tt.y, tt.bw, tt.bh)
+			}
+
+			if tt.zoomedInPlace && pok {
+				t.Fatal("fixture: the reading box fits")
+			}
+
+			pressRun(a, keyRune('z'))
+
+			x, y, w, h, ok = a.sentBox()
+			if ok != pok || ok && (x != px || y != py || w != pw || h != ph) {
+				t.Fatalf("after the second z: box %d,%d %dx%d ok=%v, want the reading box", x, y, w, h, ok)
+			}
+		})
+	}
+}
+
+func TestSentViewZoomEndsWithTheViewer(t *testing.T) {
+	t.Parallel()
+
+	a, _ := sentApp(t)
+	sized(t, a, 120, 40)
+	sentSend(t, a, "p2", 1, "")
+	run(a, a.openSentView())
+	pressRun(a, keyRune('z'), keyEsc)
+
+	run(a, a.openSentView())
+
+	if x, _, _, _, _ := a.sentBox(); x == 2 {
+		t.Fatal("the viewer reopened zoomed")
+	}
+}
+
+func TestSentViewZoomedKeysWork(t *testing.T) {
+	t.Parallel()
+
+	a, _ := sentApp(t)
+	sized(t, a, 120, 40)
+
+	for range 2 {
+		sentSend(t, a, "p2", 1, "")
+	}
+
+	run(a, a.openSentView())
+	pressRun(a, keyRune('z'), keyRune('l'))
+
+	if seq, _ := shownAt(a); seq != 1 {
+		t.Fatalf("l zoomed: batch %d, want 1", seq)
+	}
+
+	if a.openSentImages() == nil {
+		t.Fatal("o does nothing zoomed")
+	}
+
+	pressRun(a, keyEsc)
+
+	if a.sent.view != nil {
+		t.Fatal("esc left the zoomed viewer open")
+	}
+}
+
+// pictureCells counts the picture cells a frame draws.
+func pictureCells(a *App) int {
+	return strings.Count(a.View().Content, string(rune(0x10EEEE)))
+}
+
+func TestSentViewZoomShowsOnePicturePerSlot(t *testing.T) {
+	t.Parallel()
+
+	a := sentViewScene(t, 120, 40, true)
+	jobs := a.pictures.jobs.(*recJobs)
+	openIn(t, a, core.SetRail{Open: true})
+
+	pressRun(a, keyRune('l')) // one slot: the first image alone
+
+	settle := func() {
+		a.View()
+		answerRender(t, a, jobs)
+		a.View()
+	}
+
+	settle()
+
+	small := pictureCells(a)
+	if small == 0 {
+		t.Fatal("no picture drawn")
+	}
+
+	pressRun(a, keyRune('z'))
+	settle()
+
+	big := pictureCells(a)
+	if big <= small {
+		t.Fatalf("zoomed picture has %d cells, want more than %d", big, small)
+	}
+
+	// The placeholders of one picture fill whole rows: its cells are all of one size.
+	_, _, w, h, _ := a.sentBox()
+	pages, at := a.sentPos()
+	copyOf := pages[at].batch.images[pages[at].images[0]].copy
+
+	if sz := a.pictures.sizeIn(docPictures{reg: a.pictures, root: a.sent.dir}, copyOf, w-4, h-sentChrome); sz.Cols*sz.Rows != big {
+		t.Fatalf("zoomed frame draws %d cells, one picture is %dx%d", big, sz.Cols, sz.Rows)
+	}
+
+	pressRun(a, keyRune('z'))
+	settle()
+
+	if got := pictureCells(a); got != small {
+		t.Fatalf("after zooming out: %d picture cells, want %d", got, small)
+	}
+}
+
+func TestSentViewZoomGolden(t *testing.T) {
+	t.Parallel()
+
+	a := sentViewScene(t, 120, 40, true)
+	jobs := a.pictures.jobs.(*recJobs)
+	openIn(t, a, core.SetRail{Open: true})
+	pressRun(a, keyRune('z'))
+	a.View()
+	answerRender(t, a, jobs)
+	a.View()
+
+	golden.RequireEqual(t, []byte(plain(a.View().Content)))
+}
+
 func TestSentViewClosesWhenItsPaneGoes(t *testing.T) {
 	t.Parallel()
 

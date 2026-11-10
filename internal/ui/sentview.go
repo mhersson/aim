@@ -25,6 +25,9 @@ const (
 	sentMinArea = 3
 	// sentGap is the cells between two images.
 	sentGap = 2
+	// sentZoomX and sentZoomY are the columns each side and the rows top and
+	// bottom a zoomed viewer leaves, so the UI under it shows it is an overlay.
+	sentZoomX, sentZoomY = 2, 1
 
 	noticeNoImages = "no agent has sent an image yet"
 )
@@ -35,6 +38,7 @@ type sentView struct {
 	batch int  // seq of the shown page's batch
 	image int  // first image of the shown page
 	pair  bool // the page shows both images of a pair
+	zoom  bool // the box fills the terminal; it ends with the viewer
 }
 
 // sentPage is what one screen of the viewer shows: images of one batch, as
@@ -90,12 +94,25 @@ func sentIndicator(pages []sentPage, at int) string {
 	return " " + strconv.Itoa(first) + " of " + n + " "
 }
 
-// sentBox is the viewer's box: the reading box, when it has room for the
-// picture area.
+// sentFits reports whether a box w x h has room for the picture area.
+func sentFits(w, h int) bool { return w >= planMinBox && h >= sentChrome+1 }
+
+// sentBox is the viewer's box: the reading box, or zoomed the terminal less a
+// margin (the whole terminal when the margin leaves too little), when it has
+// room for the picture area.
 func (a *App) sentBox() (x, y, w, h int, ok bool) {
+	if v := a.sent.view; v != nil && v.zoom {
+		x, y, w, h = sentZoomX, sentZoomY, a.width-2*sentZoomX, a.height-2*sentZoomY
+		if !sentFits(w, h) {
+			x, y, w, h = 0, 0, a.width, a.height
+		}
+
+		return x, y, w, h, sentFits(w, h)
+	}
+
 	x, y, w, h, ok = planBox(a.width, a.height)
 
-	return x, y, w, h, ok && h >= sentChrome+1
+	return x, y, w, h, ok && sentFits(w, h)
 }
 
 // sentPos is the viewer's pages and the one on show: the page of its image. A
@@ -251,6 +268,7 @@ func sentViewCommands() []command {
 	}}, scoped("images", []command{
 		cmd("images.prev", "newer images", func(a *App) { a.sentStep(-1) }),
 		cmd("images.next", "older images", func(a *App) { a.sentStep(1) }),
+		cmd("images.zoom", "zoom", func(a *App) { a.sent.view.zoom = !a.sent.view.zoom }),
 		cmd("images.close", "close", func(a *App) { a.sent.view = nil }),
 		{id: "images.open", title: "Image viewer: open in your image viewer", run: (*App).openSentImages},
 	})...)
@@ -272,6 +290,7 @@ func sentHints(kt keyTable) [][2]string {
 	}{
 		{"step", []string{"images.prev", "images.next"}},
 		{"open", []string{"images.open"}},
+		{"zoom", []string{"images.zoom"}},
 		{"close", []string{"images.close"}},
 	} {
 		if k := kt.hint(d.ids...); k != "" {
