@@ -253,7 +253,10 @@ off the loop at arrival, since an agent overwrites the same name for its next
 picture and the batch must keep the old one. On an agent pane a final reply's
 path already sent or named in the same turn is dropped, while an explicit send
 always makes a batch. The batches live per pane for this run only and go with
-the pane.
+the pane. The viewer (`internal/ui/sentview.go`) draws in the reading box's
+geometry and sizes its pictures through the `pictures` registry with its own
+caps (`sizeIn`), from AIM's copies, so a picture is never read from where the
+agent put it.
 
 The status line also carries the account's usage. `rate_limits` becomes
 `Event.FiveHour` and `SevenDay` (a window counts only with a percent and a reset

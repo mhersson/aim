@@ -220,7 +220,7 @@ func normalized(c core.Config) core.Config {
 
 	for _, m := range []*map[string]string{
 		&c.Keys.Leader, &c.Keys.Drawer, &c.Keys.Rail, &c.Keys.PRList,
-		&c.Keys.Checks, &c.Keys.Reader, &c.Keys.Merge, &c.Keys.Compose,
+		&c.Keys.Checks, &c.Keys.Reader, &c.Keys.Images, &c.Keys.Merge, &c.Keys.Compose,
 	} {
 		if len(*m) == 0 {
 			*m = nil

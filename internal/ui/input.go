@@ -73,7 +73,7 @@ func (a *App) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 
 // routeKey routes a key press: an open confirm first, then an open prompt, then
 // copy mode, then the open overlay, compose box, merge box, plan overlay,
-// markdown finder, conversation, checks, PR list or worktree picker, then the leader state
+// markdown finder, conversation, checks, PR list, worktree picker or image viewer, then the leader state
 // machine, then the usage popover while it shows, then the rail while it has
 // the keyboard, then the review drawer while it has it, then the focused pane.
 func (a *App) routeKey(msg tea.KeyPressMsg) tea.Cmd {
@@ -137,6 +137,10 @@ func (a *App) routeKey(msg tea.KeyPressMsg) tea.Cmd {
 		return a.handlePickerKey(msg)
 	}
 
+	if a.sent.view != nil {
+		return a.handleSentKey(msg)
+	}
+
 	a.notice = ""
 	if cmd, ok := a.runLeader(msg); ok {
 		return cmd
@@ -174,7 +178,7 @@ func (a *App) modalAboveList() bool {
 
 // handlePaste sends a paste to the topmost text input: prompt, overlay, compose box,
 // plan search, finder, picker, then the rail's or drawer's search, else the focused pane.
-// Confirm, copy mode, checks, merge, the PR list and the usage popover drop it;
+// Confirm, copy mode, checks, merge, the PR list, the image viewer and the usage popover drop it;
 // the conversation takes it only into its search prompt.
 func (a *App) handlePaste(msg tea.PasteMsg) tea.Cmd {
 	if a.confirm != nil {
@@ -220,6 +224,10 @@ func (a *App) handlePaste(msg tea.PasteMsg) tea.Cmd {
 	if a.picker.open != nil {
 		a.picker.open.edit(msg)
 
+		return nil
+	}
+
+	if a.sent.view != nil {
 		return nil
 	}
 
@@ -300,5 +308,5 @@ func (a *App) aboveDrawerModalOpen() bool { return a.finder != nil || a.modalOve
 // finder's own answers land under it, and the plan overlay shows over it.
 func (a *App) modalOverFinder() bool {
 	return a.confirm != nil || a.prompt != nil || a.copy != nil || a.overlay != nil || a.merge != nil ||
-		a.plan != nil || a.conv != nil || a.checks != nil || a.prList != nil || a.picker.open != nil
+		a.plan != nil || a.conv != nil || a.checks != nil || a.prList != nil || a.picker.open != nil || a.sent.view != nil
 }

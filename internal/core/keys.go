@@ -43,6 +43,7 @@ type KeysConfig struct {
 	PRList  map[string]string `toml:"pr_list"`
 	Checks  map[string]string `toml:"checks"`
 	Reader  map[string]string `toml:"reader"`
+	Images  map[string]string `toml:"images"`
 	Merge   map[string]string `toml:"merge"`
 	Compose map[string]string `toml:"compose"`
 
@@ -54,7 +55,7 @@ type KeyBind struct{ Key, Command string }
 
 // KeyContexts lists the [keys.<context>] tables.
 func KeyContexts() []string {
-	return []string{"leader", "drawer", "rail", "pr_list", "checks", "reader", "merge", "compose"}
+	return []string{"leader", "drawer", "rail", "pr_list", "checks", "reader", "images", "merge", "compose"}
 }
 
 func (c KeysConfig) table(context string) map[string]string {
@@ -71,6 +72,8 @@ func (c KeysConfig) table(context string) map[string]string {
 		return c.Checks
 	case "reader":
 		return c.Reader
+	case "images":
+		return c.Images
 	case "merge":
 		return c.Merge
 	case "compose":

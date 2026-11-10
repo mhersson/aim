@@ -1011,6 +1011,10 @@ func (a *App) View() tea.View {
 		content = a.overlayPlan(f, content, lk)
 	}
 
+	if a.sent.view != nil {
+		content = a.overlaySentView(f, content, lk)
+	}
+
 	if a.composeShown() {
 		content = a.overlayCompose(f, content, lk)
 	}

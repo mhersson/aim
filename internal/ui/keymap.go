@@ -32,6 +32,7 @@ func defaultKeymap() keymap {
 			{key: "a", command: "rail.toggle", group: "Panes"},
 			{key: "d", command: "review.toggle", group: "Panes"},
 			{key: "p", command: "plan.open", group: "Panes"},
+			{key: "i", command: "images.view", group: "Panes"},
 			{key: "s", command: "pane.split.down", group: "Panes"},
 			{key: "v", command: "pane.split.right", group: "Panes"},
 			{key: "h", command: "pane.focus.left", group: "Panes"},

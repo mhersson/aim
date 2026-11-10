@@ -22,6 +22,7 @@ Keys pressed after the leader key. Remap them under `[keys.leader]`.
 | `a` | `rail.toggle` | Agents rail |
 | `d` | `review.toggle` | Review drawer |
 | `p` | `plan.open` | Open the agent's plan |
+| `i` | `images.view` | Show images an agent sent |
 | `s` | `pane.split.down` | Split: shell below |
 | `v` | `pane.split.right` | Split: shell right |
 | `h` | `pane.focus.left` | Focus left |
@@ -249,6 +250,18 @@ The table is `[keys.reader]`. These keys apply in the plan overlay, a markdown f
 | `e` | `reader.edit` | Reader: open in the editor |
 | `r` | `reader.refresh` | Reader: read again |
 | `esc` | `reader.close` | Reader: close the page or the overlay |
+
+## Image viewer
+
+The table is `[keys.images]`. These keys apply while the image viewer is open.
+
+| Key | Command | Title |
+| --- | --- | --- |
+| `left` | `images.prev` | Image viewer: newer images |
+| `h` | `images.prev` | Image viewer: newer images |
+| `right` | `images.next` | Image viewer: older images |
+| `l` | `images.next` | Image viewer: older images |
+| `esc` | `images.close` | Image viewer: close |
 
 ## Merge box
 

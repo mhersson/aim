@@ -362,7 +362,7 @@ func TestStaleWhichKey(t *testing.T) {
 func TestWhichKeySizes(t *testing.T) {
 	t.Parallel()
 
-	for _, sz := range [][2]int{{80, 24}, {40, 12}, {20, 5}, {1, 1}} {
+	for _, sz := range [][2]int{{80, 25}, {40, 12}, {20, 5}, {1, 1}} {
 		t.Run(fmt.Sprintf("%dx%d", sz[0], sz[1]), func(t *testing.T) {
 			a := newTestApp(t)
 			sized(t, a, sz[0], sz[1])

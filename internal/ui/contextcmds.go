@@ -39,6 +39,13 @@ var (
 		{"r", "prlist.refresh"},
 		{"esc", "prlist.close"},
 	}
+	imagesKeys = []reviewKey{
+		{"left", "images.prev"},
+		{"h", "images.prev"},
+		{"right", "images.next"},
+		{"l", "images.next"},
+		{"esc", "images.close"},
+	}
 	checksKeys = []reviewKey{
 		{"j", "checks.next"},
 		{"down", "checks.next"},
@@ -60,8 +67,11 @@ var (
 
 // scopeNoun is how an error names the view a scoped command belongs to.
 func scopeNoun(scope string) string {
-	if scope == "pr_list" {
+	switch scope {
+	case "pr_list":
 		return "PR list"
+	case "images":
+		return "viewer"
 	}
 
 	return scope

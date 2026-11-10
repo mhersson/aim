@@ -155,6 +155,19 @@ With `auto`, AIM picks the escape from the terminal: kitty gets OSC 99; Ghostty,
 
 Inside tmux, AIM wraps the notification in tmux's passthrough, which needs `set -g allow-passthrough all` in `tmux.conf`. With `on`, tmux passes a notification only while AIM's pane is visible, so it drops the ones sent while you are in another tmux window. tmux passes focus reports on only with `set -g focus-events on`; without it AIM learns nothing of focus inside tmux and only the pane rule applies. The choice of escape comes from the variables the terminal leaves in the environment.
 
+## Images an agent sends you
+
+An image counts as sent when the agent:
+
+- sends it with `SendUserFile` (Claude Code offers that tool only with Remote Control on or in a cloud session), or
+- names its path in the final reply of a turn: an absolute, `~/` or relative path, as plain text, in code or as a markdown link or image. Only files that exist count.
+
+Only `png`, `jpg`, `jpeg`, `gif` and `webp` files are shown, a GIF as its first frame; any other file sent is not shown. A send holds at most 8 files at a time and each file at most 5 MiB. AIM copies each image when it arrives, so the viewer keeps what the agent sent even when the agent overwrites the file next. The list lasts for this run only.
+
+`ctrl+space i`, or `Show images an agent sent` in the palette, opens the viewer on the focused agent's newest images, or on those of the agent that sent the newest when the focused pane has none. It fills the reading box with one page per send, newest first. `h` and `l`, or the left and right arrows, step to newer and older pages, and the bottom border says where you are, as `3 of 7`. A send of two images shows both side by side when the box is 80 columns wide or more (a terminal 84 columns wide); below that each image has a page. `esc` closes the viewer, which also closes when its agent's pane does. The keys are under [`[keys.images]`](keys.md#image-viewer).
+
+Pictures need a terminal with the Kitty graphics protocol (kitty and Ghostty), not inside tmux. Without them the viewer shows each image's file name instead.
+
 ## The command palette and themes
 
 Every action is a command, and the palette runs any that is not specific to one view: press `ctrl+space :`, type part of the name, move with `up` and `down` (or `ctrl+n`, `ctrl+p`, `tab`, `shift+tab`), and press `enter` to run it. `esc` closes it. Each row shows the leader key of its command, if it has one. Commands without a key, such as "Layout: BSP", are listed in [Keys](keys.md#commands-without-a-default-key).

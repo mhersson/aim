@@ -151,6 +151,7 @@ func TestKeysConfigValidate(t *testing.T) {
 		{name: "three keys in leader", cfg: KeysConfig{Leader: map[string]string{"g l x": "pr.list"}}, want: []string{"keys.leader", `"g l x"`}},
 		{name: "empty command", cfg: KeysConfig{Rail: map[string]string{"j": ""}}, want: []string{"keys.rail", `"j"`}},
 		{name: "unknown name", cfg: KeysConfig{Checks: map[string]string{"ctrl+nope": "none"}}, want: []string{"keys.checks", `"ctrl+nope"`}},
+		{name: "unknown name in images", cfg: KeysConfig{Images: map[string]string{"ctrl+nope": "none"}}, want: []string{"keys.images", `"ctrl+nope"`}},
 		{name: "bad key in sequence", cfg: KeysConfig{Leader: map[string]string{"g nope": "none"}}, want: []string{"keys.leader", `"g nope"`}},
 		{name: "double space in sequence", cfg: KeysConfig{Leader: map[string]string{"g  l": "none"}}, want: []string{"keys.leader", `"g  l"`}},
 		{name: "ctrl shift left", cfg: KeysConfig{Drawer: map[string]string{"ctrl+shift+left": "review.x"}}},

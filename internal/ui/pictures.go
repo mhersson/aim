@@ -282,6 +282,11 @@ func (p *pictures) resized() tea.Cmd {
 // size answers the picture for src at most maxCols cells wide, queueing the
 // work it still needs.
 func (p *pictures) size(d docPictures, src string, maxCols int) md.PictureSize {
+	return p.sizeIn(d, src, min(maxCols, pictureMaxCols), pictureMaxRows)
+}
+
+// sizeIn is size with the caps given: at most maxCols by maxRows cells.
+func (p *pictures) sizeIn(d docPictures, src string, maxCols, maxRows int) md.PictureSize {
 	if !p.on() {
 		return md.PictureSize{}
 	}
@@ -307,7 +312,7 @@ func (p *pictures) size(d docPictures, src string, maxCols int) md.PictureSize {
 		return md.PictureSize{Loading: true}
 	}
 
-	cols, rows := kitty.Fit(e.w, e.h, p.cell, min(maxCols, pictureMaxCols), pictureMaxRows)
+	cols, rows := kitty.Fit(e.w, e.h, p.cell, maxCols, maxRows)
 	sz := pictureSize{cols, rows}
 
 	if s := e.sent[sz]; s != nil {

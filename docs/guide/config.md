@@ -129,7 +129,7 @@ leader_key = "ctrl+a"
 
 ### Keep a way to close a view
 
-The leader closes the drawer and the rail. The pull request list, the checks overlay, the reading overlays, the merge box and the compose box are closed by their own command, so after your entries are laid over the defaults, a key must remain for that command: `prlist.close` under `[keys.pr_list]`, `checks.close` under `[keys.checks]`, `reader.close` under `[keys.reader]`, `merge.cancel` under `[keys.merge]` and `compose.cancel` under `[keys.compose]`. Binding the default `esc` to `"none"` without another key for the command is refused:
+The leader closes the drawer and the rail. The pull request list, the checks overlay, the reading overlays, the image viewer, the merge box and the compose box are closed by their own command, so after your entries are laid over the defaults, a key must remain for that command: `prlist.close` under `[keys.pr_list]`, `checks.close` under `[keys.checks]`, `reader.close` under `[keys.reader]`, `images.close` under `[keys.images]`, `merge.cancel` under `[keys.merge]` and `compose.cancel` under `[keys.compose]`. Binding the default `esc` to `"none"` without another key for the command is refused:
 
 ```text
 aim: config <path>: keys.pr_list: nothing is bound to prlist.close, so the PR list could not close

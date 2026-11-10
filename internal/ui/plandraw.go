@@ -328,19 +328,27 @@ func (a *App) chooserLines(c *linkChooser, ui theme.UI, lines []string) image.Re
 
 // planHintRow is the hints that fit w cells, a gap apart.
 func (a *App) planHintRow(ui theme.UI, w int) string {
-	on := func(fg theme.Hex) lipgloss.Style { return lipgloss.NewStyle().Foreground(fg).Background(ui.Panel) }
-
 	if a.plan.searching {
 		return a.planPromptRow(ui, w)
 	}
 
+	pairs := planHints(a.keys.reader, w)
+	for i := range pairs {
+		if pairs[i][1] == "close" && a.finder != nil {
+			pairs[i][1] = "back"
+		}
+	}
+
+	return hintRow(ui, pairs, w)
+}
+
+// hintRow is the pairs of key and label that fit w cells, a gap apart.
+func hintRow(ui theme.UI, pairs [][2]string, w int) string {
+	on := func(fg theme.Hex) lipgloss.Style { return lipgloss.NewStyle().Foreground(fg).Background(ui.Panel) }
+
 	var b strings.Builder
 
-	for i, p := range planHints(a.keys.reader, w) {
-		if p[1] == "close" && a.finder != nil {
-			p[1] = "back"
-		}
-
+	for i, p := range pairs {
 		if i > 0 {
 			b.WriteString(on(ui.Fg).Render(strings.Repeat(" ", planHintGap)))
 		}

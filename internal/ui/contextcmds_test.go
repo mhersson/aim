@@ -31,6 +31,8 @@ func contextKeys(context string, pairs ...string) core.KeysConfig {
 		cfg.Checks = table
 	case "reader":
 		cfg.Reader = table
+	case "images":
+		cfg.Images = table
 	case "merge":
 		cfg.Merge = table
 	case "compose":

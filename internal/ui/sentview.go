@@ -1,0 +1,392 @@
+package ui
+
+import (
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/mhersson/aim/internal/core"
+	"github.com/mhersson/aim/internal/ui/theme"
+)
+
+const (
+	// sentSideBySide is the box width from which a batch of two shows both.
+	sentSideBySide = 80
+	// sentChrome is the rows of the viewer's box that are not the picture area:
+	// the borders, two blank rows, the caption and the hint row.
+	sentChrome = 6
+	// sentMinArea is the area rows a picture needs; fewer show the name instead.
+	sentMinArea = 3
+	// sentGap is the cells between two images.
+	sentGap = 2
+
+	noticeNoImages = "no agent has sent an image yet"
+)
+
+// sentView is the open image viewer: one agent's pages, on one of them.
+type sentView struct {
+	pane  core.PaneID
+	batch int // seq of the shown page's batch
+	part  int // which page of that batch
+}
+
+// sentPage is what one screen of the viewer shows: images of one batch, as
+// indices into its images.
+type sentPage struct {
+	batch  sentBatch
+	images []int
+}
+
+// sentPages lays batches (oldest first) out as pages, newest batch first. A
+// batch of two shares a page when wide; any other image has a page of its own.
+func sentPages(batches []sentBatch, wide bool) []sentPage {
+	var pages []sentPage
+
+	for _, b := range slices.Backward(batches) {
+		if wide && len(b.images) == 2 {
+			pages = append(pages, sentPage{b, []int{0, 1}})
+
+			continue
+		}
+
+		for i := range b.images {
+			pages = append(pages, sentPage{b, []int{i}})
+		}
+	}
+
+	return pages
+}
+
+// sentIndicator says which images page at shows, among all of the pages'.
+func sentIndicator(pages []sentPage, at int) string {
+	first, total := 1, 0
+
+	for i, p := range pages {
+		if i < at {
+			first += len(p.images)
+		}
+
+		total += len(p.images)
+	}
+
+	n := strconv.Itoa(total)
+	if k := len(pages[at].images); k > 1 {
+		return " " + strconv.Itoa(first) + "-" + strconv.Itoa(first+k-1) + " of " + n + " "
+	}
+
+	return " " + strconv.Itoa(first) + " of " + n + " "
+}
+
+// sentBox is the viewer's box: the reading box, when it has room for the
+// picture area.
+func (a *App) sentBox() (x, y, w, h int, ok bool) {
+	x, y, w, h, ok = planBox(a.width, a.height)
+
+	return x, y, w, h, ok && h >= sentChrome+1
+}
+
+// sentPos is the viewer's pages and the one on show. A page the width no
+// longer has gives the batch's last.
+func (a *App) sentPos() (pages []sentPage, at int) {
+	v := a.sent.view
+
+	_, _, w, _, ok := a.sentBox()
+	pages = sentPages(a.sentBatches(v.pane), ok && w >= sentSideBySide)
+	part := 0
+
+	for i, p := range pages {
+		if p.batch.seq != v.batch {
+			part = 0
+
+			continue
+		}
+
+		at = i
+
+		if part == v.part {
+			break
+		}
+
+		part++
+	}
+
+	return pages, at
+}
+
+// sentRemember records page at as the one on show.
+func (a *App) sentRemember(pages []sentPage, at int) {
+	part := 0
+
+	for _, p := range pages[:at] {
+		if p.batch.seq == pages[at].batch.seq {
+			part++
+		}
+	}
+
+	a.sent.view.batch, a.sent.view.part = pages[at].batch.seq, part
+}
+
+// openSentView is images.view: the focused agent's images, else those of the
+// agent that sent the newest.
+func (a *App) openSentView() tea.Cmd {
+	a.endLeader()
+
+	id, newest := a.store.State().Tab().Focus, 0
+	if len(a.sentBatches(id)) == 0 {
+		id = ""
+
+		for pid, sp := range a.sent.panes {
+			if n := len(sp.batches); n > 0 && sp.batches[n-1].seq > newest {
+				id, newest = pid, sp.batches[n-1].seq
+			}
+		}
+	}
+
+	if id == "" {
+		a.notice = noticeNoImages
+
+		return nil
+	}
+
+	a.showSentView(id)
+
+	return nil
+}
+
+// showSentView opens the viewer on the newest page of pane id, which must have
+// a batch.
+func (a *App) showSentView(id core.PaneID) {
+	b := a.sentBatches(id)
+	if len(b) == 0 {
+		return
+	}
+
+	a.sent.view = &sentView{pane: id, batch: b[len(b)-1].seq}
+}
+
+// sentStep moves the viewer by d pages, towards older ones when d is positive.
+func (a *App) sentStep(d int) {
+	if _, _, _, _, ok := a.sentBox(); !ok || a.sent.view == nil {
+		return
+	}
+
+	pages, at := a.sentPos()
+	a.sentRemember(pages, min(max(at+d, 0), len(pages)-1))
+}
+
+func sentViewCommands() []command {
+	cmd := func(id, title string, run func(*App)) command {
+		return command{id: id, title: "Image viewer: " + title, run: func(a *App) tea.Cmd {
+			if a.sent.view != nil {
+				run(a)
+			}
+
+			return nil
+		}}
+	}
+
+	return append([]command{{
+		id:    "images.view",
+		icon:  iconImage,
+		title: "Show images an agent sent",
+		run:   (*App).openSentView,
+	}}, scoped("images", []command{
+		cmd("images.prev", "newer images", func(a *App) { a.sentStep(-1) }),
+		cmd("images.next", "older images", func(a *App) { a.sentStep(1) }),
+		cmd("images.close", "close", func(a *App) { a.sent.view = nil }),
+	})...)
+}
+
+// handleSentKey runs the command the viewer's keys bind to key; other keys are
+// dropped.
+func (a *App) handleSentKey(msg tea.KeyPressMsg) tea.Cmd {
+	return a.runKey(a.keys.images, msg.String())
+}
+
+// sentHints are the viewer's hints as kt binds them; a pair with no key is left out.
+func sentHints(kt keyTable) [][2]string {
+	var pairs [][2]string
+
+	for _, d := range []struct {
+		label string
+		ids   []string
+	}{
+		{"step", []string{"images.prev", "images.next"}},
+		{"close", []string{"images.close"}},
+	} {
+		if k := kt.hint(d.ids...); k != "" {
+			pairs = append(pairs, [2]string{k, d.label})
+		}
+	}
+
+	return pairs
+}
+
+// sentSlot is one image's cells in the area: its rows, and the picture over
+// them when pictures show it.
+type sentSlot struct {
+	rows []string
+	pic  *sentPic
+}
+
+type sentPic struct {
+	id             uint32
+	cols, rows, dx int
+	dy             int
+}
+
+// sentSlotOf lays im out in slotW x area cells: its picture centred when the
+// registry answers one, else its name and the reason, centred.
+func (a *App) sentSlotOf(im sentImage, slotW, area int, ui theme.UI) sentSlot {
+	on := func(fg theme.Hex) lipgloss.Style { return lipgloss.NewStyle().Foreground(fg).Background(ui.Panel) }
+	pad := func(n int) string { return on(ui.Fg).Render(strings.Repeat(" ", max(n, 0))) }
+
+	var lines []string
+
+	name := printable(filepath.Base(im.path))
+	text := func(s string, fg theme.Hex) string {
+		s = ansi.Truncate(s, slotW, "…")
+		sw := ansi.StringWidth(s)
+
+		return pad((slotW-sw)/2) + on(fg).Render(s) + pad(slotW-sw-(slotW-sw)/2)
+	}
+
+	rows := make([]string, area)
+	for i := range rows {
+		rows[i] = pad(slotW)
+	}
+
+	if im.decoded() && area >= sentMinArea {
+		sz := a.pictures.sizeIn(docPictures{reg: a.pictures, root: a.sent.dir}, im.copy, slotW, area)
+
+		if sz.Cols > 0 && sz.Rows > 0 {
+			return sentSlot{rows: rows, pic: &sentPic{id: sz.ID, cols: sz.Cols, rows: sz.Rows, dx: (slotW - sz.Cols) / 2, dy: (area - sz.Rows) / 2}}
+		}
+
+		lines = append(lines, text(name, ui.Fg))
+		if sz.Loading {
+			lines = append(lines, text("loading…", ui.Muted))
+		}
+	} else {
+		lines = append(lines, text(name, ui.Fg))
+		if im.reason != "" {
+			lines = append(lines, text(printable(im.reason), ui.Muted))
+		}
+	}
+
+	top := max((area-len(lines))/2, 0)
+	for i, l := range lines {
+		if top+i < area {
+			rows[top+i] = l
+		}
+	}
+
+	return sentSlot{rows: rows}
+}
+
+// sentLines draws the box w x h and the picture rows in the box's cells.
+func (a *App) sentLines(lk look, w, h int) (out []string, pics []picRow) {
+	ui := lk.theme.UI
+	on := func(fg theme.Hex) lipgloss.Style { return lipgloss.NewStyle().Foreground(fg).Background(ui.Panel) }
+	border := on(ui.BorderFocus)
+	pad := func(n int) string { return on(ui.Fg).Render(strings.Repeat(" ", max(n, 0))) }
+
+	pages, at := a.sentPos()
+	page := pages[at]
+	inner, area := w-2, h-sentChrome
+	content := w - 4
+
+	slotW := content
+	if len(page.images) == 2 {
+		slotW = (w - 6) / 2
+	}
+
+	used := len(page.images)*slotW + (len(page.images)-1)*sentGap
+	lead := 1 + (content-used)/2
+
+	row := func(body string, bw int) string {
+		return border.Render("│") + body + pad(inner-bw) + border.Render("│")
+	}
+
+	var names []string
+	for _, i := range page.images {
+		names = append(names, printable(filepath.Base(page.batch.images[i].path)))
+	}
+
+	title := " " + printable(page.batch.name) + ": " + strings.Join(names, ", ") + " "
+	if a.icons {
+		title = " " + iconImage + title
+	}
+
+	title = ansi.Truncate(title, w-4, "…")
+	out = append(out,
+		border.Render("╭─")+on(ui.Info).Bold(true).Render(title)+border.Render(strings.Repeat("─", w-3-ansi.StringWidth(title))+"╮"),
+		row("", 0),
+	)
+
+	slots := make([]sentSlot, len(page.images))
+	for k, i := range page.images {
+		slots[k] = a.sentSlotOf(page.batch.images[i], slotW, area, ui)
+	}
+
+	for r := range area {
+		var b strings.Builder
+
+		b.WriteString(pad(lead))
+
+		for k, s := range slots {
+			if k > 0 {
+				b.WriteString(pad(sentGap))
+			}
+
+			b.WriteString(s.rows[r])
+		}
+
+		out = append(out, row(b.String(), lead+used))
+	}
+
+	for k, s := range slots {
+		if s.pic == nil {
+			continue
+		}
+
+		x := 1 + lead + k*(slotW+sentGap) + s.pic.dx
+
+		for r := range s.pic.rows {
+			pics = append(pics, picRow{X: x, Y: 2 + s.pic.dy + r, ID: s.pic.id, Row: r, Cols: s.pic.cols, Ground: ui.Panel})
+		}
+	}
+
+	caption := ansi.Truncate(printable(page.batch.caption), content, "…")
+	cw := ansi.StringWidth(caption)
+
+	hints := hintRow(ui, sentHints(a.keys.images), content-2)
+
+	out = append(out,
+		row("", 0),
+		row(pad(1+(content-cw)/2)+on(ui.Muted).Render(caption), 1+(content-cw)/2+cw),
+		row(pad(2)+hints, 2+ansi.StringWidth(hints)),
+	)
+
+	ind := sentIndicator(pages, at)
+
+	return append(out, border.Render("╰"+strings.Repeat("─", w-3-ansi.StringWidth(ind)))+on(ui.Accent).Bold(true).Render(ind)+border.Render("─╯")), pics
+}
+
+// overlaySentView draws the viewer over base; a terminal too small for the box
+// draws nothing, and the viewer stays open unseen.
+func (a *App) overlaySentView(f *frameLayers, base string, lk look) string {
+	x, y, w, h, ok := a.sentBox()
+	if !ok {
+		return base
+	}
+
+	lines, pics := a.sentLines(lk, w, h)
+
+	return overlayAt(f, base, a.width, a.height, x, y, lines, pics)
+}

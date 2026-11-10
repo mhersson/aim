@@ -58,6 +58,7 @@ type sentState struct {
 	dir   string // Options.SentDir; "" means no copies
 	seq   int
 	panes map[core.PaneID]*sentPane
+	view  *sentView // the open viewer
 }
 
 // sentCopiedMsg answers onSent's command with the batch once its images are copied.
@@ -149,17 +150,18 @@ func (a *App) sentBatches(id core.PaneID) []sentBatch {
 	return nil
 }
 
-// sentAfterUpdate forgets the panes the state no longer holds.
+// sentAfterUpdate forgets the panes the state no longer holds, and closes the
+// viewer of one that went.
 func (a *App) sentAfterUpdate() tea.Cmd { //nolint:unparam // shaped like the other after-update hooks, whose commands join a.later
-	if len(a.sent.panes) == 0 {
-		return nil
-	}
-
 	panes := a.store.State().Panes
 	for id := range a.sent.panes {
 		if _, ok := panes[id]; !ok {
 			delete(a.sent.panes, id)
 		}
+	}
+
+	if v := a.sent.view; v != nil && len(a.sentBatches(v.pane)) == 0 {
+		a.sent.view = nil
 	}
 
 	return nil

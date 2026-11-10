@@ -201,6 +201,12 @@
 ## Close a reading overlay on q.
 # "q" = "reader.close"
 
+## The image viewer's keys, while it is open.
+## Defaults: docs/guide/keys.md#image-viewer. Rules: docs/guide/config.md#remapping-keys.
+[keys.images]
+## Close the image viewer on q.
+# "q" = "images.close"
+
 ## The merge box's keys, while the box is open.
 ## Defaults: docs/guide/keys.md#merge-box. Rules: docs/guide/config.md#remapping-keys.
 [keys.merge]

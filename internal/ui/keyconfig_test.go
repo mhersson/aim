@@ -217,6 +217,34 @@ func TestCheckKeysErrors(t *testing.T) {
 	}
 }
 
+func TestKeysImagesNeedsAClose(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		cfg  core.KeysConfig
+		want string
+	}{
+		{"no close", contextKeys("images", "esc", "none"), "keys.images: nothing is bound to images.close, so the image viewer could not close"},
+		{"close moved", contextKeys("images", "esc", "none", "q", "images.close"), ""},
+		{"viewer command under the leader", leaderKeys("x", "images.next"), `keys.leader: "x" = "images.next": a viewer command`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := CheckKeys(tt.cfg, theme.Builtin())
+
+			switch {
+			case tt.want == "" && err != nil:
+				t.Fatalf("CheckKeys = %v, want nil", err)
+			case tt.want != "" && (err == nil || err.Error() != tt.want):
+				t.Fatalf("CheckKeys = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestComposeKeyErrors(t *testing.T) {
 	t.Parallel()
 
