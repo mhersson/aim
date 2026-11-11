@@ -826,6 +826,8 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.onMDFile(msg)
 	case planReadMsg:
 		a.onPlanRead(msg)
+	case prSearchHostsMsg:
+		return a, a.onPRSearchHosts(msg)
 	case prSearchMsg:
 		a.onPRSearch(msg)
 	case checkLogMsg:

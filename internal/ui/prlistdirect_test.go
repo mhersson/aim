@@ -492,9 +492,9 @@ func TestMergedRowLeavesASearchedTab(t *testing.T) {
 	c := holdRig(t)
 	c.poll(88, copyPR88())
 
-	rows := func() int { return len(c.prListRowsOf(c.store.State(), prTabRequested)) }
-	if rows() != 2 {
-		t.Fatalf("rows = %d before the merge, want 2", rows())
+	listed := func() bool { return slices.Contains(tabbedRows(c.App, prTabRequested), "github.com/acme/infra#88") }
+	if !listed() {
+		t.Fatal("#88 is not listed before the merge")
 	}
 
 	// GitHub no longer lists the merged pull request.
@@ -505,7 +505,7 @@ func TestMergedRowLeavesASearchedTab(t *testing.T) {
 	c.keys(keyRune('M'))
 	c.keys(keyEnter)
 	feedUntil[mergedMsg](t, c.drawerRig)
-	c.until(t, "the row to leave", func() bool { return rows() == 1 })
+	c.until(t, "the row to leave", func() bool { return !listed() })
 
 	if c.prList == nil {
 		t.Error("the list closed")

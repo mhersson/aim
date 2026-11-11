@@ -378,7 +378,7 @@ func (a *App) prListNotes(tab prListTab, rows int) []string {
 
 	notes := a.prSearchFailures()
 
-	hosts := a.prSearchHosts()
+	hosts := a.search.asked
 	answered := len(hosts) == 0 || slices.ContainsFunc(hosts, func(h string) bool {
 		s := a.search.hosts[h]
 

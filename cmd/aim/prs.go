@@ -152,6 +152,9 @@ func (g ghActions) Merge(ctx context.Context, r github.Repo, pr github.PR, info 
 // host.
 type ghReads struct{ clients *clientCache }
 
+// SignedInHosts are the hosts gh is signed in to.
+func (ghReads) SignedInHosts(context.Context) []string { return github.SignedInHosts() }
+
 // MyPRs searches the host for the viewer's open pull requests.
 func (g ghReads) MyPRs(ctx context.Context, host string, since time.Time) (github.MyPRs, error) {
 	c, err := g.clients.client(ctx, host)
