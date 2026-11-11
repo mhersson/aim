@@ -10,6 +10,8 @@ import (
 // prReads is every GitHub read the pull request views make beyond the poller.
 // cmd/aim fills it from its client cache, picking the client by host.
 type prReads interface {
+	// SignedInHosts are the hosts gh is signed in to, normalised and sorted.
+	SignedInHosts(ctx context.Context) []string
 	MyPRs(ctx context.Context, host string, since time.Time) (github.MyPRs, error)
 	JobLog(ctx context.Context, r github.Repo, jobID int64) (data []byte, cut bool, err error)
 	CheckRun(ctx context.Context, r github.Repo, id int64) (github.CheckRunOutput, error)

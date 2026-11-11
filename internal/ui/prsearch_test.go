@@ -27,6 +27,7 @@ type fakeReads struct {
 	sinces []time.Time // each MyPRs call's since, in call order
 	mine   map[string]github.MyPRs
 	fail   map[string]error
+	known  []string // the signed-in hosts
 
 	logData  []byte // what JobLog returns
 	logCut   bool
@@ -136,6 +137,13 @@ func (f *fakeReads) logReads() []jobLogCall {
 	return slices.Clone(f.logCalls)
 }
 
+func (f *fakeReads) SignedInHosts(context.Context) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return slices.Clone(f.known)
+}
+
 func (f *fakeReads) MyPRs(_ context.Context, host string, since time.Time) (github.MyPRs, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -211,11 +219,29 @@ func searchApp(t *testing.T, agents []railAgent, w, h int, mine map[string]githu
 	return a, reads, ticks
 }
 
-// answered delivers the answers a command produced and returns the other messages.
-func answered(a *App, cmd tea.Cmd) []tea.Msg {
+// listed delivers the host lists a command produced and returns the other
+// messages undelivered, the hosts' answers among them.
+func listed(a *App, cmd tea.Cmd) []tea.Msg {
 	var rest []tea.Msg
 
 	for _, m := range flatten(cmd) {
+		if l, ok := m.(prSearchHostsMsg); ok {
+			_, next := a.Update(l)
+			rest = append(rest, listed(a, next)...)
+		} else {
+			rest = append(rest, m)
+		}
+	}
+
+	return rest
+}
+
+// answered delivers the host lists and answers a command produced and returns
+// the other messages.
+func answered(a *App, cmd tea.Cmd) []tea.Msg {
+	var rest []tea.Msg
+
+	for _, m := range listed(a, cmd) {
 		if _, ok := m.(prSearchMsg); ok {
 			a.Update(m)
 		} else {
@@ -322,6 +348,25 @@ func TestPRListTabKeys(t *testing.T) {
 
 	if shown() != prTabAgents {
 		t.Errorf("reopened on tab %d, want Agents", shown())
+	}
+}
+
+// All open lists the pull requests you opened and those on your repositories;
+// one in both is one row.
+func TestPRListAllOpen(t *testing.T) {
+	t.Parallel()
+
+	both := searched("github.com/mhersson/aim", 24, "Mine", "mhersson", time.Hour, func(p *github.PR) { p.ViewerAuthored = true })
+	mine := map[string]github.MyPRs{"github.com": {
+		Authored: []github.SearchPR{both, searched("github.com/acme/web", 400, "Elsewhere", "mhersson", 2*time.Hour)},
+		Owned:    []github.SearchPR{searched("github.com/mhersson/aim", 31, "Bump x/net", "dependabot", 30*time.Minute), both},
+	}}
+	a, _, _ := searchApp(t, listAgents(), 120, 40, mine, "github.com/acme/web")
+	openList(a)
+
+	want := []string{"github.com/acme/web#400", "github.com/mhersson/aim#31", "github.com/mhersson/aim#24"}
+	if got := tabbedRows(a, prTabAll); !slices.Equal(got, want) {
+		t.Errorf("All open = %v, want %v", got, want)
 	}
 }
 
@@ -461,13 +506,19 @@ func TestPRListSearchStale(t *testing.T) {
 		if want, got := []string{"github.com/acme/web#311"}, tabbedRows(a, prTabRequested); !slices.Equal(got, want) {
 			t.Errorf("a stale answer changed the rows to %v, want %v", got, want)
 		}
+
+		a.Update(prSearchHostsMsg{seq: a.search.seq - 1, hosts: []string{"other.example.com"}})
+
+		if want := []string{"github.com"}; !slices.Equal(a.search.asked, want) {
+			t.Errorf("a stale host list made the hosts %v, want %v", a.search.asked, want)
+		}
 	})
 
 	t.Run("after esc", func(t *testing.T) {
 		t.Parallel()
 
 		a, _, _ := searchApp(t, listAgents(), 120, 40, mine, "github.com/acme/web")
-		msgs := flatten(press(a, keyLeader, keyRune('g'), keyRune('l')))
+		msgs := listed(a, press(a, keyLeader, keyRune('g'), keyRune('l')))
 
 		press(a, keyEsc)
 
@@ -484,7 +535,7 @@ func TestPRListSearchStale(t *testing.T) {
 		t.Parallel()
 
 		a, _, _ := searchApp(t, listAgents(), 120, 40, mine, "github.com/acme/web")
-		msgs := flatten(press(a, keyLeader, keyRune('g'), keyRune('l')))
+		msgs := listed(a, press(a, keyLeader, keyRune('g'), keyRune('l')))
 
 		press(a, keyEsc)
 		press(a, keyLeader, keyRune('g'), keyRune('l'))
@@ -498,7 +549,7 @@ func TestPRListSearchStale(t *testing.T) {
 		}
 	})
 
-	t.Run("for a host no longer watched", func(t *testing.T) {
+	t.Run("for a host the ask did not list", func(t *testing.T) {
 		t.Parallel()
 
 		a, _, _ := searchApp(t, listAgents(), 120, 40, mine, "github.com/acme/web")
@@ -507,7 +558,74 @@ func TestPRListSearchStale(t *testing.T) {
 		a.Update(prSearchMsg{seq: a.search.seq, host: "other.example.com", mine: mine["github.com"]})
 
 		if a.search.hosts["other.example.com"] != nil {
-			t.Error("an answer for an unwatched host was kept")
+			t.Error("an answer for a host the ask did not list was kept")
+		}
+	})
+}
+
+func TestPRListSearchHosts(t *testing.T) {
+	t.Parallel()
+
+	svc := searched("ghe.example.com/team/svc", 4, "Svc", "li", time.Hour)
+	tool := searched("ghe.example.com/me/tool", 9, "Tool", "me", time.Hour)
+	mine := map[string]github.MyPRs{
+		"github.com":      {Requested: []github.SearchPR{searched("github.com/acme/web", 311, "Fix", "kari-dev", time.Hour)}},
+		"ghe.example.com": {Requested: []github.SearchPR{svc}, Owned: []github.SearchPR{tool}},
+	}
+
+	t.Run("a signed-in host nothing watches", func(t *testing.T) {
+		t.Parallel()
+
+		a, reads, _ := searchApp(t, listAgents(), 120, 40, mine, "github.com/acme/web")
+		reads.known = []string{"ghe.example.com", "github.com"}
+
+		openList(a)
+
+		if got, want := reads.called(), []string{"ghe.example.com", "github.com"}; !slices.Equal(got, want) {
+			t.Errorf("searched %v, want each host once: %v", got, want)
+		}
+
+		if got := tabbedRows(a, prTabRequested); !slices.Contains(got, "ghe.example.com/team/svc#4") {
+			t.Errorf("Review requested = %v, want ghe.example.com/team/svc#4 in it", got)
+		}
+
+		if got := tabbedRows(a, prTabAll); !slices.Equal(got, []string{"ghe.example.com/me/tool#9"}) {
+			t.Errorf("All open = %v, want ghe.example.com/me/tool#9", got)
+		}
+	})
+
+	t.Run("a host signed in after the opening", func(t *testing.T) {
+		t.Parallel()
+
+		a, reads, _ := searchApp(t, listAgents(), 120, 40, mine, "github.com/acme/web")
+		openList(a)
+
+		reads.mu.Lock()
+		reads.known = []string{"ghe.example.com"}
+		reads.mu.Unlock()
+
+		_, cmd := a.Update(prSearchTickMsg{open: a.search.open})
+		answered(a, cmd)
+
+		if got := reads.called(); !slices.Contains(got, "ghe.example.com") {
+			t.Errorf("searched %v after the tick, want ghe.example.com in it", got)
+		}
+	})
+
+	t.Run("a host that left the watch set after the ask", func(t *testing.T) {
+		t.Parallel()
+
+		a, _, _ := searchApp(t, listAgents(), 120, 40, mine, "github.com/acme/web", "ghe.example.com/team/svc")
+		msgs := listed(a, press(a, keyLeader, keyRune('g'), keyRune('l')))
+
+		watching(a, "github.com/acme/web")
+
+		for _, m := range msgs {
+			a.Update(m)
+		}
+
+		if got := tabbedRows(a, prTabRequested); !slices.Contains(got, "ghe.example.com/team/svc#4") {
+			t.Errorf("Review requested = %v, want ghe.example.com/team/svc#4 in it", got)
 		}
 	})
 }

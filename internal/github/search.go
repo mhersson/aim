@@ -10,6 +10,7 @@ import (
 const (
 	requestedSearch = "is:open is:pr archived:false review-requested:@me"
 	authoredSearch  = "is:open is:pr archived:false author:@me"
+	ownedSearch     = "is:open is:pr archived:false user:@me"
 )
 
 // SearchPR is a pull request found by a search, with the repository it is in.
@@ -18,10 +19,10 @@ type SearchPR struct {
 	PR   PR
 }
 
-// MyPRs holds the open pull requests that ask for the viewer's review and
-// the ones the viewer opened.
+// MyPRs holds the open pull requests that ask for the viewer's review, the
+// ones the viewer opened and the ones on repositories the viewer owns.
 type MyPRs struct {
-	Requested, Authored []SearchPR
+	Requested, Authored, Owned []SearchPR
 }
 
 type searchNode struct {
@@ -41,12 +42,14 @@ type searchResult struct {
 type myPRsQuery struct {
 	Requested searchResult `graphql:"requested: search(query: $requested, type: ISSUE, first: 100)"`
 	Authored  searchResult `graphql:"authored: search(query: $authored, type: ISSUE, first: 100)"`
+	Owned     searchResult `graphql:"owned: search(query: $owned, type: ISSUE, first: 100)"`
 }
 
 // MyPRs searches the host for the open pull requests that ask for the
-// viewer's review and the ones the viewer opened, at most 100 of each, in
-// repositories that are not archived. A since that is not zero limits the
-// review requests to pull requests updated on or after its UTC date.
+// viewer's review, the ones the viewer opened and the ones on repositories the
+// viewer owns, at most 100 of each, in repositories that are not archived. A
+// since that is not zero limits the review requests to pull requests updated
+// on or after its UTC date.
 func (c *Client) MyPRs(ctx context.Context, since time.Time) (MyPRs, error) {
 	var q myPRsQuery
 
@@ -58,6 +61,7 @@ func (c *Client) MyPRs(ctx context.Context, since time.Time) (MyPRs, error) {
 	vars := map[string]any{
 		"requested": graphql.String(requested),
 		"authored":  graphql.String(authoredSearch),
+		"owned":     graphql.String(ownedSearch),
 	}
 	if err := c.query(ctx, "MyPRs", &q, vars); err != nil {
 		return MyPRs{}, err
@@ -66,6 +70,7 @@ func (c *Client) MyPRs(ctx context.Context, since time.Time) (MyPRs, error) {
 	return MyPRs{
 		Requested: c.searchPRs(q.Requested.Nodes),
 		Authored:  c.searchPRs(q.Authored.Nodes),
+		Owned:     c.searchPRs(q.Owned.Nodes),
 	}, nil
 }
 
