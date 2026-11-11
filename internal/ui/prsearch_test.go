@@ -325,6 +325,25 @@ func TestPRListTabKeys(t *testing.T) {
 	}
 }
 
+// All open lists the pull requests you opened and those on your repositories;
+// one in both is one row.
+func TestPRListAllOpen(t *testing.T) {
+	t.Parallel()
+
+	both := searched("github.com/mhersson/aim", 24, "Mine", "mhersson", time.Hour, func(p *github.PR) { p.ViewerAuthored = true })
+	mine := map[string]github.MyPRs{"github.com": {
+		Authored: []github.SearchPR{both, searched("github.com/acme/web", 400, "Elsewhere", "mhersson", 2*time.Hour)},
+		Owned:    []github.SearchPR{searched("github.com/mhersson/aim", 31, "Bump x/net", "dependabot", 30*time.Minute), both},
+	}}
+	a, _, _ := searchApp(t, listAgents(), 120, 40, mine, "github.com/acme/web")
+	openList(a)
+
+	want := []string{"github.com/acme/web#400", "github.com/mhersson/aim#31", "github.com/mhersson/aim#24"}
+	if got := tabbedRows(a, prTabAll); !slices.Equal(got, want) {
+		t.Errorf("All open = %v, want %v", got, want)
+	}
+}
+
 func TestPRListTabsWithoutReads(t *testing.T) {
 	t.Parallel()
 

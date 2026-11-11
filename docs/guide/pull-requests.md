@@ -62,7 +62,7 @@ To list pull requests, press `ctrl+space g l`. It has three tabs, always opened 
 
 - **Agents**: the open pull requests of the branches your agents are on, one row per pull request.
 - **Review requested**: the open pull requests that ask for your review. `review_requested_days` ([`config.example.toml`](../../config.example.toml)) can narrow it.
-- **All open**: the open pull requests you opened.
+- **All open**: the open pull requests you opened and those on repositories you own, a bot's included, one row per pull request.
 
 The last two search every GitHub host AIM watches when the list opens, every minute while it is open, and on `r`. Their empty texts are `loading pull requests…`, `no open pull requests ask for your review` or, when `review_requested_days` sets a limit, `no open pull requests updated in the last <N> days ask for your review` (`1 day` for one), and `you have no open pull requests`; a host whose search failed adds `pull requests on <host>: <reason>`. The Agents tab says `no open pull requests on agent branches` when it is empty.
 

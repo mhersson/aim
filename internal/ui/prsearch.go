@@ -193,9 +193,12 @@ func (a *App) prSearchFailures() []string {
 }
 
 // prSearchRows are the listed pull requests of a searched tab: repositories by
-// name and each one's rows newest update first.
+// name and each one's rows newest update first. All open is the ones you opened
+// and the ones on your repositories, a pull request in both once.
 func (a *App) prSearchRows(tab prListTab) []prListRow {
 	var rows []prListRow
+
+	seen := map[prListKey]bool{}
 
 	for _, h := range a.prSearchHosts() {
 		s := a.search.hosts[h]
@@ -205,11 +208,16 @@ func (a *App) prSearchRows(tab prListTab) []prListRow {
 
 		found := s.mine.Requested
 		if tab == prTabAll {
-			found = s.mine.Authored
+			found = slices.Concat(s.mine.Authored, s.mine.Owned)
 		}
 
 		for _, f := range found {
 			key := prListKey{repo: f.Repo.String(), number: f.PR.Number}
+			if seen[key] {
+				continue
+			}
+
+			seen[key] = true
 			rows = append(rows, prListRow{key: key, pr: prInfoOf(f.PR)})
 		}
 	}
