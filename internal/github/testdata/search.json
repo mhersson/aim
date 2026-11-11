@@ -156,6 +156,64 @@
           }
         }
       ]
+    },
+    "owned": {
+      "nodes": [
+        {
+          "number": 31,
+          "title": "Bump golang.org/x/net",
+          "url": "https://github.com/mhersson/aim/pull/31",
+          "isDraft": false,
+          "state": "OPEN",
+          "isCrossRepository": false,
+          "headRefName": "dependabot/go_modules/golang.org/x/net",
+          "headRefOid": "0000000000000000000000000000000000000031",
+          "baseRefName": "main",
+          "updatedAt": "2026-10-30T10:00:00Z",
+          "reviewDecision": null,
+          "mergeStateStatus": "CLEAN",
+          "author": {
+            "login": "dependabot"
+          },
+          "viewerDidAuthor": false,
+          "commits": {
+            "nodes": []
+          },
+          "repository": {
+            "name": "aim",
+            "owner": {
+              "login": "mhersson"
+            }
+          }
+        },
+        {
+          "number": 24,
+          "title": "Read the conversation",
+          "url": "https://github.com/mhersson/aim/pull/24",
+          "isDraft": false,
+          "state": "OPEN",
+          "isCrossRepository": false,
+          "headRefName": "feat/24",
+          "headRefOid": "0000000000000000000000000000000000000024",
+          "baseRefName": "main",
+          "updatedAt": "2026-10-30T09:00:00Z",
+          "reviewDecision": null,
+          "mergeStateStatus": "CLEAN",
+          "author": {
+            "login": "mhersson"
+          },
+          "viewerDidAuthor": true,
+          "commits": {
+            "nodes": []
+          },
+          "repository": {
+            "name": "aim",
+            "owner": {
+              "login": "mhersson"
+            }
+          }
+        }
+      ]
     }
   }
 }

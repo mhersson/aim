@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 )
@@ -55,6 +56,14 @@ func TestMyPRs(t *testing.T) {
 	if !got.Authored[0].PR.ViewerAuthored {
 		t.Error("ViewerAuthored = false on an authored pull request")
 	}
+
+	wantOwned := []brief{
+		{Repo{"github.com", "mhersson", "aim"}, 31, "dependabot"},
+		{Repo{"github.com", "mhersson", "aim"}, 24, "mhersson"},
+	}
+	if g := briefs(got.Owned); !reflect.DeepEqual(g, wantOwned) {
+		t.Errorf("Owned = %v, want %v", g, wantOwned)
+	}
 }
 
 func TestMyPRsSearches(t *testing.T) {
@@ -96,7 +105,11 @@ func TestMyPRsSearches(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			want := map[string]any{"requested": tt.wantRequested, "authored": "is:open is:pr archived:false author:@me"}
+			want := map[string]any{
+				"requested": tt.wantRequested,
+				"authored":  "is:open is:pr archived:false author:@me",
+				"owned":     "is:open is:pr archived:false user:@me",
+			}
 			if !reflect.DeepEqual(body.Variables, want) {
 				t.Errorf("variables = %v, want %v", body.Variables, want)
 			}
@@ -115,11 +128,12 @@ func TestMyPRsGHE(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(got.Requested)+len(got.Authored) == 0 {
-		t.Fatal("no pull requests")
+	all := slices.Concat(got.Requested, got.Authored, got.Owned)
+	if len(got.Owned) == 0 {
+		t.Fatal("no owned pull requests")
 	}
 
-	for _, s := range append(got.Requested, got.Authored...) {
+	for _, s := range all {
 		if s.Repo.Host != "ghe.example.com" {
 			t.Errorf("repo host = %q, want ghe.example.com", s.Repo.Host)
 		}
