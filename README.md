@@ -104,7 +104,7 @@ The archive also holds `LICENSE`, `THIRD_PARTY.md`, this README and `config.exam
 go install github.com/mhersson/aim/cmd/aim@latest
 ```
 
-This needs Go 1.27.3 or newer. Check any install with `aim --version`.
+This needs Go 1.27.4 or newer. Check any install with `aim --version`.
 
 ## First run
 
