@@ -47,8 +47,9 @@ type myPRsQuery struct {
 
 // MyPRs searches the host for the open pull requests that ask for the
 // viewer's review, the ones the viewer opened and the ones on repositories the
-// viewer owns, at most 100 of each, in repositories that are not archived. A since that is not zero limits the
-// review requests to pull requests updated on or after its UTC date.
+// viewer owns, at most 100 of each, in repositories that are not archived. A
+// since that is not zero limits the review requests to pull requests updated
+// on or after its UTC date.
 func (c *Client) MyPRs(ctx context.Context, since time.Time) (MyPRs, error) {
 	var q myPRsQuery
 

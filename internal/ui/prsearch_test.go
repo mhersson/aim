@@ -594,6 +594,24 @@ func TestPRListSearchHosts(t *testing.T) {
 		}
 	})
 
+	t.Run("a host signed in after the opening", func(t *testing.T) {
+		t.Parallel()
+
+		a, reads, _ := searchApp(t, listAgents(), 120, 40, mine, "github.com/acme/web")
+		openList(a)
+
+		reads.mu.Lock()
+		reads.known = []string{"ghe.example.com"}
+		reads.mu.Unlock()
+
+		_, cmd := a.Update(prSearchTickMsg{open: a.search.open})
+		answered(a, cmd)
+
+		if got := reads.called(); !slices.Contains(got, "ghe.example.com") {
+			t.Errorf("searched %v after the tick, want ghe.example.com in it", got)
+		}
+	})
+
 	t.Run("a host that left the watch set after the ask", func(t *testing.T) {
 		t.Parallel()
 
