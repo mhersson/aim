@@ -71,7 +71,9 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 	}
 }
 
-func clockText(t time.Time) string { return t.Format("15:04") }
+// clockText is the date, then the time: `Fri 13 Nov 14:05`. clockModule's short
+// form is the text after its last space.
+func clockText(t time.Time) string { return t.Format("Mon 2 Jan 15:04") }
 
 // untilNextMinute is the wait to the next minute boundary; on the boundary it
 // is a whole minute.
@@ -349,6 +351,15 @@ func loadModule(l loadInfo, icons bool, ui theme.UI) trayModule {
 
 // clockModule is the clock's own segment; the tray draws the edge before it.
 func clockModule(text string, icons bool, ui theme.UI) trayModule {
+	m := clockSegment(text, icons, ui)
+	if _, hm, ok := strings.CutLast(text, " "); ok {
+		m.short = new(clockSegment(hm, icons, ui))
+	}
+
+	return m
+}
+
+func clockSegment(text string, icons bool, ui theme.UI) trayModule {
 	label := " " + text + " "
 	if icons {
 		label = " " + iconClock + " " + text + " "

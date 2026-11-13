@@ -217,7 +217,10 @@ func testModules() []trayModule {
 		return trayModule{id: id, width: w, render: func() string { return strings.Repeat("x", w) }}
 	}
 
-	return []trayModule{mk(modPR, 8), mk(modLoad, 20), mk(modClock, 9)}
+	clock := mk(modClock, 9)
+	clock.short = new(mk(modClock, 5))
+
+	return []trayModule{mk(modPR, 8), mk(modLoad, 20), clock}
 }
 
 func planTabs() []tabInfo {
@@ -228,11 +231,17 @@ func planTabs() []tabInfo {
 	}
 }
 
-// signature names a plan: the tray modules left, then each visible tab as
-// number and shrink level (0 whole, 1 without the name, 2 the number only).
+// signature names a plan: the tray modules left, a + on one that has a short
+// form still to take, then each visible tab as number and shrink level (0
+// whole, 1 without the name, 2 the number only).
 func signature(p barPlan) string {
 	var ids []string
+
 	for _, m := range p.tray {
+		if m.short != nil {
+			m.id += "+"
+		}
+
 		ids = append(ids, m.id)
 	}
 
@@ -272,24 +281,26 @@ func planEdges(tabs []tabInfo, active int, mods []trayModule, icons bool, maxW i
 	return slices.Compact(edges)
 }
 
-// As the bar narrows it drops load and PR, shrinks inactive names longest
-// first, drops the clock, shrinks the active name, then the farthest segments.
+// As the bar narrows it drops load and PR, takes the clock's short form,
+// shrinks inactive names longest first, drops the clock, shrinks the active
+// name, then the farthest segments.
 func TestWorkspaceBarPlan(t *testing.T) {
 	t.Parallel()
 
 	want := []string{
-		"pr,load,clock | 1:0 2:0 3:0",
-		"pr,clock | 1:0 2:0 3:0", // load leaves
-		"clock | 1:0 2:0 3:0",    // pr leaves
-		"clock | 1:0 2:0 3:1",    // the longest inactive name goes first
-		"clock | 1:1 2:0 3:1",    //
-		"clock | 1:1 2:0 3:2",    // then down to the number
-		"clock | 1:2 2:0 3:2",    //
-		" | 1:2 2:0 3:2",         // the clock leaves
-		" | 1:2 2:1 3:2",         // the active name shrinks
-		" | 1:2 2:2 3:2",         //
-		" | 1:2 2:2",             // the farthest segment goes
-		" | 2:2",                 //
+		"pr,load,clock+ | 1:0 2:0 3:0",
+		"pr,clock+ | 1:0 2:0 3:0", // load leaves
+		"clock+ | 1:0 2:0 3:0",    // pr leaves
+		"clock | 1:0 2:0 3:0",     // the clock takes its short form
+		"clock | 1:0 2:0 3:1",     // the longest inactive name goes first
+		"clock | 1:1 2:0 3:1",     //
+		"clock | 1:1 2:0 3:2",     // then down to the number
+		"clock | 1:2 2:0 3:2",     //
+		" | 1:2 2:0 3:2",          // the clock leaves
+		" | 1:2 2:1 3:2",          // the active name shrinks
+		" | 1:2 2:2 3:2",          //
+		" | 1:2 2:2",              // the farthest segment goes
+		" | 2:2",                  //
 	}
 
 	var got []string

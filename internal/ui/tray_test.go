@@ -41,6 +41,24 @@ func TestUntilNextMinute(t *testing.T) {
 	}
 }
 
+func TestClockText(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		at   time.Time
+		want string
+	}{
+		{time.Date(2026, 11, 13, 14, 5, 0, 0, time.UTC), "Fri 13 Nov 14:05"},
+		{time.Date(2026, 12, 1, 9, 5, 59, 0, time.UTC), "Tue 1 Dec 09:05"},
+	}
+
+	for _, tt := range tests {
+		if got := clockText(tt.at); got != tt.want {
+			t.Errorf("clockText(%v) = %q, want %q", tt.at, got, tt.want)
+		}
+	}
+}
+
 // The clock text changes at minute boundaries only, and a message that repeats
 // it changes nothing.
 func TestClockTextChangesAtMinuteBoundaries(t *testing.T) {
@@ -60,20 +78,20 @@ func TestClockTextChangesAtMinuteBoundaries(t *testing.T) {
 		return a.tray.clock
 	}
 
-	if got := step(); got != "14:32" {
-		t.Fatalf("clock = %q, want 14:32", got)
+	if got := step(); got != "Mon 26 Oct 14:32" {
+		t.Fatalf("clock = %q, want Mon 26 Oct 14:32", got)
 	}
 
 	clk.Advance(54 * time.Second)
 
-	if got := step(); got != "14:32" {
-		t.Errorf("clock at 14:32:59 = %q, want 14:32", got)
+	if got := step(); got != "Mon 26 Oct 14:32" {
+		t.Errorf("clock at 14:32:59 = %q, want Mon 26 Oct 14:32", got)
 	}
 
 	clk.Advance(time.Second)
 
-	if got := step(); got != "14:33" {
-		t.Errorf("clock at 14:33:00 = %q, want 14:33", got)
+	if got := step(); got != "Mon 26 Oct 14:33" {
+		t.Errorf("clock at 14:33:00 = %q, want Mon 26 Oct 14:33", got)
 	}
 }
 
@@ -139,7 +157,7 @@ func TestFormatMem(t *testing.T) {
 
 // fixtureTray fills every sampled module with fixed values.
 func fixtureTray(a *App) {
-	a.tray.clock = "14:32"
+	a.tray.clock = "Mon 26 Oct 14:32"
 	a.tray.load = &loadInfo{CPU: []int{5, 12, 30, 55, 80, 12, 3, 12, 40, 12}, Mem: "9.8G"}
 }
 
@@ -188,6 +206,12 @@ func TestTrayModuleWidths(t *testing.T) {
 
 		if want := []string{modLayout, modLoad, modClock}; !slices.Equal(modIDs(mods), want) {
 			t.Fatalf("icons=%v modules = %v, want %v", icons, modIDs(mods), want)
+		}
+
+		for _, m := range mods {
+			if m.short != nil {
+				mods = append(mods, *m.short)
+			}
 		}
 
 		for _, m := range mods {
@@ -463,6 +487,7 @@ func TestBarGoldens(t *testing.T) {
 		{"icons wide", true, 100, nil, nil},
 		{"plain wide", false, 100, nil, nil},
 		{"plain without load", false, 60, nil, nil},
+		{"icons without the date", true, 42, nil, nil},
 		{"icons wide with a PR running", true, 100, new(prInfo("OPEN", checksRunning)), nil},
 		{"icons wide with a PR passed", true, 100, new(prInfo("OPEN", checksPassed)), nil},
 		{"icons wide with a PR failed", true, 100, new(prInfo("OPEN", checksFailing)), nil},
@@ -545,7 +570,7 @@ func TestTrayColours(t *testing.T) {
 	x := w - clockW
 	assertColours(t, vt, x-1, 0, trayOpen, ui.Clock, ui.Surface, false)
 	assertColours(t, vt, x+1, 0, iconClock, ui.OnAccent, ui.Clock, true)
-	assertColours(t, vt, x+3, 0, "1", ui.OnAccent, ui.Clock, true)
+	assertColours(t, vt, x+3, 0, "M", ui.OnAccent, ui.Clock, true)
 
 	loadW := trayModuleByID(a, modLoad).width
 	lx := x - 1 - loadW
@@ -601,10 +626,11 @@ func TestClockWake(t *testing.T) {
 		wantText  string
 		wantAgain time.Duration
 	}{
-		{"new minute", base.Add(time.Minute), "14:32", "14:33", 0},
-		{"woke early", base.Add(59*time.Second + 900*time.Millisecond), "14:32", "", 100 * time.Millisecond},
-		{"clock stepped back", base.Add(-30 * time.Second), "14:32", "14:31", 0},
-		{"first reading", base, "", "14:32", 0},
+		{"new minute", base.Add(time.Minute), "Mon 26 Oct 14:32", "Mon 26 Oct 14:33", 0},
+		{"woke early", base.Add(59*time.Second + 900*time.Millisecond), "Mon 26 Oct 14:32", "", 100 * time.Millisecond},
+		{"clock stepped back", base.Add(-30 * time.Second), "Mon 26 Oct 14:32", "Mon 26 Oct 14:31", 0},
+		{"first reading", base, "", "Mon 26 Oct 14:32", 0},
+		{"midnight", time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC), "Mon 26 Oct 23:59", "Tue 27 Oct 00:00", 0},
 	}
 
 	for _, tt := range tests {
