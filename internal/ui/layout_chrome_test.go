@@ -411,13 +411,13 @@ func layoutTrayCases() []layoutTrayCase {
 		pr   *core.PRInfo
 	}{
 		{"wide", 110, nil},
-		{"narrow", 58, nil},
-		{"layout-gone", 42, nil},
+		{"narrow", 69, nil},
+		{"layout-gone", 53, nil},
 		{"pr-wide", 110, new(prInfo("OPEN", checksRunning))},
 		{"pr-failed", 110, new(prInfo("OPEN", checksFailing))},
-		{"pr-no-load", 70, new(prInfo("OPEN", checksPassed))},
-		{"pr-gone", 48, new(prInfo("OPEN", checksRunning))},
-		{"pr-layout-gone", 36, new(prInfo("OPEN", checksRunning))},
+		{"pr-no-load", 81, new(prInfo("OPEN", checksPassed))},
+		{"pr-gone", 59, new(prInfo("OPEN", checksRunning))},
+		{"pr-layout-gone", 47, new(prInfo("OPEN", checksRunning))},
 	}
 
 	var cases []layoutTrayCase

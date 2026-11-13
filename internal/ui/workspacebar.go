@@ -31,6 +31,7 @@ type trayModule struct {
 	id     string
 	width  int
 	render func() string
+	short  *trayModule // a narrower form, with the same id, for planBar to take
 }
 
 // tabInfo is what the bar needs to know about a tab; name is already resolved.
@@ -122,9 +123,10 @@ func trayWidth(mods []trayModule, icons bool) int {
 
 // planBar decides what the bar shows in width cells. As the width shrinks it
 // gives way in this order: load, usage, PR and the layout mode leave the tray;
-// inactive tab names shrink to the icon and then the number, longest names
-// first; the clock leaves; the active name shrinks the same way; finally the
-// segments farthest from the active tab are left out.
+// the clock takes its short form, the time without the date; inactive tab
+// names shrink to the icon and then the number, longest names first; the clock
+// leaves; the active name shrinks the same way; finally the segments farthest
+// from the active tab are left out.
 func planBar(tabs []tabInfo, active int, mods []trayModule, width int, icons bool) barPlan {
 	active = min(max(active, 0), len(tabs)-1)
 	tray := slices.Clone(mods)
@@ -151,6 +153,18 @@ func planBar(tabs []tabInfo, active int, mods []trayModule, width int, icons boo
 			}
 
 			tray = slices.Delete(tray, i, i+1)
+
+			return true
+		}
+	}
+	narrow := func(id string) func() bool {
+		return func() bool {
+			i := slices.IndexFunc(tray, func(m trayModule) bool { return m.id == id && m.short != nil })
+			if i < 0 {
+				return false
+			}
+
+			tray[i] = *tray[i].short
 
 			return true
 		}
@@ -198,7 +212,7 @@ func planBar(tabs []tabInfo, active int, mods []trayModule, width int, icons boo
 		return true
 	}
 
-	stages := []func() bool{drop(modLoad), drop(modUsage), drop(modPR), drop(modLayout)}
+	stages := []func() bool{drop(modLoad), drop(modUsage), drop(modPR), drop(modLayout), narrow(modClock)}
 	if icons {
 		stages = append(stages, shrink(levelIcon, false))
 	}
