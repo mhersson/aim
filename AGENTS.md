@@ -224,3 +224,5 @@ a push.
   or merge needs a confirm step in the UI.
 - Code ported from TUIOS (MIT) keeps its license header and is listed in
   `THIRD_PARTY.md`.
+
+Mouse copy from a pane joins a row into the next only when the emulator marks the row as soft-wrapped, and the term adapter treats an unknown soft-wrap flag as a hard break. A guest program that lays out its own lines and ends each row with a line break, as Claude Code does, therefore copies with those line breaks. Reading boxes and the review drawer join their wraps through the markdown copy join kinds instead.
