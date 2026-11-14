@@ -226,3 +226,5 @@ a push.
   `THIRD_PARTY.md`.
 
 Mouse copy from a pane joins a row into the next only when the emulator marks the row as soft-wrapped, and the term adapter treats an unknown soft-wrap flag as a hard break. A guest program that lays out its own lines and ends each row with a line break, as Claude Code does, therefore copies with those line breaks. Reading boxes and the review drawer join their wraps through the markdown copy join kinds instead.
+
+The repository has no checked-in recording of real Claude Code output, although the Testing section says VT tests feed one. `internal/term/rec` defines the recording format, and `internal/term/rec/synth.go` only generates a synthetic stream. Real recordings reach only the bench-tagged ui tests, through a path list in an environment variable. A test that depends on how Claude Code really lays out its rows must build that byte stream by hand, or capture a real one and add it under testdata. Either fix the Testing line to say this, or check in a short real capture.
