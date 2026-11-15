@@ -3,6 +3,9 @@ package ui
 import (
 	"strings"
 	"testing"
+
+	"github.com/mhersson/aim/internal/core"
+	"github.com/mhersson/aim/internal/harness"
 )
 
 // claudeSel is the selection in mode from column 0 of row from to the last column
@@ -254,6 +257,35 @@ func TestClaudeLine(t *testing.T) {
 
 			if !read {
 				t.Fatal("the grid was not read")
+			}
+		})
+	}
+}
+
+func TestIsClaudePane(t *testing.T) {
+	t.Parallel()
+
+	claudeID := (harness.Claude{}).ID()
+
+	tests := []struct {
+		name string
+		pane core.Pane
+		want bool
+	}{
+		{"claude code agent", core.Pane{Kind: core.KindAgent, Harness: claudeID}, true},
+		{"agent without a harness", core.Pane{Kind: core.KindAgent}, false},
+		{"agent of another harness", core.Pane{Kind: core.KindAgent, Harness: "codex"}, false},
+		{"shell", core.Pane{Kind: core.KindShell}, false},
+		{"shell naming claude code", core.Pane{Kind: core.KindShell, Harness: claudeID}, false},
+		{"zero pane", core.Pane{}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := isClaudePane(tt.pane); got != tt.want {
+				t.Errorf("isClaudePane(%+v) = %v, want %v", tt.pane, got, tt.want)
 			}
 		})
 	}
