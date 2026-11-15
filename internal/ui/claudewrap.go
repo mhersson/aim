@@ -5,8 +5,15 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/mhersson/aim/internal/core"
+	"github.com/mhersson/aim/internal/harness"
 	"github.com/mhersson/aim/internal/term"
 )
+
+// isClaudePane reports whether m runs Claude Code; it is the only such test.
+func isClaudePane(m core.Pane) bool {
+	return m.Kind == core.KindAgent && m.Harness == (harness.Claude{}).ID()
+}
 
 // claudeCell is one cell as the join rule reads it.
 type claudeCell struct {

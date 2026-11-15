@@ -178,9 +178,11 @@ func (a *App) selectedText() string {
 
 	var text string
 
+	claude := isClaudePane(a.store.State().Panes[s.pane])
+
 	p.withView(func(g grid, _ int, trimmed uint64) {
 		if sel, ok := s.resolve(g, trimmed); ok {
-			text = extract(g, sel)
+			text = extractFor(g, sel, claude)
 		}
 	})
 

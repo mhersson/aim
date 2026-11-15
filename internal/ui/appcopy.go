@@ -105,13 +105,15 @@ func (a *App) handleCopyKey(msg tea.KeyPressMsg) tea.Cmd {
 	key := bindingKey(msg)
 	act, text := copyNone, ""
 
+	claude := isClaudePane(a.store.State().Panes[cs.pane])
+
 	p.withView(func(g grid, top int, trimmed uint64) {
 		next := cs.shifted(trimmed, g.Rows())
 		next.m.top = top
 		next.m, act = next.m.key(g, key, rows)
 
 		if act == copyYank && next.m.sel != nil {
-			text = extract(g, *next.m.sel)
+			text = extractFor(g, *next.m.sel, claude)
 		}
 
 		*cs = next
