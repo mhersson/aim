@@ -238,6 +238,114 @@ func lineAt(g grid, p point) selection {
 	}
 }
 
+// wordAtFor is wordAt, except that when claude is set the word also crosses a
+// break Claude Code made inside it (claudeJoin says wrapTight) and counts `?`,
+// `=` and `&` as word characters. A break that joins with a space ends the word.
+func wordAtFor(g grid, p point, claude bool) selection {
+	if !claude || g.Rows() == 0 || g.Cols() == 0 {
+		return wordAt(g, p)
+	}
+
+	p = clampPoint(g, p)
+
+	sel := selection{mode: selStream, anchor: p, head: p}
+	if claudeCellClass(g, p.row, p.col) != classWord {
+		return sel
+	}
+
+	first, start := claudeLine(g, p.row)
+	cols := g.Cols()
+
+	// tightAbove reports whether row joins the row above with nothing, and the
+	// column where row's text starts.
+	tightAbove := func(row int) (int, bool) {
+		if row <= first || g.Wrapped(row-1) {
+			return 0, false
+		}
+
+		j, cc := claudeJoin(g, row-1, start)
+
+		return cc, j == wrapTight
+	}
+
+	s := p
+	cc, tight := tightAbove(s.row)
+
+	for {
+		prev := s
+
+		switch {
+		case tight && s.col == cc:
+			prev = point{s.row - 1, cols - 1}
+		case s.col > 0:
+			prev.col--
+		case s.row > 0 && g.Wrapped(s.row-1):
+			prev = point{s.row - 1, cols - 1}
+		}
+
+		if prev == s || claudeCellClass(g, prev.row, prev.col) != classWord {
+			break
+		}
+
+		if prev.row != s.row {
+			cc, tight = tightAbove(prev.row)
+		}
+
+		s = prev
+	}
+
+	e := p
+
+	for {
+		next := e
+
+		switch {
+		case e.col < cols-1:
+			next.col++
+		case e.row+1 < g.Rows() && g.Wrapped(e.row):
+			next = point{e.row + 1, 0}
+		case e.row+1 < g.Rows():
+			if j, col := claudeJoin(g, e.row, start); j == wrapTight {
+				next = point{e.row + 1, col}
+			}
+		}
+
+		if next == e || claudeCellClass(g, next.row, next.col) != classWord {
+			break
+		}
+
+		e = next
+	}
+
+	sel.anchor, sel.head = s, e
+
+	return sel
+}
+
+// lineAtFor is lineAt, except that when claude is set the line also spans the
+// rows Claude Code wrapped itself (claudeJoin does not say wrapKeep).
+func lineAtFor(g grid, p point, claude bool) selection {
+	if !claude || g.Rows() == 0 || g.Cols() == 0 {
+		return lineAt(g, p)
+	}
+
+	p = clampPoint(g, p)
+	first, start := claudeLine(g, p.row)
+
+	last := p.row
+	for last+1 < g.Rows() {
+		if !g.Wrapped(last) {
+			if j, _ := claudeJoin(g, last, start); j == wrapKeep {
+				break
+			}
+		}
+
+		last++
+	}
+
+	return selection{mode: selLine, anchor: point{first, 0}, head: point{last, g.Cols() - 1}}
+}
+
 // extract returns the selected text. Rows are clamped to the grid, so a
 // selection that outlives trimmed history yields what remains.
 func extract(g grid, s selection) string {
@@ -269,6 +377,78 @@ func extract(g grid, s selection) string {
 
 		if row < last && !joined {
 			b.WriteByte('\n')
+		}
+	}
+
+	return b.String()
+}
+
+// extractFor is extract, except that when claude is set it also joins the rows
+// Claude Code wrapped itself (see claudeJoin), without the newline and without
+// the indent and quote bar of the joined row. A block selection copies as extract.
+func extractFor(g grid, s selection, claude bool) string {
+	rows, cols := g.Rows(), g.Cols()
+	if !claude || s.mode == selBlock || rows == 0 || cols == 0 {
+		return extract(g, s)
+	}
+
+	first, last := s.rowBounds()
+	first = max(first, 0)
+	last = min(last, rows-1)
+
+	if first > last {
+		return ""
+	}
+
+	_, start := claudeLine(g, first)
+
+	var (
+		b      strings.Builder
+		sep    string // written before the next row's text, if it has any
+		minCol int    // the joined row's text starts here
+	)
+
+	for row := first; row <= last; row++ {
+		from, to, ok := s.rowSpan(row, cols)
+		from = max(from, minCol)
+
+		var text string
+		if ok && from <= to {
+			text = rowText(g, row, from, to)
+		}
+
+		soft := row < last && g.Wrapped(row)
+		join, cc := wrapKeep, 0
+
+		if row < last && !soft {
+			join, cc = claudeJoin(g, row, start)
+		}
+
+		trimmed := strings.TrimRight(text, " ")
+		if trimmed != "" {
+			b.WriteString(sep)
+		}
+
+		if soft {
+			b.WriteString(text)
+		} else {
+			b.WriteString(trimmed)
+		}
+
+		sep, minCol = "", 0
+
+		switch {
+		case soft || row == last:
+		case join == wrapKeep:
+			b.WriteByte('\n')
+
+			start = readClaudeRow(g, row+1).textStart()
+		default:
+			minCol = cc
+
+			if join == wrapSpace {
+				sep = " "
+			}
 		}
 	}
 

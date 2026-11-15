@@ -40,6 +40,8 @@ A copy from copy mode, `ctrl+space y` on a pane or drawer selection, `y` in the 
 - **OSC 52 to the outer terminal**, which puts the text on the clipboard of the machine your terminal runs on, also over SSH. On Linux AIM also sends it as the primary selection.
 - **Native tools on a local session**: `wl-copy` when `WAYLAND_DISPLAY` is set, else `xclip` when `DISPLAY` is set (Linux), and `pbcopy` (macOS). On Linux the tools write both the clipboard and the primary selection. A session counts as local unless `SSH_CONNECTION` or `SSH_TTY` is set. On Linux with neither display set, nothing native runs.
 
+In a Claude Code pane, the rows Claude Code wrapped itself copy without the wrap newlines with copy mode's `y` on a `v` or `V` selection, `ctrl+space y`, `copy_on_select` and the primary selection written on release, so a paragraph, a list item, a path or a URL pastes whole. A rectangle (`alt`+drag or copy mode's `ctrl+v`) copies each row as drawn.
+
 The `[clipboard]` settings `osc52` and `native` apply to these two paths; see [`config.example.toml`](../../config.example.toml). AIM shows no notice when it copies.
 
 To paste what you selected, middle-click in a pane. AIM pastes into the pane as the terminal would, with bracketed paste when the program asked for it. A mouse selection (see below) writes the primary selection when the button is released, so on Linux a middle-click pastes it in any application. The text a middle-click pastes comes from:
@@ -63,7 +65,7 @@ The mouse works in panes, the agents rail, the review drawer, the tab bar and th
 
 ### Select with the mouse
 
-Drag with the left button; no modifier is needed. `alt`+drag selects a rectangle. A double-click selects a word and a triple-click a line, with soft-wrapped lines counting as one (the presses must land on the same cell within 400 ms). The selection stays in the pane or box where the drag began. The same gestures select in the review drawer's diff and rendered pages, and in the plan, markdown file and conversation boxes. A drag held past the top or bottom of a drawer page or a box scrolls it a row every 50 ms.
+Drag with the left button; no modifier is needed. `alt`+drag selects a rectangle. A double-click selects a word and a triple-click a line, with soft-wrapped lines counting as one (the presses must land on the same cell within 400 ms). In a Claude Code pane the rows Claude Code wrapped itself also count as one line, and a double-click counts `?`, `=` and `&` as part of a word and follows a word Claude Code broke at the right edge onto the next row, so it takes a whole path or URL. The selection stays in the pane or box where the drag began. The same gestures select in the review drawer's diff and rendered pages, and in the plan, markdown file and conversation boxes. A drag held past the top or bottom of a drawer page or a box scrolls it a row every 50 ms.
 
 There is one selection at a time; a new click, drag or double-click anywhere clears the one before. A pane's selection also clears, for example, when you type or paste into the pane, middle-click to paste, or when the pane closes, is resized, switches screen, moves or restarts, and when the program redraws the text under it. A plain click never selects or copies.
 

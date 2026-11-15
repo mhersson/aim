@@ -18,10 +18,11 @@ import (
 )
 
 type paneSpec struct {
-	kind  core.PaneKind
-	cwd   string
-	split core.Split
-	text  string // fed to the guest after the pane is sized
+	kind    core.PaneKind
+	cwd     string
+	split   core.Split
+	text    string // fed to the guest after the pane is sized
+	harness string // the harness id of an agent pane
 }
 
 // framedApp opens the specs through the store, starts a fake-process pane for
@@ -42,7 +43,7 @@ func framedAppOn(t *testing.T, a *App, w, h int, specs ...paneSpec) (*App, map[c
 	texts := map[core.PaneID]string{}
 
 	for i, s := range specs {
-		if err := a.dispatch(core.OpenPane{Kind: s.kind, Cwd: s.cwd, Split: s.split}); err != nil {
+		if err := a.dispatch(core.OpenPane{Kind: s.kind, Cwd: s.cwd, Split: s.split, Harness: s.harness}); err != nil {
 			t.Fatal(err)
 		}
 
