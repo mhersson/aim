@@ -275,6 +275,78 @@ func extract(g grid, s selection) string {
 	return b.String()
 }
 
+// extractFor is extract, except that when claude is set it also joins the rows
+// Claude Code wrapped itself (see claudeJoin), without the newline and without
+// the indent and quote bar of the joined row. A block selection copies as extract.
+func extractFor(g grid, s selection, claude bool) string {
+	rows, cols := g.Rows(), g.Cols()
+	if !claude || s.mode == selBlock || rows == 0 || cols == 0 {
+		return extract(g, s)
+	}
+
+	first, last := s.rowBounds()
+	first = max(first, 0)
+	last = min(last, rows-1)
+
+	if first > last {
+		return ""
+	}
+
+	_, start := claudeLine(g, first)
+
+	var (
+		b      strings.Builder
+		sep    string // written before the next row's text, if it has any
+		minCol int    // the joined row's text starts here
+	)
+
+	for row := first; row <= last; row++ {
+		from, to, ok := s.rowSpan(row, cols)
+		from = max(from, minCol)
+
+		var text string
+		if ok && from <= to {
+			text = rowText(g, row, from, to)
+		}
+
+		soft := row < last && g.Wrapped(row)
+		join, cc := wrapKeep, 0
+
+		if row < last && !soft {
+			join, cc = claudeJoin(g, row, start)
+		}
+
+		trimmed := strings.TrimRight(text, " ")
+		if trimmed != "" {
+			b.WriteString(sep)
+		}
+
+		if soft {
+			b.WriteString(text)
+		} else {
+			b.WriteString(trimmed)
+		}
+
+		sep, minCol = "", 0
+
+		switch {
+		case soft || row == last:
+		case join == wrapKeep:
+			b.WriteByte('\n')
+
+			start = readClaudeRow(g, row+1).textStart()
+		default:
+			minCol = cc
+
+			if join == wrapSpace {
+				sep = " "
+			}
+		}
+	}
+
+	return b.String()
+}
+
 // rowText reads columns from..to of a row, emitting a wide char once even when
 // only its continuation column is selected.
 func rowText(g grid, row, from, to int) string {
