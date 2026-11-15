@@ -2,6 +2,7 @@ package ui
 
 import (
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -372,6 +373,147 @@ func TestClaudeRedrawRawRows(t *testing.T) {
 						t.Errorf("copied %q, want %q", got, want)
 					}
 				})
+			}
+		})
+	}
+}
+
+func TestClaudeMultiClick(t *testing.T) {
+	t.Parallel()
+
+	claudeID := (harness.Claude{}).ID()
+	toShell := core.SetPaneKind{ID: "p1", Kind: core.KindShell}
+	toClaude := core.SetPaneKind{ID: "p1", Kind: core.KindAgent, Harness: claudeID}
+	bullet := replyLine(t, "  - The first bullet")
+
+	// lit is a highlight check: whether the cell at content (row, col) has the
+	// selection background.
+	type lit struct {
+		row, col int
+		on       bool
+	}
+
+	tests := []struct {
+		name    string
+		kind    core.PaneKind
+		harness string
+		// before changes the pane's kind before the click; after, between the click and the copy.
+		before, after *core.SetPaneKind
+		// at is the content cell pressed: twice for a double-click, three times for a triple.
+		at     point
+		clicks int
+		lit    []lit
+		// want is the copy, unless sel is set. ref picks what a shell pane selects; a
+		// case that sets ref also sets want, which must equal extract of that selection
+		// at the absolute point. sel is the selection the copy is extract of.
+		want string
+		ref  func(g grid, p point) selection
+		sel  *selection
+	}{
+		{
+			name: "agent double-click on the broken URL", kind: core.KindAgent, harness: claudeID,
+			at: point{24, 4}, clicks: 2, want: claudeURL,
+			lit: []lit{{23, 6, true}, {24, 0, true}, {24, 37, true}, {23, 5, false}, {24, 38, false}},
+		},
+		{
+			name: "agent double-click on Test", kind: core.KindAgent, harness: claudeID,
+			at: point{11, 77}, clicks: 2, want: claudePath,
+		},
+		{
+			name: "agent double-click on PlanOverlayGolden", kind: core.KindAgent, harness: claudeID,
+			at: point{12, 10}, clicks: 2, want: claudePath,
+		},
+		{
+			name: "agent triple-click on the wrapped bullet", kind: core.KindAgent, harness: claudeID,
+			at: point{9, 10}, clicks: 3, want: bullet,
+			lit: []lit{{8, 0, true}, {9, 79, true}, {10, 0, false}},
+		},
+		{
+			name: "shell double-click on the broken URL", kind: core.KindShell,
+			at: point{24, 4}, clicks: 2, ref: wordAt, want: "ighlight",
+		},
+		{
+			name: "shell double-click on Test", kind: core.KindShell,
+			at: point{11, 77}, clicks: 2, ref: wordAt, want: claudePath[:49],
+		},
+		{
+			name: "shell double-click on PlanOverlayGolden", kind: core.KindShell,
+			at: point{12, 10}, clicks: 2, ref: wordAt, want: "PlanOverlayGolden/catppuccin-mocha/icons",
+		},
+		{
+			name: "shell triple-click on the wrapped bullet", kind: core.KindShell,
+			at: point{9, 10}, clicks: 3, ref: lineAt, want: "    third one when the pane is narrow.",
+		},
+		{
+			name: "shell turned agent before the click", kind: core.KindShell, before: &toClaude,
+			at: point{24, 4}, clicks: 2, want: claudeURL,
+		},
+		{
+			name: "agent turned shell before the click", kind: core.KindAgent, harness: claudeID, before: &toShell,
+			at: point{24, 4}, clicks: 2, want: "ighlight",
+		},
+		{
+			name: "agent turned shell between the click and the copy", kind: core.KindAgent, harness: claudeID, after: &toShell,
+			at: point{24, 4}, clicks: 2, sel: &selection{selStream, point{40, 6}, point{41, 37}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			a, _, f := claudeApp(t, claudeDefault80, tt.kind, tt.harness)
+			clk := &fakeClock{t: time.Unix(1000, 0)}
+			a.clock = clk
+			r := contentRectOf(a, "p1")
+
+			dispatch := func(act *core.SetPaneKind) {
+				t.Helper()
+
+				if act == nil {
+					return
+				}
+
+				if err := a.dispatch(*act); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			dispatch(tt.before)
+
+			for i := range tt.clicks {
+				if i > 0 {
+					clk.Advance(100 * time.Millisecond)
+				}
+
+				click(a, r.X+tt.at.col, r.Y+tt.at.row)
+			}
+
+			buf := drawnBuffer(a)
+			for _, l := range tt.lit {
+				if got := selBgIn(a, buf, r.X+l.col, r.Y+l.row); got != l.on {
+					t.Errorf("selection background at content (%d,%d) = %v, want %v", l.row, l.col, got, l.on)
+				}
+			}
+
+			dispatch(tt.after)
+
+			want := tt.want
+
+			switch {
+			case tt.sel != nil:
+				want = extractOf(t, a, *tt.sel)
+			case tt.ref != nil:
+				a.panes["p1"].withGrid(func(g grid) {
+					at := point{claudeDefault80.hist() + tt.at.row, tt.at.col}
+					if ref := extract(g, tt.ref(g, at)); ref != tt.want {
+						t.Errorf("extract of today's selection = %q, want %q", ref, tt.want)
+					}
+				})
+			}
+
+			if got := copyNow(a, f); got != want {
+				t.Errorf("copied %q, want %q", got, want)
 			}
 		})
 	}
