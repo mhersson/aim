@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/mhersson/aim/internal/core"
 )
 
 // claudeDump is the screen text of a Claude Code session, oldest line first: the
@@ -56,6 +58,23 @@ func claudeGridPane(t *testing.T, d claudeDump) (*pane, *fakeProc) {
 	})
 
 	return p, fp
+}
+
+// claudeApp is a framed app whose one pane, p1, has drawn d. The body starts on
+// row 2 and the frame insets the content by one cell, so a window of
+// d.cols+2 x d.rows+4 gives the pane exactly d's size.
+func claudeApp(t *testing.T, d claudeDump, kind core.PaneKind, harnessID string) (*App, *fakeProc, *fakeRun) {
+	t.Helper()
+
+	a, procs := framedApp(t, d.cols+2, d.rows+4, paneSpec{
+		kind: kind, cwd: "/w/a", split: core.SplitVertical, text: string(d.bytes()), harness: harnessID,
+	})
+
+	if c := contentRectOf(a, "p1"); c.W != d.cols || c.H != d.rows {
+		t.Fatalf("content = %dx%d, want %dx%d", c.W, c.H, d.cols, d.rows)
+	}
+
+	return a, procs["p1"], fakeClip(a)
 }
 
 // claudePath is 112 characters, longer than a row at either width.
