@@ -15,6 +15,15 @@ func isClaudePane(m core.Pane) bool {
 	return m.Kind == core.KindAgent && m.Harness == (harness.Claude{}).ID()
 }
 
+// claudeCellClass is cellClass plus `?`, `=` and `&` as word characters; only wordAtFor uses it.
+func claudeCellClass(g grid, row, col int) int {
+	if c := g.Cell(row, col); c != nil && c.Content != "" && strings.IndexByte("?=&", c.Content[0]) >= 0 {
+		return classWord
+	}
+
+	return cellClass(g, row, col)
+}
+
 // claudeCell is one cell as the join rule reads it.
 type claudeCell struct {
 	content string
