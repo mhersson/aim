@@ -556,9 +556,12 @@ the followed place back, and one after a session change records nothing.
 - Claude Code wraps its own text and draws each row with cursor positioning, so
   its rows carry no soft-wrap flag. In a Claude Code pane (kind agent, harness
   `claude-code`), a stream or line copy joins rows by the rule in
-  `internal/ui/claudewrap.go`, which reads only the grid. The redraw check,
-  block selections, shell panes, the review drawer and the reading boxes read
-  the raw rows.
+  `internal/ui/claudewrap.go`, which reads only the grid. A triple-click there
+  takes every row the rule joins, and a double-click crosses only a break the
+  rule joins with nothing and counts `?`, `=` and `&` as word characters. Copy
+  mode's word motions keep the shared word class, and the redraw check, block
+  selections, shell panes, the review drawer and the reading boxes read the raw
+  rows.
 
 ## Persistence and restore
 

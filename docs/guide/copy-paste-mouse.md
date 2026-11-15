@@ -65,7 +65,7 @@ The mouse works in panes, the agents rail, the review drawer, the tab bar and th
 
 ### Select with the mouse
 
-Drag with the left button; no modifier is needed. `alt`+drag selects a rectangle. A double-click selects a word and a triple-click a line, with soft-wrapped lines counting as one (the presses must land on the same cell within 400 ms). The selection stays in the pane or box where the drag began. The same gestures select in the review drawer's diff and rendered pages, and in the plan, markdown file and conversation boxes. A drag held past the top or bottom of a drawer page or a box scrolls it a row every 50 ms.
+Drag with the left button; no modifier is needed. `alt`+drag selects a rectangle. A double-click selects a word and a triple-click a line, with soft-wrapped lines counting as one (the presses must land on the same cell within 400 ms). In a Claude Code pane the rows Claude Code wrapped itself also count as one line, and a double-click counts `?`, `=` and `&` as part of a word and follows a word Claude Code broke at the right edge onto the next row, so it takes a whole path or URL. The selection stays in the pane or box where the drag began. The same gestures select in the review drawer's diff and rendered pages, and in the plan, markdown file and conversation boxes. A drag held past the top or bottom of a drawer page or a box scrolls it a row every 50 ms.
 
 There is one selection at a time; a new click, drag or double-click anywhere clears the one before. A pane's selection also clears, for example, when you type or paste into the pane, middle-click to paste, or when the pane closes, is resized, switches screen, moves or restarts, and when the program redraws the text under it. A plain click never selects or copies.
 

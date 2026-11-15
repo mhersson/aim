@@ -313,15 +313,17 @@ func (a *App) contentPress(h hitResult, m tea.Mouse) tea.Cmd {
 
 	a.clearSelections()
 
+	claude := isClaudePane(a.store.State().Panes[h.pane])
+
 	p.withView(func(g grid, top int, trimmed uint64) {
 		at := clampPoint(g, point{top + h.local.row, h.local.col})
 		pr.anchor = stable(at, trimmed)
 
 		switch n {
 		case 2:
-			a.sel = newPaneSelection(h.pane, wordAt(g, at), trimmed)
+			a.sel = newPaneSelection(h.pane, wordAtFor(g, at, claude), trimmed)
 		case 3:
-			a.sel = newPaneSelection(h.pane, lineAt(g, at), trimmed)
+			a.sel = newPaneSelection(h.pane, lineAtFor(g, at, claude), trimmed)
 		}
 
 		if a.sel != nil {
