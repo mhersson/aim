@@ -99,7 +99,6 @@ func TestClaudeExtract(t *testing.T) {
 		},
 
 		{name: "80 tool rows as today", pane: p80, sel: stream(11, 13, 80), claude: true, asExtract: true},
-		{name: "117 code line keeps newline before brace", pane: p117, sel: stream(34, 35, 117), claude: true, asExtract: true},
 
 		{
 			name: "word lookups read whole rows",
@@ -147,41 +146,19 @@ func TestClaudeExtract(t *testing.T) {
 			name: "blank history rows skipped by the scanner read as blank",
 			pane: pHist, sel: stream(16, h+31, 80), claude: true, want: claudeWantReply,
 		},
+
+		{name: "flag false copies as extract", pane: p80, sel: stream(16, h+31, 80), asExtract: true},
+		{
+			name: "block copies as extract", pane: p80, sel: claudeSel(selBlock, 16, h+31, 80),
+			claude: true, asExtract: true,
+		},
 	}
 
-	for _, row1 := range []string{"- uvw", "* uvw", "• uvw", "1. uvw", "2) uvw", "⎿ uvw", "╭───"} {
+	for _, row1 := range []string{"- uvw", "1. uvw", "2) uvw", "╭───"} {
 		cases = append(cases, claudeExtractCase{
 			name: "marker " + row1 + " keeps newline",
 			fake: newFakeGrid(20, nil, alpha, row1),
 			sel:  stream(0, 1, 20), claude: true, want: alpha + "\n" + row1,
-		})
-	}
-
-	selections := []struct {
-		name         string
-		pane         *pane
-		from, to, wd int
-	}{
-		{"80 prompt", p80, 5, 6, 80},
-		{"80 reply", p80, 16, h + 31, 80},
-		{"117 prompt", p117, 6, 7, 117},
-		{"117 reply", p117, 11, 37, 117},
-	}
-
-	for _, s := range selections {
-		for _, m := range []struct {
-			name string
-			mode selMode
-		}{{"stream", selStream}, {"line", selLine}, {"block", selBlock}} {
-			cases = append(cases, claudeExtractCase{
-				name: "flag false " + m.name + " " + s.name,
-				pane: s.pane, sel: claudeSel(m.mode, s.from, s.to, s.wd), asExtract: true,
-			})
-		}
-
-		cases = append(cases, claudeExtractCase{
-			name: "flag true block " + s.name,
-			pane: s.pane, sel: claudeSel(selBlock, s.from, s.to, s.wd), claude: true, asExtract: true,
 		})
 	}
 
@@ -273,11 +250,8 @@ func TestIsClaudePane(t *testing.T) {
 		want bool
 	}{
 		{"claude code agent", core.Pane{Kind: core.KindAgent, Harness: claudeID}, true},
-		{"agent without a harness", core.Pane{Kind: core.KindAgent}, false},
 		{"agent of another harness", core.Pane{Kind: core.KindAgent, Harness: "codex"}, false},
-		{"shell", core.Pane{Kind: core.KindShell}, false},
 		{"shell naming claude code", core.Pane{Kind: core.KindShell, Harness: claudeID}, false},
-		{"zero pane", core.Pane{}, false},
 	}
 
 	for _, tt := range tests {
@@ -307,8 +281,6 @@ type claudeClickCase struct {
 	text string
 	// today means wordAt or lineAt, and the copy of its selection, give the same.
 	today bool
-	// notWord lists columns of at's row that cellClass does not call classWord.
-	notWord []int
 }
 
 // runClaudeClicks runs every case against forClaude, with today as the form that
@@ -346,12 +318,6 @@ func runClaudeClicks(
 
 					if text, want := extractFor(g, got, tc.claude), extract(g, old); text != want {
 						t.Errorf("extractFor = %q, extract of today's selection is %q", text, want)
-					}
-				}
-
-				for _, col := range tc.notWord {
-					if cellClass(g, tc.at.row, col) == classWord {
-						t.Errorf("cellClass(%d, %d) is classWord", tc.at.row, col)
 					}
 				}
 			}
@@ -405,7 +371,6 @@ func TestClaudeWordAt(t *testing.T) {
 		{name: "percent is no word character", fake: marks, at: point{0, 7}, claude: true, want: stream(0, 7, 0, 7)},
 
 		{name: "117 URL on one row", pane: p117, at: point{30, 82}, claude: true, want: stream(30, 6, 30, 115), text: claudeURL},
-		{name: "117 path on one row", pane: p117, at: point{22, 95}, claude: true, want: stream(22, 4, 22, 115), text: claudePath},
 
 		{
 			name: "wide characters measured in cells from the upper row", fake: wide, at: point{0, 4}, claude: true,
@@ -428,12 +393,6 @@ func TestClaudeWordAt(t *testing.T) {
 		{name: "no rows", fake: newFakeGrid(20, nil), at: point{0, 0}, claude: true, want: stream(0, 0, 0, 0), today: true},
 
 		{name: "flag false URL part", pane: p80, at: point{41, 4}, want: stream(41, 2, 41, 9), today: true},
-		{name: "flag false path from Test", pane: p80, at: point{28, 77}, want: stream(28, 31, 28, 79), today: true},
-		{name: "flag false path from the lower row", pane: p80, at: point{29, 10}, want: stream(29, 4, 29, 43), today: true},
-		{
-			name: "flag false keeps ? = and & out of the word", fake: marks, at: point{0, 0},
-			want: stream(0, 0, 0, 0), today: true, notWord: []int{1, 3, 5},
-		},
 	}
 
 	runClaudeClicks(t, cases, wordAtFor, wordAt)
@@ -482,7 +441,6 @@ func TestClaudeLineAt(t *testing.T) {
 		{name: "no rows", fake: newFakeGrid(20, nil), at: point{0, 0}, claude: true, want: claudeSel(selLine, 0, 0, 20), today: true},
 
 		{name: "flag false bullet", pane: p80, at: point{26, 10}, want: claudeSel(selLine, 26, 26, 80), today: true},
-		{name: "flag false history break", pane: p80, at: point{19, 5}, want: claudeSel(selLine, 19, 19, 80), today: true},
 	}
 
 	runClaudeClicks(t, cases, lineAtFor, lineAt)

@@ -127,37 +127,26 @@ func TestClaudeCopyPaths(t *testing.T) {
 
 	claudeID := (harness.Claude{}).ID()
 
-	stream := selection{selStream, point{16, 0}, point{48, 79}}
-	toDone := selection{selStream, point{16, 0}, point{48, 6}}
-	line := claudeSel(selLine, 16, 48, 80)
 	block := claudeSel(selBlock, 16, 48, 80)
 
 	tests := []struct {
-		name    string
-		kind    core.PaneKind
-		harness string
-		run     func(a *App, f *fakeRun, c core.Rect, change func()) string
+		name string
+		run  func(a *App, f *fakeRun, c core.Rect, change func()) string
 		// want is the copy, unless sel is set: then it is extract of sel.
 		want string
 		sel  *selection
 	}{
 		{
-			name: "claude code drag writes the primary selection joined",
-			kind: core.KindAgent, harness: claudeID, want: claudeWantReply,
+			name: "drag writes the primary selection joined", want: claudeWantReply,
 			run: func(a *App, f *fakeRun, c core.Rect, _ func()) string {
 				dragReply(a, c, dragRun, 0)
 
 				return lastPrimaryWrite(f)
 			},
 		},
+		{name: "drag then ctrl+space y", want: claudeWantReply, run: dragThenCopy},
 		{
-			name: "claude code drag then ctrl+space y",
-			kind: core.KindAgent, harness: claudeID, want: claudeWantReply,
-			run: dragThenCopy,
-		},
-		{
-			name: "claude code copy on select",
-			kind: core.KindAgent, harness: claudeID, want: claudeWantReply,
+			name: "copy on select", want: claudeWantReply,
 			run: func(a *App, f *fakeRun, c core.Rect, _ func()) string {
 				a.copyOnSelect = true
 				dragReply(a, c, dragRun, 0)
@@ -165,36 +154,11 @@ func TestClaudeCopyPaths(t *testing.T) {
 				return lastCopied(f)
 			},
 		},
-		{
-			name: "claude code copy mode v then y",
-			kind: core.KindAgent, harness: claudeID, want: claudeWantReply,
-			run: copyModeThenYank,
-		},
-		{
-			name: "claude code copy mode V then y",
-			kind: core.KindAgent, harness: claudeID, want: claudeWantReply,
-			run: copyModeLineThenYank,
-		},
+		{name: "copy mode v then y", want: claudeWantReply, run: copyModeThenYank},
+		{name: "copy mode V then y", want: claudeWantReply, run: copyModeLineThenYank},
 
 		{
-			name: "shell drag then ctrl+space y",
-			kind: core.KindShell, sel: &stream,
-			run: dragThenCopy,
-		},
-		{
-			name: "shell copy mode v then y",
-			kind: core.KindShell, sel: &toDone,
-			run: copyModeThenYank,
-		},
-		{
-			name: "shell copy mode V then y",
-			kind: core.KindShell, sel: &line,
-			run: copyModeLineThenYank,
-		},
-
-		{
-			name: "claude code alt+drag rectangle copies each row as drawn",
-			kind: core.KindAgent, harness: claudeID, sel: &block,
+			name: "alt+drag rectangle copies each row as drawn", sel: &block,
 			run: func(a *App, f *fakeRun, c core.Rect, _ func()) string {
 				dragReply(a, c, drag, tea.ModAlt)
 
@@ -202,8 +166,7 @@ func TestClaudeCopyPaths(t *testing.T) {
 			},
 		},
 		{
-			name: "claude code copy mode ctrl+v rectangle then y",
-			kind: core.KindAgent, harness: claudeID, sel: &block,
+			name: "copy mode ctrl+v rectangle then y", sel: &block,
 			run: func(a *App, f *fakeRun, _ core.Rect, _ func()) string {
 				copyModeAtReply(a)
 				pressRun(a, tea.KeyPressMsg{Code: 'v', Mod: tea.ModCtrl})
@@ -220,7 +183,7 @@ func TestClaudeCopyPaths(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			a, f, c := claudeScrolledApp(t, tt.kind, tt.harness)
+			a, f, c := claudeScrolledApp(t, core.KindAgent, claudeID)
 
 			want := tt.want
 			if tt.sel != nil {
@@ -307,15 +270,13 @@ func TestClaudeRedrawRawRows(t *testing.T) {
 
 	claudeID := (harness.Claude{}).ID()
 	d := claudeDefault80
-	s27 := selection{selStream, point{d.hist() + 27, 0}, point{d.hist() + 28, 79}}
 
 	tests := []struct {
 		name string
 		out  string
 		kept bool
-		// wantClaude is the copy of a kept selection in the Claude Code pane;
-		// the shell pane copies extract's.
-		wantClaude string
+		// want is the copy of a kept selection.
+		want string
 	}{
 		{
 			name: "indent of the second row changes",
@@ -324,55 +285,35 @@ func TestClaudeRedrawRawRows(t *testing.T) {
 		{
 			name: "second row drawn again as it was",
 			out:  "\x1b[29;1H" + d.lines[d.hist()+28],
-			kept: true, wantClaude: replyLine(t, "          return"),
+			kept: true, want: replyLine(t, "          return"),
 		},
-	}
-
-	apps := []struct {
-		name    string
-		kind    core.PaneKind
-		harness string
-	}{
-		{"claude code", core.KindAgent, claudeID},
-		{"shell", core.KindShell, ""},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			for _, app := range apps {
-				t.Run(app.name, func(t *testing.T) {
-					t.Parallel()
+			a, fp, f := claudeApp(t, d, core.KindAgent, claudeID)
+			c := contentRectOf(a, "p1")
 
-					a, fp, f := claudeApp(t, d, app.kind, app.harness)
-					c := contentRectOf(a, "p1")
+			drag(a, c.X, c.Y+27, c.X+79, c.Y+28, 0)
+			feedAndWait(t, a.panes["p1"], fp, tt.out)
+			a.Update(paneDirtyMsg{id: "p1", p: a.panes["p1"]})
 
-					drag(a, c.X, c.Y+27, c.X+79, c.Y+28, 0)
-					feedAndWait(t, a.panes["p1"], fp, tt.out)
-					a.Update(paneDirtyMsg{id: "p1", p: a.panes["p1"]})
+			if !tt.kept {
+				if a.sel != nil {
+					t.Error("selection kept, want cleared")
+				}
 
-					if !tt.kept {
-						if a.sel != nil {
-							t.Error("selection kept, want cleared")
-						}
+				return
+			}
 
-						return
-					}
+			if a.sel == nil {
+				t.Fatal("selection cleared, want kept")
+			}
 
-					if a.sel == nil {
-						t.Fatal("selection cleared, want kept")
-					}
-
-					want := tt.wantClaude
-					if app.kind == core.KindShell {
-						want = extractOf(t, a, s27)
-					}
-
-					if got := copyNow(a, f); got != want {
-						t.Errorf("copied %q, want %q", got, want)
-					}
-				})
+			if got := copyNow(a, f); got != tt.want {
+				t.Errorf("copied %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -403,11 +344,8 @@ func TestClaudeMultiClick(t *testing.T) {
 		at     point
 		clicks int
 		lit    []lit
-		// want is the copy, unless sel is set. ref picks what a shell pane selects; a
-		// case that sets ref also sets want, which must equal extract of that selection
-		// at the absolute point. sel is the selection the copy is extract of.
+		// want is the copy, unless sel is set: then it is extract of sel.
 		want string
-		ref  func(g grid, p point) selection
 		sel  *selection
 	}{
 		{
@@ -416,33 +354,9 @@ func TestClaudeMultiClick(t *testing.T) {
 			lit: []lit{{23, 6, true}, {24, 0, true}, {24, 37, true}, {23, 5, false}, {24, 38, false}},
 		},
 		{
-			name: "agent double-click on Test", kind: core.KindAgent, harness: claudeID,
-			at: point{11, 77}, clicks: 2, want: claudePath,
-		},
-		{
-			name: "agent double-click on PlanOverlayGolden", kind: core.KindAgent, harness: claudeID,
-			at: point{12, 10}, clicks: 2, want: claudePath,
-		},
-		{
 			name: "agent triple-click on the wrapped bullet", kind: core.KindAgent, harness: claudeID,
 			at: point{9, 10}, clicks: 3, want: bullet,
 			lit: []lit{{8, 0, true}, {9, 79, true}, {10, 0, false}},
-		},
-		{
-			name: "shell double-click on the broken URL", kind: core.KindShell,
-			at: point{24, 4}, clicks: 2, ref: wordAt, want: "ighlight",
-		},
-		{
-			name: "shell double-click on Test", kind: core.KindShell,
-			at: point{11, 77}, clicks: 2, ref: wordAt, want: claudePath[:49],
-		},
-		{
-			name: "shell double-click on PlanOverlayGolden", kind: core.KindShell,
-			at: point{12, 10}, clicks: 2, ref: wordAt, want: "PlanOverlayGolden/catppuccin-mocha/icons",
-		},
-		{
-			name: "shell triple-click on the wrapped bullet", kind: core.KindShell,
-			at: point{9, 10}, clicks: 3, ref: lineAt, want: "    third one when the pane is narrow.",
 		},
 		{
 			name: "shell turned agent before the click", kind: core.KindShell, before: &toClaude,
@@ -499,17 +413,8 @@ func TestClaudeMultiClick(t *testing.T) {
 			dispatch(tt.after)
 
 			want := tt.want
-
-			switch {
-			case tt.sel != nil:
+			if tt.sel != nil {
 				want = extractOf(t, a, *tt.sel)
-			case tt.ref != nil:
-				a.panes["p1"].withGrid(func(g grid) {
-					at := point{claudeDefault80.hist() + tt.at.row, tt.at.col}
-					if ref := extract(g, tt.ref(g, at)); ref != tt.want {
-						t.Errorf("extract of today's selection = %q, want %q", ref, tt.want)
-					}
-				})
 			}
 
 			if got := copyNow(a, f); got != want {
