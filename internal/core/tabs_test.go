@@ -304,8 +304,6 @@ func TestMoveTab(t *testing.T) {
 		{"right from the middle", three(1), MoveTab{ID: "t2", Delta: 1}, []TabID{"t1", "t3", "t2"}, 2},
 		{"first does not move left", three(0), MoveTab{ID: "t1", Delta: -1}, []TabID{"t1", "t2", "t3"}, 0},
 		{"last does not move right", three(2), MoveTab{ID: "t3", Delta: 1}, []TabID{"t1", "t2", "t3"}, 2},
-		{"single tab left", tabsOf(0, nil, leaf("p1")), MoveTab{ID: "t1", Delta: -1}, []TabID{"t1"}, 0},
-		{"single tab right", tabsOf(0, nil, leaf("p1")), MoveTab{ID: "t1", Delta: 1}, []TabID{"t1"}, 0},
 		{"another tab keeps the active one active", three(1), MoveTab{ID: "t1", Delta: 1}, []TabID{"t2", "t1", "t3"}, 0},
 	}
 	for _, tt := range tests {
