@@ -334,20 +334,33 @@ func railAge(active, now time.Time) string {
 	return strconv.Itoa(n) + string(unit)
 }
 
-// railHidden counts the cards not wholly inside the h rows shown from top: a
-// card is shown only when all four of its lines are.
-func railHidden(rows []railRow, h, top int) (above, below int) {
+// railHiddenSide is the cards hidden on one side of the rows shown.
+type railHiddenSide struct {
+	n       int
+	blocked bool // at least one of them is blocked
+}
+
+// railHidden counts the cards of shown not wholly inside the h rows shown from
+// top: a card is shown only when all four of its lines are.
+func railHidden(rows []railRow, shown []railCard, h, top int) (above, below railHiddenSide) {
 	for i, r := range rows {
 		if r.kind != railRowCard || r.line != 0 {
 			continue
 		}
 
+		var side *railHiddenSide
+
 		switch {
 		case i < top:
-			above++
+			side = &above
 		case i+railCardLines-1 >= top+h:
-			below++
+			side = &below
+		default:
+			continue
 		}
+
+		side.n++
+		side.blocked = side.blocked || shown[r.card].state == core.AgentBlocked
 	}
 
 	return above, below

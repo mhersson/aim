@@ -48,27 +48,15 @@ type prListRow struct {
 }
 
 // prListRows lists the open pull requests of the agents' branches, one row per
-// pull request however many agents share its branch, with the first of them in
-// rail order as its agent. Repositories come by name and each one's rows newest
-// update first, so the rows of a repository are adjacent.
+// pull request however many agents share its branch, with the most urgent of
+// them (by railStateOrder, then tab and pane order) as its agent. Repositories
+// come by name and each one's rows newest update first, so the rows of a
+// repository are adjacent.
 func (a *App) prListRows(st core.State) []prListRow {
 	panes := st.AgentPanes()
-	rank := func(id core.PaneID) int {
-		return slices.Index(railGroupOrder[:], st.Panes[id].State)
-	}
 
-	// A state the rail has no group for comes last, as an unknown one does.
 	slices.SortStableFunc(panes, func(x, y core.PaneID) int {
-		rx, ry := rank(x), rank(y)
-		if rx < 0 {
-			rx = len(railGroupOrder)
-		}
-
-		if ry < 0 {
-			ry = len(railGroupOrder)
-		}
-
-		return rx - ry
+		return railStateRank(st.Panes[x].State) - railStateRank(st.Panes[y].State)
 	})
 
 	seen := map[prListKey]bool{}

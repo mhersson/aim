@@ -138,74 +138,129 @@ func ids(gs []railGroup) [][]core.PaneID {
 	return out
 }
 
+// railGroupIDs is a group as the tests compare it: its tab, its name and its cards' panes.
+type railGroupIDs struct {
+	tab   int
+	name  string
+	panes []core.PaneID
+}
+
+func groupIDs(gs []railGroup) []railGroupIDs {
+	panes := ids(gs)
+	out := make([]railGroupIDs, 0, len(gs))
+
+	for i, g := range gs {
+		out = append(out, railGroupIDs{tab: g.tab, name: g.name, panes: panes[i]})
+	}
+
+	return out
+}
+
 func TestRailCardsGroupsAndOrder(t *testing.T) {
 	t.Parallel()
 
 	r := newRailApp(t, false)
 	dir := t.TempDir()
 
+	// Tab 1, renamed: an idle agent left of two blocked ones.
 	idle := r.addAgent(t, false, dir)
 	blocked := r.addAgent(t, false, dir)
 	blocked1b := r.addAgent(t, false, dir)
 	openIn(t, r.App, core.RenameTab{ID: r.store.State().Tab().ID, Name: "Backend"})
 
+	// Tab 2: working, then one with no hooks. Tab 3: a shell alone. Tab 4: idle, then blocked.
 	working := r.addAgent(t, true, dir)
 	nohooks := r.addAgent(t, false, dir)
-	blocked2 := r.addAgent(t, true, dir)
 	shell := r.store.State().NewPaneID()
-	openIn(t, r.App, core.OpenPane{Kind: core.KindShell, Cwd: dir, Split: core.SplitVertical, Area: r.bodyArea()})
+	openIn(t, r.App, core.NewTab{Kind: core.KindShell, Cwd: dir})
 
-	r.setState(t, idle, core.AgentIdle)
-	r.setState(t, blocked, core.AgentBlocked)
-	r.setState(t, blocked1b, core.AgentBlocked)
-	r.setState(t, working, core.AgentWorking)
-	r.setState(t, blocked2, core.AgentBlocked)
+	idle4 := r.addAgent(t, true, dir)
+	blocked4 := r.addAgent(t, false, dir)
+
+	for id, s := range map[core.PaneID]core.AgentState{
+		idle: core.AgentIdle, blocked: core.AgentBlocked, blocked1b: core.AgentBlocked,
+		working: core.AgentWorking, idle4: core.AgentIdle, blocked4: core.AgentBlocked,
+	} {
+		r.setState(t, id, s)
+	}
+
 	openIn(t, r.App, core.SetAgentAction{ID: blocked, Action: "Allow Bash ls?"}, core.SetAgentAction{ID: working, Action: "Edit a.go"})
 
-	got := r.railCards(r.store.State())
-	want := [][]core.PaneID{{blocked, blocked1b, blocked2}, {working}, {idle}, {nohooks}}
+	base := filepath.Base(dir)
+	tab1 := railGroupIDs{0, "Backend", []core.PaneID{blocked, blocked1b, idle}}
+	tab2 := railGroupIDs{1, base, []core.PaneID{working, nohooks}}
+	tab4 := railGroupIDs{3, base, []core.PaneID{blocked4, idle4}}
 
-	if !reflect.DeepEqual(ids(got), want) {
-		t.Fatalf("groups = %v, want %v", ids(got), want)
+	tests := []struct {
+		name, query string
+		want        []railGroupIDs
+	}{
+		{"tabs in order, a tab's cards by state then pane order, no group for a tab with no agent", "", []railGroupIDs{tab1, tab2, tab4}},
+		{"a tab's number", "tab 2", []railGroupIDs{tab2}},
+		{"a tab's name", "backend", []railGroupIDs{tab1}},
+		{"a search that empties the other tabs", "allow", []railGroupIDs{{0, "Backend", []core.PaneID{blocked}}}},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r.railSetSearch(false, tt.query)
+
+			if got := groupIDs(r.railCards(r.store.State())); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("groups = %v, want %v", got, tt.want)
+			}
+		})
+	}
+
+	r.railSetSearch(false, "")
 
 	type exp struct {
 		action, tabName string
 		tab             int
 	}
 
-	base := filepath.Base(dir)
 	wantCard := map[core.PaneID]exp{
 		blocked:   {"Allow Bash ls?", "Backend", 0},
 		blocked1b: {"", "Backend", 0},
-		blocked2:  {"", base, 2},
-		working:   {"Edit a.go", base, 1},
 		idle:      {idleAction, "Backend", 0},
+		working:   {"Edit a.go", base, 1},
 		nohooks:   {"", base, 1},
+		blocked4:  {"", base, 3},
+		idle4:     {idleAction, base, 3},
 	}
 
-	for _, g := range got {
-		for _, c := range g.cards {
-			if c.pane == shell {
-				t.Error("a shell is listed")
-			}
+	for _, c := range r.railShown(r.store.State()) {
+		if c.pane == shell {
+			t.Error("a shell is listed")
+		}
 
-			if w := wantCard[c.pane]; c.action != w.action || c.tab != w.tab || c.tabName != w.tabName {
-				t.Errorf("%s = action %q tab %d name %q; want %v", c.pane, c.action, c.tab, c.tabName, w)
-			}
+		if w := wantCard[c.pane]; c.action != w.action || c.tab != w.tab || c.tabName != w.tabName {
+			t.Errorf("%s = action %q tab %d name %q; want %v", c.pane, c.action, c.tab, c.tabName, w)
 		}
 	}
+}
 
-	r.railSetSearch(false, "tab 2")
+// A state change moves a card only within its tab's group.
+func TestRailStateChangeKeepsTheCardInItsTab(t *testing.T) {
+	t.Parallel()
 
-	if got := ids(r.railCards(r.store.State())); !reflect.DeepEqual(got, [][]core.PaneID{{working}, {nohooks}}) {
-		t.Errorf("tab 2 -> %v", got)
+	r := newRailApp(t, false)
+	dir := t.TempDir()
+
+	first := r.addAgent(t, false, dir)
+	second := r.addAgent(t, false, dir)
+	other := r.addAgent(t, true, dir)
+
+	for _, id := range []core.PaneID{first, second, other} {
+		r.setState(t, id, core.AgentIdle)
 	}
 
-	r.railSetSearch(false, "backend")
+	if got, want := ids(r.railCards(r.store.State())), [][]core.PaneID{{first, second}, {other}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("before: groups = %v, want %v", got, want)
+	}
 
-	if n := len(r.railShown(r.store.State())); n != 3 {
-		t.Errorf("backend matched %d cards, want the 3 of tab 1", n)
+	r.setState(t, second, core.AgentBlocked)
+
+	if got, want := ids(r.railCards(r.store.State())), [][]core.PaneID{{second, first}, {other}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("after the second agent blocks: groups = %v, want %v", got, want)
 	}
 }
 

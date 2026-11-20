@@ -25,7 +25,7 @@ func prTitled(title string) func(p *core.PRInfo) {
 }
 
 // listAgents are agents on several repositories: two on one branch (one row,
-// jumping to the one the rail lists first), a newer and an older pull request in
+// jumping to the more urgent of them), a newer and an older pull request in
 // one repository, a draft, a merged pull request and an agent with none.
 func listAgents() []railAgent {
 	return []railAgent{
@@ -69,7 +69,7 @@ func TestPRListRows(t *testing.T) {
 		t.Fatalf("rows = %v, want %v", got, want)
 	}
 
-	// Two agents share feat/a: the row's agent is the one the rail lists first
+	// Two agents share feat/a: the row's agent is the more urgent of them
 	// (working before idle), and it is in the second tab.
 	if rows[1].pane != "p2" {
 		t.Errorf("row for #5 jumps to %q, want p2 (the working agent)", rows[1].pane)

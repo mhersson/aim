@@ -23,7 +23,7 @@ Watch it as a [video (MP4)](https://github.com/user-attachments/assets/26f3b30c-
 ## Features
 
 - **Agents in panes.** BSP, master-stack and scrolling layouts, tabs, and a git worktree per agent from the picker.
-- **Agents rail.** Agents grouped as Blocked, Working, Idle or No hooks, with what it does now, its branch, its pull request and its diff stats.
+- **Agents rail.** Agents grouped by tab, the blocked ones first, with what each does now, its branch, its pull request and its diff stats.
 - **Claude usage.** Your Claude subscription's 5-hour and weekly usage in the tray, in the context meter's colours.
 - **Notifications.** A desktop notification when an agent you cannot see needs you or finishes its turn.
 - **Live review.** Turn and branch mode, unified or side by side, highlighted, with markdown rendered; the drawer follows the agent's edits from worktree to worktree.

@@ -151,6 +151,17 @@ func TestRailCacheKeyCoversEveryInput(t *testing.T) {
 			change: func(t *testing.T, a *App) {
 				openIn(t, a, core.RenameTab{ID: a.store.State().Tabs[0].ID, Name: "renamed"})
 			},
+			visible: true,
+		},
+		{
+			name: "rename prompt",
+			// The first tab, whose header shows.
+			prep: func(t *testing.T, a *App) {
+				openIn(t, a, core.SelectTab{Index: 0})
+				a.openPrompt(a.store.State().Tab().ID, "", nil)
+			},
+			change:  func(t *testing.T, a *App) { a.prompt.input.SetValue("zebra") },
+			visible: true,
 		},
 		{
 			name: "tab name under a search it matches",

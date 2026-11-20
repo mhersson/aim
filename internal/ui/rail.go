@@ -50,14 +50,24 @@ type railCard struct {
 	plan       bool // the agent's latest plan is unread
 }
 
-// railGroup is the cards of one state, in tab and pane order.
+// railGroup is the shown cards of one tab, by state and then pane order.
 type railGroup struct {
-	state core.AgentState
+	tab   int    // 0-based
+	name  string // the tab's name as the workspace bar shows it
 	cards []railCard
 }
 
-// railGroupOrder is the display order, most urgent first.
-var railGroupOrder = [...]core.AgentState{core.AgentBlocked, core.AgentWorking, core.AgentIdle, core.AgentUnknown}
+// railStateOrder is the order of the cards within a tab, most urgent first.
+var railStateOrder = [...]core.AgentState{core.AgentBlocked, core.AgentWorking, core.AgentIdle, core.AgentUnknown}
+
+// railStateRank is a state's place in railStateOrder; a state not in it comes last.
+func railStateRank(s core.AgentState) int {
+	if i := slices.Index(railStateOrder[:], s); i >= 0 {
+		return i
+	}
+
+	return len(railStateOrder)
+}
 
 // railField names where a search matched.
 type railField int
@@ -152,11 +162,14 @@ func (a *App) railEntry(id core.PaneID) *railPane {
 	return rp
 }
 
-// railCards lists the agents matching the search, grouped by state.
+// railCards lists the agents matching the search, one group per tab in tab
+// order, so a card changes group only when its pane changes tab.
 func (a *App) railCards(st core.State) []railGroup {
 	tabs := a.tabInfos()
-	byState := map[core.AgentState][]railCard{}
 
+	var out []railGroup
+
+	// AgentPanes lists by tab, so a tab's cards are adjacent.
 	for _, id := range st.AgentPanes() {
 		m := st.Panes[id]
 		ti, _ := st.TabOf(id)
@@ -194,17 +207,20 @@ func (a *App) railCards(st core.State) []railGroup {
 		// Printable once, so the matcher and the drawing see the same runes.
 		c.branch, c.place, c.action = printable(c.branch), printable(c.place), printable(c.action)
 
-		if _, ok := c.matches(a.rail.query); ok {
-			byState[c.state] = append(byState[c.state], c)
+		if _, ok := c.matches(a.rail.query); !ok {
+			continue
 		}
+
+		if n := len(out); n == 0 || out[n-1].tab != c.tab {
+			out = append(out, railGroup{tab: c.tab, name: c.tabName})
+		}
+
+		out[len(out)-1].cards = append(out[len(out)-1].cards, c)
 	}
 
-	var out []railGroup
-
-	for _, s := range railGroupOrder {
-		if cs := byState[s]; len(cs) > 0 {
-			out = append(out, railGroup{state: s, cards: cs})
-		}
+	// Stable, so the cards of one state keep the tab's pane order.
+	for _, g := range out {
+		slices.SortStableFunc(g.cards, func(x, y railCard) int { return railStateRank(x.state) - railStateRank(y.state) })
 	}
 
 	return out

@@ -39,8 +39,8 @@ func TestRailLayout(t *testing.T) {
 	t.Parallel()
 
 	groups := []railGroup{
-		{state: core.AgentBlocked, cards: []railCard{{pane: "p1"}}},
-		{state: core.AgentIdle, cards: []railCard{{pane: "p2"}, {pane: "p3"}}},
+		{tab: 0, cards: []railCard{{pane: "p1"}}},
+		{tab: 1, cards: []railCard{{pane: "p2"}, {pane: "p3"}}},
 	}
 
 	var sb strings.Builder
@@ -66,8 +66,8 @@ func TestRailClampTop(t *testing.T) {
 	t.Parallel()
 
 	groups := []railGroup{
-		{state: core.AgentWorking, cards: []railCard{{pane: "p1"}, {pane: "p2"}, {pane: "p3"}, {pane: "p4"}}},
-		{state: core.AgentIdle, cards: []railCard{{pane: "p5"}, {pane: "p6"}}},
+		{tab: 0, cards: []railCard{{pane: "p1"}, {pane: "p2"}, {pane: "p3"}, {pane: "p4"}}},
+		{tab: 1, cards: []railCard{{pane: "p5"}, {pane: "p6"}}},
 	}
 	rows := railLayout(groups)
 	// Rows: header 0; card k has its blank at 1+5k and lines 2+5k to 5+5k; the group's
@@ -121,7 +121,7 @@ func TestRailClampTopProperties(t *testing.T) {
 		cards := 0
 
 		for _, n := range shape {
-			g := railGroup{state: core.AgentWorking}
+			g := railGroup{tab: len(groups)}
 			for range n {
 				g.cards = append(g.cards, railCard{pane: core.PaneID(fmt.Sprintf("p%d", cards))})
 				cards++
@@ -244,25 +244,29 @@ func TestRailCardAt(t *testing.T) {
 func TestRailHidden(t *testing.T) {
 	t.Parallel()
 	// One group of four cards: the header is row 0, card k fills rows 5k+2 to 5k+5.
-	rows := railLayout([]railGroup{{cards: make([]railCard, 4)}})
+	// Card 1 is blocked.
+	shown := []railCard{{state: core.AgentIdle}, {state: core.AgentBlocked}, {state: core.AgentIdle}, {state: core.AgentWorking}}
+	rows := railLayout([]railGroup{{cards: shown}})
 
 	tests := []struct {
 		name         string
 		h, top       int
-		above, below int
+		above, below railHiddenSide
 	}{
-		{"top of the list", 10, 0, 0, 3},
-		{"middle", 10, 7, 1, 1},
-		{"bottom of the list", 10, 12, 2, 0},
-		{"card cut at the top edge", 10, 3, 1, 2},
-		{"card cut at the bottom edge", 8, 2, 0, 3},
-		{"everything fits", 30, 0, 0, 0},
+		{"top of the list", 10, 0, railHiddenSide{}, railHiddenSide{3, true}},
+		{"middle", 10, 7, railHiddenSide{1, false}, railHiddenSide{1, false}},
+		{"bottom of the list", 10, 12, railHiddenSide{2, true}, railHiddenSide{}},
+		{"card cut at the top edge", 10, 3, railHiddenSide{1, false}, railHiddenSide{2, false}},
+		{"card cut at the bottom edge", 8, 2, railHiddenSide{}, railHiddenSide{3, true}},
+		{"everything fits", 30, 0, railHiddenSide{}, railHiddenSide{}},
+		{"the blocked card above only", 5, 12, railHiddenSide{2, true}, railHiddenSide{1, false}},
+		{"the blocked card below only", 5, 3, railHiddenSide{1, false}, railHiddenSide{3, true}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			above, below := railHidden(rows, tt.h, tt.top)
+			above, below := railHidden(rows, shown, tt.h, tt.top)
 			if above != tt.above || below != tt.below {
-				t.Errorf("railHidden(h=%d, top=%d) = %d, %d; want %d, %d", tt.h, tt.top, above, below, tt.above, tt.below)
+				t.Errorf("railHidden(h=%d, top=%d) = %+v, %+v; want %+v, %+v", tt.h, tt.top, above, below, tt.above, tt.below)
 			}
 		})
 	}

@@ -52,7 +52,7 @@ The last row, `new worktree…` (`+ new worktree…` with `icons = false`), open
 - `ctrl+space s` opens a shell below the focused pane, `ctrl+space v` one to its right. Both start in the focused pane's working directory and take focus. That is where a BSP tab puts them; the other layouts place a new pane by their own rule, see [Layouts](layouts.md).
 - Run `claude` in a shell and the pane becomes an agent pane; when Claude exits in an agent pane, it becomes a shell again. The rail lists agent panes only.
 - A `claude` you type in a shell AIM started is a full agent: hooks, states, turns, follow, context, model, usage and resume, in the directory it started in. AIM does this without touching your shell startup files: a wrapper first on the shell's PATH adds the hooks to your `claude`, and a `claude` function in the shell calls it.
-- It may not be one when typed by full path, through `npx` or `bunx`, inside a shell or `tmux` started in the pane, in a terminal inside an editor (such as an nvim terminal) or another program run in the pane, in a shell other than zsh, bash or fish, under macOS's `/bin/bash`, in zsh when `/etc/zshenv` sets `ZDOTDIR`, or with its own `--settings`. Such a `claude` still makes the pane an agent pane, but may show under No hooks.
+- It may not be one when typed by full path, through `npx` or `bunx`, inside a shell or `tmux` started in the pane, in a terminal inside an editor (such as an nvim terminal) or another program run in the pane, in a shell other than zsh, bash or fish, under macOS's `/bin/bash`, in zsh when `/etc/zshenv` sets `ZDOTDIR`, or with its own `--settings`. Such a `claude` still makes the pane an agent pane, but its card on the rail may show no state, as for an agent with no hooks.
 - To see it: the shell's PATH starts with an AIM directory, and `type claude` names a function.
 - `[shell] integration = false` in the config turns it off; every pane then starts as it did without it (see [Configuration](config.md)).
 - At most 64 panes fit: past that, the notice is `at most 64 panes`.
@@ -83,7 +83,7 @@ Each tab has its own panes, layout and zoom. The workspace bar at the top shows 
 
 A new tab starts with a shell in the focused pane's working directory; start an agent in it with `ctrl+space n`. A tab with no name of its own shows the directory name of its focused pane.
 
-Moving a tab swaps it with its neighbour and keeps it active. Its panes, layout, zoom and review drawer go with it, and the numbers in the workspace bar, the jump keys, the moves to a tab and the rail's `tab N` search follow the new order.
+Moving a tab swaps it with its neighbour and keeps it active. Its panes, layout, zoom and review drawer go with it, and the numbers in the workspace bar, the jump keys, the moves to a tab, the rail's groups and its `tab N` search follow the new order.
 
 Renaming edits the name in the workspace bar, up to 32 characters. `enter` saves, `esc` cancels, and an empty name brings back the automatic one. These keys are fixed.
 
@@ -116,7 +116,7 @@ Plans: `ctrl+space p` opens the focused agent's plan from a pane. With no plan t
 
 ### What a card shows
 
-Agents are grouped as Blocked, Working, Idle (and No hooks, for an agent that has sent no state), each with a count. A card has four lines:
+Agents are grouped by the tab they are on, in tab order, and a tab with no agent (or none matching the search) has no group. A group's header is the tab's number, its name as the workspace bar shows it and the number of its cards shown. Inside a tab the cards are Blocked first, then Working, Idle and No hooks (an agent that has sent no state), and agents in the same state keep the order of their panes in the tab's layout. So a card changes group only when its pane moves to another tab; when its agent's state changes, it moves within its tab's group. The top border counts the agents and how many are blocked, working and idle. The bottom border counts the cards scrolled out of view above and below, and a count takes the blocked colour when a card it counts is blocked, so a blocked agent out of view still shows. A card has four lines:
 
 1. the state, the session name (or the project), the model, the context meter, a plan mark while the plan is unread, the time since the last activity, and a dot when the agent changed state or went idle while its pane was not the focused one, until you focus it;
 2. the branch, the commits ahead of its upstream (`↑N`), and its pull request with checks and review;
