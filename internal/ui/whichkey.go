@@ -33,6 +33,7 @@ func hintFamilies() []hintFamily {
 		{"pane.focus.", []string{"left", "down", "up", "right"}, "Focus pane", " ", ""},
 		{"pane.resize.", []string{"left", "down", "up", "right"}, "Resize pane", " ", ""},
 		{"pane.swap.", []string{"left", "down", "up", "right"}, "Swap pane", "", ""},
+		{"tab.move.", []string{"left", "right"}, "Move tab left/right", " ", ""},
 		{"tab.jump.", []string{"1", "2", "3", "4", "5", "6", "7", "8", "9"}, "Jump to tab", "-", ""},
 		{"pane.move.tab.", []string{"1", "2", "3", "4", "5", "6", "7", "8", "9"}, "Move pane to tab", "-", "Move pane to tab N"},
 		{"pane.send.tab.", []string{"1", "2", "3", "4", "5", "6", "7", "8", "9"}, "Send pane to tab", "-", "Send pane to tab N"},

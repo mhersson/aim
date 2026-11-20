@@ -184,6 +184,16 @@ func commands(themes theme.Set) []command {
 		icon:  iconTabs,
 		title: "Previous tab",
 		run:   func(a *App) tea.Cmd { return a.act(core.CycleTab{Delta: -1}) },
+	}, command{
+		id:    "tab.move.left",
+		icon:  iconTabs,
+		title: "Move tab left",
+		run:   func(a *App) tea.Cmd { return a.moveTab(-1) },
+	}, command{
+		id:    "tab.move.right",
+		icon:  iconTabs,
+		title: "Move tab right",
+		run:   func(a *App) tea.Cmd { return a.moveTab(1) },
 	})
 	for n := 1; n <= 9; n++ {
 		cmds = append(cmds, command{

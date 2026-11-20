@@ -746,6 +746,11 @@ func (a *App) closeTabByID(id core.TabID) tea.Cmd {
 	return tea.Batch(append(handBack, a.relayout())...)
 }
 
+// moveTab implements tab.move.left (-1) and tab.move.right (+1) for the active tab.
+func (a *App) moveTab(delta int) tea.Cmd {
+	return a.act(core.MoveTab{ID: a.store.State().Tab().ID, Delta: delta})
+}
+
 // renameTab implements tab.rename: edit the active tab's custom name in the bar.
 func (a *App) renameTab() tea.Cmd {
 	t := a.store.State().Tab()

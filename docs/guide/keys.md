@@ -64,6 +64,8 @@ Keys pressed after the leader key. Remap them under `[keys.leader]`.
 | `X` | `tab.close` | Close tab |
 | `tab` | `tab.next` | Next tab |
 | `shift+tab` | `tab.prev` | Previous tab |
+| `{` | `tab.move.left` | Move tab left |
+| `}` | `tab.move.right` | Move tab right |
 | `1` | `tab.jump.1` | Jump to tab 1 |
 | `2` | `tab.jump.2` | Jump to tab 2 |
 | `3` | `tab.jump.3` | Jump to tab 3 |

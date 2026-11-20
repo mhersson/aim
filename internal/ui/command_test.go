@@ -104,6 +104,8 @@ func TestDefaultCommands(t *testing.T) {
 		"tab.close",
 		"tab.next",
 		"tab.prev",
+		"tab.move.left",
+		"tab.move.right",
 	)
 	for n := 1; n <= 9; n++ {
 		fixed = append(fixed, fmt.Sprintf("tab.jump.%d", n))

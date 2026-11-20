@@ -125,6 +125,52 @@ func TestTabCycleWraps(t *testing.T) {
 	}
 }
 
+func TestTabMoveKeysRenumberTheBar(t *testing.T) {
+	t.Parallel()
+	a, _ := tabsOf(t, 3)
+
+	for i, name := range []string{"api", "web", "docs"} {
+		if err := a.dispatch(core.RenameTab{ID: a.store.State().Tabs[i].ID, Name: name}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	press(a, keyLeader, keyRune('2'))
+
+	steps := []struct {
+		key    rune
+		want   []string // tab names in bar order
+		active int
+	}{
+		{'{', []string{"web", "api", "docs"}, 0},
+		{'{', []string{"web", "api", "docs"}, 0},
+		{'}', []string{"api", "web", "docs"}, 1},
+		{'}', []string{"api", "docs", "web"}, 2},
+		{'}', []string{"api", "docs", "web"}, 2},
+	}
+	for i, s := range steps {
+		press(a, keyLeader, keyRune(s.key))
+
+		if got := activeIndex(a); got != s.active {
+			t.Fatalf("step %d (%c): active = %d, want %d", i, s.key, got, s.active)
+		}
+
+		bar := ansi.Strip(strings.Split(a.View().Content, "\n")[0])
+		at := -1
+
+		for n, name := range s.want {
+			seg := fmt.Sprintf(" %d %s %s ", n+1, iconShell, name)
+
+			j := strings.Index(bar, seg)
+			if j <= at {
+				t.Fatalf("step %d (%c): bar %q lacks %q after the tab before it", i, s.key, bar, seg)
+			}
+
+			at = j
+		}
+	}
+}
+
 func TestNewTabStartsShell(t *testing.T) {
 	t.Parallel()
 	a, st := lifeAppSized(t, 100, 30)
