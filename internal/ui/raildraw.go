@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mhersson/aim/internal/core"
@@ -208,7 +209,7 @@ func (a *App) railLines(st core.State, lk look, v railView) []string {
 	}
 
 	if box.H >= 2 {
-		above, below := railHidden(v.rows, v.geom.list.H, v.top)
+		above, below := railHidden(v.rows, v.shown, v.geom.list.H, v.top)
 		lines = append(lines, railBottom(ui, box.W, edgeFg, above, below))
 	}
 
@@ -436,21 +437,24 @@ func (a *App) railListRows(st core.State, ui theme.UI, p railPainter, v railView
 	}
 }
 
-// railGroupHeader is a group's label, a rule and its count.
+// railGroupHeader is a tab's number and name, a rule and its card count. A
+// long name is cut so that the count and a dash of the rule stay.
 func (a *App) railGroupHeader(ui theme.UI, g railGroup, cw int) []railRun {
-	label := map[core.AgentState]string{
-		core.AgentBlocked: "Blocked", core.AgentWorking: "Working", core.AgentIdle: "Idle", core.AgentUnknown: "No hooks",
-	}[g.state]
+	num := strconv.Itoa(g.tab + 1)
 	count := strconv.Itoa(len(g.cards))
-	rule := max(cw-ansi.StringWidth(label)-2-len(count), 0)
+	name := cutRuns([]railRun{{text: g.name, fg: ui.Fg, bold: true}}, cw-len(num)-len(count)-4)
+	rule := max(cw-len(num)-runsWidth(name)-len(count)-3, 0)
 
-	return []railRun{
-		{text: label, fg: stateColour(g.state, ui, ui.Muted), bold: true},
-		{text: " ", fg: ui.Fg},
-		{text: strings.Repeat("─", rule), fg: ui.Border},
-		{text: " ", fg: ui.Fg},
-		{text: count, fg: ui.Muted},
-	}
+	return slices.Concat(
+		[]railRun{{text: num, fg: ui.Muted, bold: true}, {text: " ", fg: ui.Fg}},
+		name,
+		[]railRun{
+			{text: " ", fg: ui.Fg},
+			{text: strings.Repeat("─", rule), fg: ui.Border},
+			{text: " ", fg: ui.Fg},
+			{text: count, fg: ui.Muted},
+		},
+	)
 }
 
 // railCardLine is line n (0 to 3) of a card, as runs; the drawing cuts it to cw.
@@ -669,19 +673,27 @@ func (a *App) railCursor(st core.State) *tea.Cursor {
 
 // railBottom is the bottom border with the counts of cards hidden above (left)
 // and below (right); a count that does not fit between the corners is left out.
-func railBottom(ui theme.UI, w int, edgeFg theme.Hex, above, below int) string {
+// A count is in Blocked when a card it counts is blocked, so a blocked agent
+// scrolled out of view still shows.
+func railBottom(ui theme.UI, w int, edgeFg theme.Hex, above, below railHiddenSide) string {
 	border := paint(edgeFg, ui.Bg, false)
-	count := paint(ui.Accent, ui.Bg, true)
+	count := func(s railHiddenSide) lipgloss.Style {
+		if s.blocked {
+			return paint(ui.Blocked, ui.Bg, true)
+		}
+
+		return paint(ui.Accent, ui.Bg, true)
+	}
 	room := max(w-2, 0)
 
 	var left, right string
 
-	if above > 0 {
-		left = " \u2191 " + strconv.Itoa(above) + " "
+	if above.n > 0 {
+		left = " \u2191 " + strconv.Itoa(above.n) + " "
 	}
 
-	if below > 0 {
-		right = " " + strconv.Itoa(below) + " \u2193 "
+	if below.n > 0 {
+		right = " " + strconv.Itoa(below.n) + " \u2193 "
 	}
 
 	// Each count has a dash on its outer side.
@@ -711,14 +723,14 @@ func railBottom(ui theme.UI, w int, edgeFg theme.Hex, above, below int) string {
 	var sb strings.Builder
 
 	if left != "" {
-		sb.WriteString(border.Render("╰─") + count.Render(left))
+		sb.WriteString(border.Render("╰─") + count(above).Render(left))
 		sb.WriteString(border.Render(dashes))
 	} else {
 		sb.WriteString(border.Render("╰" + dashes))
 	}
 
 	if right != "" {
-		sb.WriteString(count.Render(right) + border.Render("─╯"))
+		sb.WriteString(count(below).Render(right) + border.Render("─╯"))
 	} else {
 		sb.WriteString(border.Render("╯"))
 	}

@@ -140,7 +140,7 @@ func TestRailRemappedKeys(t *testing.T) {
 		f.twoTabs(t)
 		remapTables(t, f.App, contextKeys("rail", "x", "rail.jump", "enter", "none"))
 		f.open(t)
-		press(f.App, keyRune('/'), keyRune('t'), keyEnter, keyRune('j'))
+		press(f.App, keyRune('/'), keyRune('t'), keyEnter)
 
 		if f.rail.sel != "p2" {
 			t.Fatalf("setup: selected %s", f.rail.sel)

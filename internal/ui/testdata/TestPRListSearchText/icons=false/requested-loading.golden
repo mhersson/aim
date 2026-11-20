@@ -1,30 +1,30 @@
  1 api   2 api   3 web   4 zeta                                                                         layout bsp │ #1 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 ╭─ Agents 7 ───────── blocked 1 ⠋1 idle 5 ─╮╭─ claude ────────────────────────────────────────────────────────── idle ─╮
-│ Blocked ────────────────────────────── 1 ││                                                                          │
-│                                          ││                                                                          │
-│▎  web                                 0s ││                                                                          │
-│   feat/b                        #9 draft ││                                                                          │
-│                                          ││                                                                          │
-│                                          ││                                                                          │
-│                                          ││                                                                          │
-│ Wor╭─ Pull requests ────────────────────────────────────────────────────────────────────────────────────────────╮    │
-│    │                                                                                                            │    │
-│ ⠋ a│   Agents 4   Review requested   All open                                            tab next tab  1-3 jump │    │
-│   f│                                                                                                            │    │
-│    │  loading pull requests…                                                                                    │    │
-│    │                                                                                                            │    │
-│    │  enter diff    i conversation    c checks    a approve    M merge    O browser    r refresh    esc close   │    │
-│ Idl╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯    │
+│ 1 api ──────────────────────────────── 1 ││                                                                          │
 │                                          ││                                                                          │
 │   api                                 0s ││                                                                          │
 │   feat/a              #5 ci 5/5 approved ││                                                                          │
 │   waiting for a prompt                   ││                                                                          │
 │                                          ││                                                                          │
 │                                          ││                                                                          │
-│   api                                 0s ││                                                                          │
+│ 2 a╭─ Pull requests ────────────────────────────────────────────────────────────────────────────────────────────╮    │
+│    │                                                                                                            │    │
+│ ⠋ a│   Agents 4   Review requested   All open                                            tab next tab  1-3 jump │    │
+│   f│                                                                                                            │    │
+│    │  loading pull requests…                                                                                    │    │
+│    │                                                                                                            │    │
+│    │  enter diff    i conversation    c checks    a approve    M merge    O browser    r refresh    esc close   │    │
+│   a╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯    │
 │   feat/c                       #8 ci 3/5 ││                                                                          │
 │   waiting for a prompt                   ││                                                                          │
+│                                          ││                                                                          │
+│                                          ││                                                                          │
+│ 3 web ──────────────────────────────── 3 ││                                                                          │
+│                                          ││                                                                          │
+│▎  web                                 0s ││                                                                          │
+│   feat/b                        #9 draft ││                                                                          │
+│                                          ││                                                                          │
 │                                          ││                                                                          │
 │                                          ││                                                                          │
 │   web                                 0s ││                                                                          │

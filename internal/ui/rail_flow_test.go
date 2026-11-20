@@ -288,7 +288,7 @@ func TestRailMoveStopsAtTheEnds(t *testing.T) {
 		key  tea.KeyPressMsg
 		want core.PaneID
 	}{
-		{keyRune('k'), "p4"}, {keyUp, "p4"}, {keyRune('j'), "p2"}, {keyDown, "p2"}, {keyRune('k'), "p4"},
+		{keyRune('k'), "p2"}, {keyUp, "p2"}, {keyRune('j'), "p4"}, {keyDown, "p4"}, {keyRune('k'), "p2"},
 	}
 	for _, s := range steps {
 		press(f.App, s.key)
@@ -418,7 +418,7 @@ func TestRailJump(t *testing.T) {
 		f := newFlowApp(t)
 		f.twoTabs(t)
 		f.open(t)
-		press(f.App, keyRune('/'), keyRune('t'), keyEnter, keyRune('j'))
+		press(f.App, keyRune('/'), keyRune('t'), keyEnter)
 
 		if f.rail.sel != "p2" {
 			t.Fatalf("setup: selected %s", f.rail.sel)
@@ -490,6 +490,7 @@ func TestRailJump(t *testing.T) {
 		}
 
 		f.open(t)
+		press(f.App, keyRune('j'))
 
 		if f.rail.sel != "p4" {
 			t.Fatalf("setup: selected %s", f.rail.sel)
@@ -630,14 +631,14 @@ func TestRailMouse(t *testing.T) {
 
 		f.Update(tea.MouseWheelMsg{X: 5, Y: 8, Button: tea.MouseWheelDown})
 
-		if f.rail.sel != "p2" {
-			t.Errorf("selected %s after wheel down, want p2", f.rail.sel)
+		if f.rail.sel != "p4" {
+			t.Errorf("selected %s after wheel down, want p4", f.rail.sel)
 		}
 
 		f.Update(tea.MouseWheelMsg{X: 5, Y: 8, Button: tea.MouseWheelUp})
 
-		if f.rail.sel != "p4" {
-			t.Errorf("selected %s after wheel up, want p4", f.rail.sel)
+		if f.rail.sel != "p2" {
+			t.Errorf("selected %s after wheel up, want p2", f.rail.sel)
 		}
 
 		f.requireQuiet(t, "the wheel over the rail")
@@ -1029,7 +1030,7 @@ func TestRailIgnoresInputUnderModals(t *testing.T) {
 
 		f.Update(tea.MouseWheelMsg{X: 5, Y: 8, Button: tea.MouseWheelDown})
 
-		if f.rail.sel != "p4" {
+		if f.rail.sel != "p2" {
 			t.Errorf("selected %s, want the wheel ignored", f.rail.sel)
 		}
 	})
@@ -1041,10 +1042,10 @@ func TestRailIgnoresInputUnderModals(t *testing.T) {
 		press(f.App, keyEsc)
 		chord(f.App, ',')
 
-		x, y := f.cardXY(t, "p2")
+		x, y := f.cardXY(t, "p4")
 		click(f.App, x, y)
 
-		if f.rail.focused || f.rail.sel != "p4" {
+		if f.rail.focused || f.rail.sel != "p2" {
 			t.Errorf("focused %v selected %s, want the click ignored", f.rail.focused, f.rail.sel)
 		}
 	})
@@ -1163,9 +1164,9 @@ func TestRailLosingTheKeyboardEndsTyping(t *testing.T) {
 	}
 
 	chord(f.App, 'a')
-	press(f.App, keyRune('j'))
+	press(f.App, keyRune('k'))
 
 	if f.rail.query != "tab" || f.rail.sel != "p2" {
-		t.Errorf("query %q, selected %s, want j to move the selection and leave the query", f.rail.query, f.rail.sel)
+		t.Errorf("query %q, selected %s, want k to move the selection and leave the query", f.rail.query, f.rail.sel)
 	}
 }

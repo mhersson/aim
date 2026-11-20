@@ -720,6 +720,8 @@ func TestRailCardFallsBackToTheProject(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			a := drawApp(t, "catppuccin-mocha", true, 100, 30, []railAgent{tt.agent})
+			// A name of the tab's own keeps the project out of its group header.
+			openIn(t, a, core.RenameTab{ID: a.store.State().Tabs[0].ID, Name: "tab"})
 
 			if tt.change != nil {
 				tt.change(t, a)
@@ -804,6 +806,7 @@ func TestRailCardCutsTheName(t *testing.T) {
 	b := drawApp(t, "catppuccin-mocha", true, 100, 30, []railAgent{
 		{project: name, state: core.AgentWorking, action: "x", age: 8 * time.Second, unseen: true},
 	})
+	openIn(t, b, core.RenameTab{ID: b.store.State().Tabs[0].ID, Name: "tab"})
 
 	if rows := linesWith(railTextLines(b), "0123"); len(rows) != 1 || !strings.Contains(rows[0], " "+name[:32]+"… ") {
 		t.Errorf("project rows = %q, want the project cut to %q", rows, name[:32]+"…")
@@ -894,9 +897,74 @@ func TestRailBottomCounts(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ansi.Strip(railBottom(ui, tt.w, ui.Border, tt.above, tt.below))
+			got := ansi.Strip(railBottom(ui, tt.w, ui.Border, railHiddenSide{n: tt.above}, railHiddenSide{n: tt.below}))
 			if got != tt.want || ansi.StringWidth(got) != tt.w {
 				t.Errorf("railBottom = %q (%d wide), want %q", got, ansi.StringWidth(got), tt.want)
+			}
+		})
+	}
+}
+
+// A group header is the tab's number and name, a rule and the card count, cw
+// cells wide; a long name is cut so the count and a dash of the rule stay.
+func TestRailGroupHeader(t *testing.T) {
+	t.Parallel()
+	a := newThemedApp(t, "catppuccin-mocha")
+	ui := a.current().theme.UI
+	cards := make([]railCard, 3)
+
+	tests := []struct {
+		name string
+		g    railGroup
+		want string
+	}{
+		{"a name that fits", railGroup{tab: 1, name: "docs", cards: cards}, "2 docs ─────────── 3"},
+		{"a long name", railGroup{tab: 11, name: "a-long-tab-name", cards: cards}, "12 a-long-tab-n… ─ 3"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runs := a.railGroupHeader(ui, tt.g, 20)
+
+			var sb strings.Builder
+			for _, r := range runs {
+				sb.WriteString(r.text)
+			}
+
+			if got := sb.String(); got != tt.want || runsWidth(runs) != 20 {
+				t.Errorf("header = %q (%d wide), want %q", got, runsWidth(runs), tt.want)
+			}
+		})
+	}
+}
+
+// A hidden count is in Blocked when a card it counts is blocked, each side on its own.
+func TestRailBottomBlockedCount(t *testing.T) {
+	t.Parallel()
+	ui := mustTheme(t, "catppuccin-mocha").UI
+
+	tests := []struct {
+		name         string
+		above, below bool
+	}{
+		{"a blocked card above", true, false},
+		{"a blocked card below", false, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := railBottom(ui, 30, ui.Border, railHiddenSide{3, tt.above}, railHiddenSide{2, tt.below})
+
+			for _, side := range []struct {
+				text    string
+				blocked bool
+			}{{" ↑ 3 ", tt.above}, {" 2 ↓ ", tt.below}} {
+				fg := ui.Accent
+				if side.blocked {
+					fg = ui.Blocked
+				}
+
+				if !strings.Contains(got, paint(fg, ui.Bg, true).Render(side.text)) {
+					t.Errorf("%q is not in %s: %q", side.text, fg, got)
+				}
 			}
 		})
 	}
