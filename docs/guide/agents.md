@@ -76,11 +76,14 @@ Each tab has its own panes, layout and zoom. The workspace bar at the top shows 
 | --- | --- |
 | Open a tab with a shell | `ctrl+space c` |
 | Next tab, previous tab (they wrap) | `ctrl+space tab`, `ctrl+space shift+tab` |
+| Move the tab left, right (they stop at the ends) | `ctrl+space {`, `ctrl+space }` |
 | Jump to tab 1 to 9 | `ctrl+space 1` to `ctrl+space 9` |
 | Rename the tab | `ctrl+space ,` |
 | Close the tab | `ctrl+space X` |
 
 A new tab starts with a shell in the focused pane's working directory; start an agent in it with `ctrl+space n`. A tab with no name of its own shows the directory name of its focused pane.
+
+Moving a tab swaps it with its neighbour and keeps it active. Its panes, layout, zoom and review drawer go with it, and the numbers in the workspace bar, the jump keys, the moves to a tab and the rail's `tab N` search follow the new order.
 
 Renaming edits the name in the workspace bar, up to 32 characters. `enter` saves, `esc` cancels, and an empty name brings back the automatic one. These keys are fixed.
 

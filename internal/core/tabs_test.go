@@ -288,6 +288,42 @@ func TestSelectAndCycleTab(t *testing.T) {
 	}
 }
 
+func TestMoveTab(t *testing.T) {
+	t.Parallel()
+
+	three := func(active int) State { return tabsOf(active, nil, leaf("p1"), leaf("p2"), leaf("p3")) }
+
+	tests := []struct {
+		name       string
+		from       State
+		move       MoveTab
+		wantIDs    []TabID
+		wantActive int
+	}{
+		{"left from the middle", three(1), MoveTab{ID: "t2", Delta: -1}, []TabID{"t2", "t1", "t3"}, 0},
+		{"right from the middle", three(1), MoveTab{ID: "t2", Delta: 1}, []TabID{"t1", "t3", "t2"}, 2},
+		{"first does not move left", three(0), MoveTab{ID: "t1", Delta: -1}, []TabID{"t1", "t2", "t3"}, 0},
+		{"last does not move right", three(2), MoveTab{ID: "t3", Delta: 1}, []TabID{"t1", "t2", "t3"}, 2},
+		{"single tab left", tabsOf(0, nil, leaf("p1")), MoveTab{ID: "t1", Delta: -1}, []TabID{"t1"}, 0},
+		{"single tab right", tabsOf(0, nil, leaf("p1")), MoveTab{ID: "t1", Delta: 1}, []TabID{"t1"}, 0},
+		{"another tab keeps the active one active", three(1), MoveTab{ID: "t1", Delta: 1}, []TabID{"t2", "t1", "t3"}, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := dispatch(t, tt.from, tt.move)
+			if ids := tabIDs(got); !slices.Equal(ids, tt.wantIDs) || got.Active != tt.wantActive {
+				t.Errorf("tabs = %v, Active = %d; want %v, %d", ids, got.Active, tt.wantIDs, tt.wantActive)
+			}
+		})
+	}
+
+	if err := NewStore(three(0)).Dispatch(MoveTab{ID: "t9", Delta: 1}); err == nil {
+		t.Error("unknown tab accepted")
+	}
+}
+
 func TestTabSwitchKeepsPerTabState(t *testing.T) {
 	s := tabsOf(0, nil, vsplit(leaf("p1"), leaf("p2")), leaf("p3"))
 	s.Tabs[0].Focus, s.Tabs[0].Zoomed = "p2", true

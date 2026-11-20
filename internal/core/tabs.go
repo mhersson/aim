@@ -268,3 +268,31 @@ func (a CycleTab) apply(s *State) error {
 
 	return nil
 }
+
+// MoveTab moves a tab Delta places along the bar, -1 left and +1 right,
+// keeping the active tab active; a move past either end does nothing.
+type MoveTab struct {
+	ID    TabID
+	Delta int
+}
+
+func (a MoveTab) apply(s *State) error {
+	s.normalize()
+
+	i, ok := s.tabIndex(a.ID)
+	if !ok {
+		return fmt.Errorf("core: no tab %q", a.ID)
+	}
+
+	j := i + a.Delta
+	if j == i || j < 0 || j >= len(s.Tabs) {
+		return nil
+	}
+
+	active := s.Tabs[s.Active].ID
+	t := s.Tabs[i]
+	s.Tabs = slices.Insert(slices.Delete(s.Tabs, i, i+1), j, t)
+	s.Active, _ = s.tabIndex(active)
+
+	return nil
+}

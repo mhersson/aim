@@ -65,6 +65,8 @@ func defaultKeymap() keymap {
 			{key: "X", command: "tab.close", group: "Tabs"},
 			{key: "tab", command: "tab.next", group: "Tabs"},
 			{key: "shift+tab", command: "tab.prev", group: "Tabs"},
+			{key: "{", command: "tab.move.left", group: "Tabs"},
+			{key: "}", command: "tab.move.right", group: "Tabs"},
 			{key: "1", command: "tab.jump.1", group: "Tabs"},
 			{key: "2", command: "tab.jump.2", group: "Tabs"},
 			{key: "3", command: "tab.jump.3", group: "Tabs"},
