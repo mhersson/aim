@@ -6,7 +6,9 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -464,5 +466,96 @@ func TestClipboardPasteHasATimeout(t *testing.T) {
 
 	if got := strings.Count(buf.String(), "context deadline exceeded"); got != 1 {
 		t.Fatalf("timeout logged %d times, want 1:\n%s", got, buf.String())
+	}
+}
+
+func TestClipboardCopyImage(t *testing.T) {
+	t.Parallel()
+
+	const png = "\x89PNG bytes"
+
+	on := clipboardConfig{OSC52: true, Native: true}
+	fixed := func(argv ...string) func(string) []string { return func(string) []string { return argv } }
+
+	tests := []struct {
+		name       string
+		cfg        clipboardConfig
+		env        map[string]string
+		goos       string
+		want       func(file string) []string // nil when nothing may run
+		wantReason string
+	}{
+		{"wayland", on, map[string]string{"WAYLAND_DISPLAY": "w", "DISPLAY": ":0"}, "linux", fixed("wl-copy", "--type", "image/png"), ""},
+		{"x11", on, map[string]string{"DISPLAY": ":0"}, "linux", fixed("xclip", "-selection", "clipboard", "-t", "image/png", "-i"), ""},
+		{"macos", on, nil, "darwin", func(file string) []string { return []string{"osascript", "-e", pngfScript(file)} }, ""},
+		{"ssh", on, map[string]string{"SSH_TTY": "/dev/pts/1", "DISPLAY": ":0"}, "linux", nil, reasonSSH},
+		{"native off", clipboardConfig{OSC52: true}, map[string]string{"WAYLAND_DISPLAY": "w"}, "linux", nil, reasonNativeOff},
+		{"no display", on, nil, "linux", nil, reasonNoDisplay},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+
+			var (
+				calls      []runCall
+				file, data string
+			)
+
+			// The file osascript reads exists only while it runs.
+			run := func(_ context.Context, argv []string, stdin string, _ io.Writer) error {
+				calls = append(calls, runCall{argv, stdin})
+
+				if ents, _ := os.ReadDir(dir); len(ents) == 1 {
+					file = filepath.Join(dir, ents[0].Name())
+					b, _ := os.ReadFile(file)
+					data = string(b)
+				}
+
+				return nil
+			}
+			c, _ := newTestClipboard(tt.cfg, tt.env, tt.goos, run)
+
+			if _, reason := c.imageSession(); reason != tt.wantReason {
+				t.Fatalf("reason = %q, want %q", reason, tt.wantReason)
+			}
+
+			err := c.copyImage(context.Background(), []byte(png), dir)
+
+			if tt.want == nil {
+				if !errors.Is(err, errImageSession) || len(calls) != 0 {
+					t.Fatalf("err = %v after %d runs, want errImageSession and none", err, len(calls))
+				}
+
+				return
+			}
+
+			if err != nil || len(calls) != 1 {
+				t.Fatalf("err = %v after %d runs, want one run", err, len(calls))
+			}
+
+			if got := calls[0].argv; !reflect.DeepEqual(got, tt.want(file)) {
+				t.Fatalf("argv = %q, want %q", got, tt.want(file))
+			}
+
+			// Linux tools take the PNG on stdin, osascript from the file.
+			if got := calls[0].stdin + data; got != png {
+				t.Fatalf("the tool got %q, want the PNG", got)
+			}
+
+			if ents, _ := os.ReadDir(dir); len(ents) != 0 {
+				t.Fatalf("left %v in the sent dir", ents)
+			}
+		})
+	}
+}
+
+func TestPNGfScriptQuotesThePath(t *testing.T) {
+	t.Parallel()
+
+	got := pngfScript(`/c/a"b\c.png`)
+	if want := `set the clipboard to (read (POSIX file "/c/a\"b\\c.png") as «class PNGf»)`; got != want {
+		t.Fatalf("script = %s, want %s", got, want)
 	}
 }

@@ -1,8 +1,14 @@
 package ui
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"image"
+	"image/jpeg"
+	"image/png"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -732,5 +738,120 @@ func TestSentOpenSaysWhyTheViewerFailed(t *testing.T) {
 
 	if a.noticeLevel() != levelError || !strings.Contains(a.notice, f.fail.Error()) {
 		t.Fatalf("notice = %q at level %d, want an error with %q", a.notice, a.noticeLevel(), f.fail)
+	}
+}
+
+// sentClip gives a the tools of a session with env, faked by fr.
+func sentClip(a *App, env map[string]string) *fakeRun {
+	fr := &fakeRun{}
+	a.clip.getenv, a.clip.goos, a.clip.run = envFrom(env), "linux", fr.run
+
+	return fr
+}
+
+var waylandEnv = map[string]string{"WAYLAND_DISPLAY": "w"}
+
+func TestSentCopyPutsAPNGOnTheClipboard(t *testing.T) {
+	t.Parallel()
+
+	a, _ := sentApp(t)
+	sized(t, a, 120, 40)
+
+	src := filepath.Join(t.TempDir(), "shot.jpg")
+
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 40, 20)), nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(src, buf.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	sentHook(a, harness.Event{Pane: "p2", Name: "show", Show: true, Images: []string{src}})
+	run(a, a.openSentView())
+
+	fr := sentClip(a, waylandEnv)
+	pressRun(a, keyRune('y'))
+
+	if len(fr.calls) != 1 || !slices.Equal(fr.calls[0].argv, []string{"wl-copy", "--type", "image/png"}) {
+		t.Fatalf("calls = %v, want one wl-copy of an image/png", fr.calls)
+	}
+
+	cfg, err := png.DecodeConfig(strings.NewReader(fr.calls[0].stdin))
+	if err != nil || cfg.Width != 40 || cfg.Height != 20 {
+		t.Fatalf("the tool got %dx%d (err %v), want the 40x20 image as a PNG", cfg.Width, cfg.Height, err)
+	}
+}
+
+func TestSentCopyNamesTheImage(t *testing.T) {
+	t.Parallel()
+
+	a, _ := sentOpenScene(t, 1)
+	fr := sentClip(a, waylandEnv)
+
+	pressRun(a, keyRune('y'))
+
+	name := filepath.Base(shownImages(a)[0].path)
+	if want := noticeImageCopied(name); a.notice != want || a.noticeLevel() != levelSuccess || len(fr.calls) != 1 {
+		t.Fatalf("notice = %q at level %d after %d runs, want %q at level %d after one", a.notice, a.noticeLevel(), len(fr.calls), want, levelSuccess)
+	}
+}
+
+func TestSentCopyRefuses(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		n      int
+		env    map[string]string
+		reason string // set on the shown image
+		want   func(im sentImage) string
+	}{
+		{"a pair", 2, waylandEnv, "", func(sentImage) string { return noticeCopyPair }},
+		{"an image AIM could not read", 1, waylandEnv, "not an image", func(im sentImage) string {
+			return noticeNotCopying(filepath.Base(im.path), im.reason)
+		}},
+		{"a session without tools", 1, map[string]string{"SSH_CONNECTION": "x", "WAYLAND_DISPLAY": "w"}, "", func(sentImage) string {
+			return noticeNoImageCopy(reasonSSH)
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			a, _ := sentOpenScene(t, tt.n)
+			fr := sentClip(a, tt.env)
+
+			if tt.reason != "" {
+				a.sent.panes["p2"].batches[0].images[0].reason = tt.reason
+			}
+
+			pressRun(a, keyRune('y'))
+
+			want := tt.want(shownImages(a)[0])
+			if a.notice != want || a.noticeLevel() != levelNotice {
+				t.Fatalf("notice = %q at level %d, want %q at level %d", a.notice, a.noticeLevel(), want, levelNotice)
+			}
+
+			if len(fr.calls) != 0 {
+				t.Fatalf("ran %v, want nothing", fr.calls)
+			}
+		})
+	}
+}
+
+func TestSentCopySaysWhyTheToolFailed(t *testing.T) {
+	t.Parallel()
+
+	a, _ := sentOpenScene(t, 1)
+	fr := sentClip(a, waylandEnv)
+	fail := &exec.Error{Name: "wl-copy", Err: exec.ErrNotFound}
+	fr.err = func([]string) error { return fail }
+
+	pressRun(a, keyRune('y'))
+
+	if a.noticeLevel() != levelError || !strings.Contains(a.notice, exec.ErrNotFound.Error()) {
+		t.Fatalf("notice = %q at level %d, want an error with %q", a.notice, a.noticeLevel(), exec.ErrNotFound)
 	}
 }

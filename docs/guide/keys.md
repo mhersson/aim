@@ -264,6 +264,7 @@ The table is `[keys.images]`. These keys apply while the image viewer is open.
 | `right` | `images.next` | Image viewer: older images |
 | `l` | `images.next` | Image viewer: older images |
 | `o` | `images.open` | Image viewer: open in your image viewer |
+| `y` | `images.copy` | Image viewer: copy to clipboard |
 | `z` | `images.zoom` | Image viewer: zoom |
 | `esc` | `images.close` | Image viewer: close |
 
