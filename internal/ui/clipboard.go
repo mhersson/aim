@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"os/exec"
 	"slices"
 	"strings"
@@ -26,8 +27,9 @@ const (
 type clipboardConfig struct{ OSC52, Native bool }
 
 // clipboard writes copied text to the system clipboard through OSC 52 and,
-// on a local session, through native tools. It also reads the primary
-// selection (the clipboard on macOS) back for a middle-click paste.
+// on a local session, through native tools, and an image through those tools
+// alone. It also reads the primary selection (the clipboard on macOS) back for
+// a middle-click paste.
 type clipboard struct {
 	cfg     clipboardConfig
 	getenv  func(string) string
@@ -177,19 +179,52 @@ func (c *clipboard) logFailure(op string, argv []string, err error) {
 	c.log.Warn("native clipboard "+op+" failed", "cmd", strings.Join(argv, " "), "err", err)
 }
 
+// localSession is the desktop whose native clipboard tools a session can use.
+type localSession int
+
+const (
+	sessionNone localSession = iota
+	sessionDarwin
+	sessionWayland
+	sessionX11
+)
+
+// Why a session has no native clipboard tools.
+const (
+	reasonSSH       = "it runs over SSH"
+	reasonNoDisplay = "neither WAYLAND_DISPLAY nor DISPLAY is set"
+	reasonNativeOff = "[clipboard] native is off"
+)
+
+// errImageSession means the session has no native tool to copy an image with.
+var errImageSession = errors.New("no native clipboard tool for an image")
+
+// nativeSession says whose tools a session can use: none on an SSH session or
+// when no display is known, and why.
+func nativeSession(getenv func(string) string, goos string) (localSession, string) {
+	switch {
+	case getenv("SSH_CONNECTION") != "" || getenv("SSH_TTY") != "":
+		return sessionNone, reasonSSH
+	case goos == "darwin":
+		return sessionDarwin, ""
+	case getenv("WAYLAND_DISPLAY") != "":
+		return sessionWayland, ""
+	case getenv("DISPLAY") != "":
+		return sessionX11, ""
+	}
+
+	return sessionNone, reasonNoDisplay
+}
+
 // nativeCommands returns the tools to write with, in order; none on an SSH
 // session or when no display is known.
 func nativeCommands(getenv func(string) string, goos string) [][]string {
-	if getenv("SSH_CONNECTION") != "" || getenv("SSH_TTY") != "" {
-		return nil
-	}
-
-	switch {
-	case goos == "darwin":
+	switch s, _ := nativeSession(getenv, goos); s {
+	case sessionDarwin:
 		return [][]string{{"pbcopy"}}
-	case getenv("WAYLAND_DISPLAY") != "":
+	case sessionWayland:
 		return [][]string{{"wl-copy"}, {"wl-copy", "--primary"}}
-	case getenv("DISPLAY") != "":
+	case sessionX11:
 		return [][]string{
 			{"xclip", "-selection", "clipboard"},
 			{"xclip", "-selection", "primary"},
@@ -202,20 +237,85 @@ func nativeCommands(getenv func(string) string, goos string) [][]string {
 // pasteCommand returns the tool to read the primary selection (the clipboard
 // on macOS) with; nil on an SSH session or when no display is known.
 func pasteCommand(getenv func(string) string, goos string) []string {
-	if getenv("SSH_CONNECTION") != "" || getenv("SSH_TTY") != "" {
-		return nil
-	}
-
-	switch {
-	case goos == "darwin":
+	switch s, _ := nativeSession(getenv, goos); s {
+	case sessionDarwin:
 		return []string{"pbpaste"}
-	case getenv("WAYLAND_DISPLAY") != "":
+	case sessionWayland:
 		return []string{"wl-paste", "--primary", "--no-newline", "--type", "text"}
-	case getenv("DISPLAY") != "":
+	case sessionX11:
 		return []string{"xclip", "-selection", "primary", "-o"}
 	}
 
 	return nil
+}
+
+// imageSession is the session whose tools copy an image, and why there is
+// none. OSC 52 carries text alone, so only native tools copy an image.
+func (c *clipboard) imageSession() (localSession, string) {
+	if !c.cfg.Native {
+		return sessionNone, reasonNativeOff
+	}
+
+	return nativeSession(c.getenv, c.goos)
+}
+
+// copyImage puts png on the clipboard, not the primary selection: on the stdin
+// of wl-copy or xclip, or on macOS, whose pbcopy takes text alone, through a
+// file in dir that osascript reads.
+func (c *clipboard) copyImage(ctx context.Context, png []byte, dir string) error {
+	var (
+		argv  []string
+		stdin string
+	)
+
+	switch s, reason := c.imageSession(); s {
+	case sessionWayland:
+		argv, stdin = []string{"wl-copy", "--type", "image/png"}, string(png)
+	case sessionX11:
+		argv, stdin = []string{"xclip", "-selection", "clipboard", "-t", "image/png", "-i"}, string(png)
+	case sessionDarwin:
+		file, err := writeClipPNG(dir, png)
+		if err != nil {
+			return err
+		}
+
+		defer func() { _ = os.Remove(file) }()
+
+		argv = []string{"osascript", "-e", pngfScript(file)}
+	default:
+		return fmt.Errorf("%w: %s", errImageSession, reason)
+	}
+
+	return c.run(ctx, argv, stdin, nil)
+}
+
+// writeClipPNG writes png to a new file in dir for osascript to read.
+func writeClipPNG(dir string, png []byte) (string, error) {
+	if dir == "" {
+		return "", errSentNoDir
+	}
+
+	f, err := os.CreateTemp(dir, ".clip-*.png")
+	if err != nil {
+		return "", fmt.Errorf("create png: %w", err)
+	}
+
+	_, werr := f.Write(png)
+	if err := errors.Join(werr, f.Close()); err != nil {
+		_ = os.Remove(f.Name())
+
+		return "", fmt.Errorf("write png: %w", err)
+	}
+
+	return f.Name(), nil
+}
+
+// pngfScript is the AppleScript that puts the PNG file at path on the
+// clipboard; the path is quoted as an AppleScript string.
+func pngfScript(path string) string {
+	q := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(path)
+
+	return `set the clipboard to (read (POSIX file "` + q + `") as «class PNGf»)`
 }
 
 // runNative runs argv. Writes pass a nil stdout so a forked selection server

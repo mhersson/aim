@@ -38,24 +38,32 @@ type Cell struct{ W, H int }
 
 // Size reads an image's size from its header without decoding the pixels.
 func Size(data []byte) (w, h int, err error) {
-	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	w, h, _, err = header(data)
+
+	return w, h, err
+}
+
+// header reads an image's size and format name from its header, held to the
+// limits.
+func header(data []byte) (w, h int, format string, err error) {
+	cfg, format, err := image.DecodeConfig(bytes.NewReader(data))
 	if errors.Is(err, image.ErrFormat) {
-		return 0, 0, ErrFormat
+		return 0, 0, "", ErrFormat
 	}
 
 	if err != nil {
-		return 0, 0, fmt.Errorf("read image header: %w", err)
+		return 0, 0, "", fmt.Errorf("read image header: %w", err)
 	}
 
 	if cfg.Width < 1 || cfg.Height < 1 {
-		return 0, 0, ErrFormat
+		return 0, 0, "", ErrFormat
 	}
 
 	if cfg.Width > MaxSide || cfg.Height > MaxSide || cfg.Width*cfg.Height*bytesPerPixel(cfg.ColorModel) > MaxDecodedBytes {
-		return 0, 0, ErrTooBig
+		return 0, 0, "", ErrTooBig
 	}
 
-	return cfg.Width, cfg.Height, nil
+	return cfg.Width, cfg.Height, format, nil
 }
 
 // bytesPerPixel is what a pixel of model takes once decoded.
@@ -125,10 +133,34 @@ func Render(data []byte, cols, rows int, c Cell) ([]byte, error) {
 	dst := image.NewNRGBA(image.Rect(0, 0, max(dw, 1), max(dh, 1)))
 	xdraw.CatmullRom.Scale(dst, dst.Bounds(), src, src.Bounds(), draw.Over, nil)
 
+	return encodePNG(dst)
+}
+
+// PNG returns the image as a PNG at its own size: a PNG as it is, any other
+// format (a GIF's first frame) decoded and encoded.
+func PNG(data []byte) ([]byte, error) {
+	_, _, format, err := header(data)
+	if err != nil {
+		return nil, err
+	}
+
+	if format == "png" {
+		return data, nil
+	}
+
+	src, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("decode image: %w", err)
+	}
+
+	return encodePNG(src)
+}
+
+func encodePNG(img image.Image) ([]byte, error) {
 	var buf bytes.Buffer
 
 	enc := png.Encoder{CompressionLevel: png.BestSpeed}
-	if err := enc.Encode(&buf, dst); err != nil {
+	if err := enc.Encode(&buf, img); err != nil {
 		return nil, fmt.Errorf("encode png: %w", err)
 	}
 

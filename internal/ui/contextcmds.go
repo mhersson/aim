@@ -45,6 +45,7 @@ var (
 		{"right", "images.next"},
 		{"l", "images.next"},
 		{"o", "images.open"},
+		{"y", "images.copy"},
 		{"z", "images.zoom"},
 		{"esc", "images.close"},
 	}

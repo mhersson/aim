@@ -273,6 +273,9 @@ and the tab row) and sizes its pictures through the `pictures` registry with its
 own caps (`sizeIn`), from AIM's copies, so a picture is never read from where
 the agent put it. `images.open` hands the system opener only AIM's own copy of an
 image AIM decoded, never an entry it could not read, and never the agent's path.
+`images.copy` puts the same copy on the clipboard as PNG through the native tools
+alone (`wl-copy`, `xclip`, or `osascript` reading a PNG written in the sent dir),
+since OSC 52 carries text only; the decode and the tool run in a `tea.Cmd`.
 
 The status line also carries the account's usage. `rate_limits` becomes
 `Event.FiveHour` and `SevenDay` (a window counts only with a percent and a reset

@@ -42,7 +42,9 @@ A copy from copy mode, `ctrl+space y` on a pane or drawer selection, `y` in the 
 
 In a Claude Code pane, the rows Claude Code wrapped itself copy without the wrap newlines with copy mode's `y` on a `v` or `V` selection, `ctrl+space y`, `copy_on_select` and the primary selection written on release, so a paragraph, a list item, a path or a URL pastes whole. A rectangle (`alt`+drag or copy mode's `ctrl+v`) copies each row as drawn.
 
-The `[clipboard]` settings `osc52` and `native` apply to these two paths; see [`config.example.toml`](../../config.example.toml). AIM shows no notice when it copies.
+The `[clipboard]` settings `osc52` and `native` apply to these two paths; see [`config.example.toml`](../../config.example.toml). AIM shows no notice when it copies text.
+
+An image goes to the clipboard only through the native tools, never through OSC 52, which carries text alone. The image viewer's `y` ([Images an agent sends you](agents.md#images-an-agent-sends-you)) sends it as `image/png`: `wl-copy --type image/png` when `WAYLAND_DISPLAY` is set, else `xclip -selection clipboard -t image/png -i` when `DISPLAY` is set, and on macOS, whose `pbcopy` takes text alone, `osascript` reading a PNG file AIM writes in its cache folder and removes after. It writes the clipboard only, not the primary selection. Over SSH, on Linux with neither display set, or with `native` off, it copies nothing and a notice says why. Unlike a text copy, an image copy shows a notice naming the image, and an error when the tool is missing or fails.
 
 To paste what you selected, middle-click in a pane. AIM pastes into the pane as the terminal would, with bracketed paste when the program asked for it. A mouse selection (see below) writes the primary selection when the button is released, so on Linux a middle-click pastes it in any application. The text a middle-click pastes comes from:
 

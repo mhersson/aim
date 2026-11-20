@@ -73,7 +73,8 @@
 # osc52 = true
 
 ## Also copy through native clipboard tools (and read from them) on a local
-## session. With false, a middle-click pastes AIM's own last copy.
+## session. With false, a middle-click pastes AIM's own last copy, and the image
+## viewer copies no image.
 ## values: true | false
 # native = true
 

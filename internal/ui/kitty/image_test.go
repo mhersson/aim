@@ -231,3 +231,48 @@ func TestRenderRejects(t *testing.T) {
 		})
 	}
 }
+
+func TestPNG(t *testing.T) {
+	t.Parallel()
+
+	webp, err := os.ReadFile("testdata/gopher.webp")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	src := solid(30, 20, color.NRGBA{R: 200, A: 255})
+	pal := image.NewPaletted(image.Rect(0, 0, 30, 20), color.Palette{color.RGBA{R: 255, A: 255}})
+	tests := []struct {
+		name string
+		data []byte
+	}{
+		{"png", encode(t, func(b *bytes.Buffer) error { return png.Encode(b, src) })},
+		{"gif", encode(t, func(b *bytes.Buffer) error { return gif.Encode(b, pal, nil) })},
+		{"webp", webp},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			out, err := PNG(tt.data)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if tt.name == "png" && !bytes.Equal(out, tt.data) {
+				t.Fatal("a PNG was encoded again, want it as it is")
+			}
+
+			got, err := png.DecodeConfig(bytes.NewReader(out))
+			if err != nil {
+				t.Fatalf("output is not a PNG: %v", err)
+			}
+
+			w, h, _ := Size(tt.data)
+			if got.Width != w || got.Height != h {
+				t.Fatalf("output %dx%d, want the source's %dx%d", got.Width, got.Height, w, h)
+			}
+		})
+	}
+}

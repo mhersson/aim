@@ -2,16 +2,20 @@ package ui
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mhersson/aim/internal/core"
+	"github.com/mhersson/aim/internal/ui/kitty"
 	"github.com/mhersson/aim/internal/ui/theme"
 )
 
@@ -29,7 +33,11 @@ const (
 	// bottom a zoomed viewer leaves, so the UI under it shows it is an overlay.
 	sentZoomX, sentZoomY = 2, 1
 
+	// sentClipTimeout bounds an image copy: the decode, the PNG and the tool.
+	sentClipTimeout = 10 * time.Second
+
 	noticeNoImages = "no agent has sent an image yet"
+	noticeCopyPair = "copy takes one image: step on to the pages that show each alone"
 )
 
 // sentView is the open image viewer: one agent's pages, on one of them.
@@ -249,6 +257,92 @@ func (a *App) onSentOpened(msg sentOpenedMsg) {
 	a.toast(levelError, "image viewer: "+gitReason(msg.err))
 }
 
+// sentClippedMsg answers copySentImage: name is the image's, err why the copy
+// failed.
+type sentClippedMsg struct {
+	name string
+	err  error
+}
+
+func noticeNotCopying(name, reason string) string {
+	return "not copying " + name + ": " + reason
+}
+
+func noticeNoImageCopy(reason string) string {
+	return "cannot copy an image in this session: " + reason
+}
+
+func noticeImageCopied(name string) string {
+	return "copied " + name + " to the clipboard"
+}
+
+// copySentImage is images.copy: AIM's copy of the one image on the shown page
+// goes to the clipboard as a PNG.
+func (a *App) copySentImage() tea.Cmd {
+	if _, _, _, _, ok := a.sentBox(); !ok || a.sent.view == nil {
+		return nil
+	}
+
+	if _, reason := a.clip.imageSession(); reason != "" {
+		a.notice = noticeNoImageCopy(reason)
+
+		return nil
+	}
+
+	pages, at := a.sentPos()
+	page := pages[at]
+
+	if len(page.images) > 1 {
+		a.notice = noticeCopyPair
+
+		return nil
+	}
+
+	im := page.batch.images[page.images[0]]
+	name := printable(filepath.Base(im.path))
+
+	if !im.decoded() {
+		a.notice = noticeNotCopying(name, printable(im.reason))
+
+		return nil
+	}
+
+	clip, ctx, dir, src := a.clip, a.ctx, a.sent.dir, im.copy
+
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(ctx, sentClipTimeout)
+		defer cancel()
+
+		return sentClippedMsg{name: name, err: clipSent(ctx, clip, src, dir)}
+	}
+}
+
+// clipSent reads AIM's copy src and puts it on the clipboard as a PNG.
+func clipSent(ctx context.Context, clip *clipboard, src, dir string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return fmt.Errorf("read copy: %w", err)
+	}
+
+	png, err := kitty.PNG(data)
+	if err != nil {
+		return err
+	}
+
+	return clip.copyImage(ctx, png, dir)
+}
+
+func (a *App) onSentClipped(msg sentClippedMsg) {
+	if msg.err != nil {
+		a.log.Warn("image copy failed", "image", msg.name, "err", msg.err)
+		a.toast(levelError, "image viewer: "+gitReason(msg.err))
+
+		return
+	}
+
+	a.toast(levelSuccess, noticeImageCopied(msg.name))
+}
+
 func sentViewCommands() []command {
 	cmd := func(id, title string, run func(*App)) command {
 		return command{id: id, title: "Image viewer: " + title, run: func(a *App) tea.Cmd {
@@ -271,6 +365,7 @@ func sentViewCommands() []command {
 		cmd("images.zoom", "zoom", func(a *App) { a.sent.view.zoom = !a.sent.view.zoom }),
 		cmd("images.close", "close", func(a *App) { a.sent.view = nil }),
 		{id: "images.open", title: "Image viewer: open in your image viewer", run: (*App).openSentImages},
+		{id: "images.copy", title: "Image viewer: copy to clipboard", run: (*App).copySentImage},
 	})...)
 }
 
@@ -290,6 +385,7 @@ func sentHints(kt keyTable) [][2]string {
 	}{
 		{"step", []string{"images.prev", "images.next"}},
 		{"open", []string{"images.open"}},
+		{"copy", []string{"images.copy"}},
 		{"zoom", []string{"images.zoom"}},
 		{"close", []string{"images.close"}},
 	} {
