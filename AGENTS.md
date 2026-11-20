@@ -224,3 +224,5 @@ a push.
   or merge needs a confirm step in the UI.
 - Code ported from TUIOS (MIT) keeps its license header and is listed in
   `THIRD_PARTY.md`.
+
+CI runs only for pushes to the main branch and pull requests into it: `.github/workflows/ci.yaml` and the release check both filter on that branch. A pull request into any other base branch, such as a stacked feature branch, gets no CI run at all. That means no race detector, no darwin build, no go mod tidy check and no macOS tests. Run `make check` locally before such a branch merges, and don't take an empty checks list on that pull request as a pass. The commit-discipline line saying CI runs the full gates on every pull request that changes Go code holds only for pull requests into the main branch.
