@@ -210,9 +210,9 @@ AIM saves your layout as you work and restores it on the next start, in the same
 - whether the rail and each tab's review drawer were open;
 - each agent's latest plan.
 
-Every agent pane starts `claude --resume` with its saved session, so the conversation continues. A shell starts fresh in its saved directory; what it was running and its scrollback are gone. The theme and the agents' states are not saved: the config decides the theme, and the states come back as the hooks report them.
+Each agent pane resumes its saved conversation with the same agent and launch directory. Claude Code needs its saved transcript. Codex looks up the session by ID and can keep running while it waits for you to trust its hooks. A shell starts fresh in its saved directory and clears its scrollback. The config decides the theme, and the agents' states come back as the hooks report them.
 
-An agent that cannot resume starts a fresh `claude` and the notice says so: `started a fresh claude in api: its session could not be resumed`, or `started 3 fresh claudes: their sessions could not be resumed`. Several start-up notices show together, joined with `; `. A pane whose directory is gone starts in the launch directory with `<dir> is not available, started in <launch dir>`.
+An agent without a usable session starts a fresh conversation and AIM shows a notice. A refused resume gets one fresh launch of the same agent. Claude Code without hook settings follows the foreground process and leaves a shell when Claude exits. If the executable is missing, the pane shows the shell's error and stays usable as a login shell. A pane whose directory is gone starts in the launch directory and the notice names both directories.
 
 To start with one shell instead, run `aim --fresh`. That shell is the first change, so the new layout replaces the saved one as soon as AIM starts.
 

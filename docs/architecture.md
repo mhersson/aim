@@ -602,10 +602,14 @@ the followed place back, and one after a session change records nothing.
 - **Format.** Version 2, encoded only in `internal/store` (`state.go`,
   `layout.go`); core has no JSON tags. New fields are optional, so the version
   stays 2. A file that does not decode is kept as `state.json.bad`.
-- **Resume.** Before the TUI starts, an agent whose transcript file is gone gets
-  a fresh `claude` (`cmd/aim/restore.go`); the rest run `--resume <id>` in the
-  saved `Cwd`. A refused resume exits fast with no `SessionStart`, and at the
-  10 s probe the pane restarts once with a fresh `claude`.
+- **Resume.** Each agent starts in its saved launch directory with its own
+  harness and settings. Claude uses `--resume <id>` when its transcript still
+  exists. Codex uses `resume <id>` and resolves the session itself. Agents
+  without a usable session start fresh. At the grace probe, a refused resume
+  retries once with the same harness. Codex still in the foreground keeps its
+  session even while waiting for hook trust. Claude launched without hook
+  settings follows the ordinary foreground rule. The launch shell reports a
+  missing executable and leaves a login shell in the pane.
 - **The lock before the log.** `run` takes `state.lock` before it opens a log
   (`cmd/aim/main.go`, `cmd/aim/logfile.go`): a running instance keeps writing
   to its open file, so a second one that rotated `aim.log` would move the

@@ -198,6 +198,8 @@ func TestLoadState(t *testing.T) {
 }
 
 func TestCheckResume(t *testing.T) {
+	t.Parallel()
+
 	agent := func(cwd, session, transcript string) core.Pane {
 		return core.Pane{Kind: core.KindAgent, Cwd: cwd, Harness: "claude-code", Session: core.SessionID(session), Transcript: transcript}
 	}
@@ -210,6 +212,23 @@ func TestCheckResume(t *testing.T) {
 
 		if len(notices) != 0 || out.Panes["p1"].Session != sessionA || out.Panes["p1"].Transcript != "/t/ok.jsonl" {
 			t.Errorf("panes = %+v, notices = %q, want the session kept and no notice", out.Panes, notices)
+		}
+	})
+
+	t.Run("Codex resolves its own session", func(t *testing.T) {
+		codex := core.Pane{Kind: core.KindAgent, Cwd: "/w/codex", Harness: "codex", Session: sessionB, Transcript: "/t/gone.jsonl"}
+		in := stateOf(map[core.PaneID]core.Pane{
+			"p1": agent("/w/api", sessionA, "/t/gone.jsonl"),
+			"p2": codex,
+		})
+		out, notices := checkResume(in, exists)
+
+		if out.Panes["p1"].Session != "" || out.Panes["p2"].Session != codex.Session || out.Panes["p2"].Transcript != codex.Transcript {
+			t.Errorf("panes = %+v, want only the Codex session kept", out.Panes)
+		}
+
+		if len(notices) != 1 || !strings.Contains(notices[0], "api") {
+			t.Errorf("notices = %q, want one naming the Claude pane's directory", notices)
 		}
 	})
 
@@ -240,7 +259,8 @@ func TestCheckResume(t *testing.T) {
 
 	t.Run("several give the plural notice", func(t *testing.T) {
 		in := stateOf(map[core.PaneID]core.Pane{
-			"p1": agent("/w/a", "", ""), "p2": agent("/w/b", sessionB, "/t/gone.jsonl"), "p3": agent("/w/c", sessionA, "/t/ok.jsonl"),
+			"p1": {Kind: core.KindAgent, Cwd: "/w/a", Harness: "codex"},
+			"p2": agent("/w/b", sessionB, "/t/gone.jsonl"), "p3": agent("/w/c", sessionA, "/t/ok.jsonl"),
 		})
 		out, notices := checkResume(in, exists)
 
@@ -610,4 +630,46 @@ func TestRunRestoresTheSession(t *testing.T) {
 	}
 
 	second.stop(t)
+}
+
+func TestResumeMissingCodexLeavesUsableShell(t *testing.T) {
+	env, cfg := testEnv(t)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Keep the executable search inside the test and bypass login profiles.
+	shell := filepath.Join(t.TempDir(), "sh")
+
+	script := "#!/bin/sh\nunset ENV BASH_ENV\nPATH=" + strconv.Quote(t.TempDir()) + "\nexport PATH\n" +
+		"if [ \"$3\" = -c ]; then shift 3; exec /bin/sh -c \"$@\"; fi\nexec /bin/sh -i\n"
+	if err := os.WriteFile(shell, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("SHELL", shell)
+
+	st := core.State{
+		Tabs:  []core.Tab{{ID: "t1", Mode: core.ModeBSP, Focus: "p1", Panes: []core.PaneID{"p1"}, Layout: &core.Node{Pane: "p1"}}},
+		Panes: map[core.PaneID]core.Pane{"p1": {Kind: core.KindAgent, Cwd: cwd, Harness: "codex", Session: sessionA}},
+	}
+
+	data, err := store.Encode(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stateDir := core.StateDir(env)
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	writeFile(t, filepath.Join(stateDir, "state.json"), string(data))
+	s := startSession(t, env, cfg, false)
+	waitFor(t, func() bool { return s.out.contains("codex: not found") || s.out.contains("codex: command not found") })
+	s.keys(t, "printf '%s%s\\n' restored- shell\r")
+	waitFor(t, func() bool { return s.out.contains("restored-shell") })
+	s.stop(t)
 }

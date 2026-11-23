@@ -129,7 +129,7 @@ func (a *App) openPaneAt(kind core.PaneKind, split core.Split, anchor core.PaneI
 		}
 	}
 
-	pn, cwd, err := a.startPaneRunning(id, kind, cwd, cols, rows, "", run)
+	pn, cwd, err := a.startPaneRunning(id, core.Pane{Kind: act.Kind, Harness: act.Harness, Cwd: cwd}, cols, rows, run)
 	if err != nil {
 		return nil, false
 	}
@@ -170,16 +170,20 @@ func (a *App) kindDueCmd(p *pane) tea.Cmd {
 }
 
 // startPane starts the process of pane id at cols x rows and registers the
-// pane, in cwd or, when that directory is gone, the launch dir; it returns the
-// directory used. An agent resumes session resume when it is set. On failure it
-// leaves a notice and registers nothing.
-func (a *App) startPane(id core.PaneID, kind core.PaneKind, cwd string, cols, rows int, resume core.SessionID) (*pane, string, error) {
-	return a.startPaneRunning(id, kind, cwd, cols, rows, resume, nil)
+// pane in its working directory or the launch directory. An agent starts with
+// its saved session when set. On failure it leaves a notice.
+func (a *App) startPane(id core.PaneID, m core.Pane, cols, rows int) (*pane, string, error) {
+	return a.startPaneRunning(id, m, cols, rows, nil)
 }
 
 // startPaneRunning is startPane for a shell pane that starts the command line
 // run, when it is set, in place of the plain shell.
-func (a *App) startPaneRunning(id core.PaneID, kind core.PaneKind, cwd string, cols, rows int, resume core.SessionID, run *paneRun) (*pane, string, error) {
+func (a *App) startPaneRunning(id core.PaneID, m core.Pane, cols, rows int, run *paneRun) (*pane, string, error) {
+	kind, cwd := m.Kind, m.Cwd
+	if cwd == "" {
+		cwd = a.cwd
+	}
+
 	env := []string{"AIM_PANE=" + string(id)}
 	if a.hookSock != "" {
 		env = append(env, "AIM_SOCK="+a.hookSock)
@@ -196,8 +200,8 @@ func (a *App) startPaneRunning(id core.PaneID, kind core.PaneKind, cwd string, c
 
 	switch {
 	case kind == core.KindAgent:
-		h := a.harnessOf(a.store.State().Panes[id])
-		c = term.AgentCommand(a.getenv, a.shell, cwd, h.Launch(a.settingsFor(h), resume), env)
+		h := a.harnessOf(m)
+		c = term.AgentCommand(a.getenv, a.shell, cwd, h.Launch(a.settingsFor(h), m.Session), env)
 	case run != nil && run.once:
 		c = term.EditorOnlyCommand(a.getenv, a.shell, cwd, run.program, run.args, env)
 	case run != nil:
@@ -564,11 +568,9 @@ func (a *App) harnessOf(m core.Pane) harness.Harness {
 	return a.harness
 }
 
-// applyKind makes the pane follow its foreground process. An unknown name
-// changes nothing, and a launched agent keeps its kind until Claude was seen
-// and left or the grace period passed. A resuming agent is never demoted before
-// the grace period; after it, one whose Claude is not in the foreground is
-// restarted fresh instead of following the kind rule.
+// applyKind follows the foreground process. A launched agent keeps its kind
+// until its program is seen and exits or the grace period passes. A resume
+// still out of the foreground after the grace period gets one fresh launch.
 func (a *App) applyKind(p *pane, fg string) tea.Cmd {
 	if fg == "" {
 		return nil
@@ -590,8 +592,8 @@ func (a *App) applyKind(p *pane, fg string) tea.Cmd {
 		case fg != h.Program():
 			return a.restartFresh(p.id)
 		default:
-			// A refused resume exits within about a second, so Claude still
-			// in the foreground now did resume, with or without its hooks.
+			// A refused resume exits quickly. An agent still in the
+			// foreground has resumed even if its hooks did not run.
 			p.resuming = false
 		}
 	}
@@ -687,7 +689,7 @@ func (a *App) newTab() tea.Cmd {
 	id := st.NewPaneID()
 	cols, rows := contentSize(a.bodyArea())
 
-	pn, cwd, err := a.startPane(id, core.KindShell, cwd, cols, rows, "")
+	pn, cwd, err := a.startPane(id, core.Pane{Kind: core.KindShell, Cwd: cwd}, cols, rows)
 	if err != nil {
 		return nil
 	}

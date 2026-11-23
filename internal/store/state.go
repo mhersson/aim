@@ -20,6 +20,7 @@ import (
 	"unicode"
 
 	"github.com/mhersson/aim/internal/core"
+	"github.com/mhersson/aim/internal/harness"
 )
 
 // Version is the file format Encode writes and Decode reads without fallback.
@@ -33,7 +34,6 @@ const (
 	maxNameRunes  = 32
 	maxVersionLen = 16
 	maxNumber     = 999_999_999 // keeps NextID + 1 far from overflow
-	harnessClaude = "claude-code"
 )
 
 var uuidRE = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -495,7 +495,7 @@ func decodePane(jp paneJSON) (core.Pane, error) {
 	switch p.Kind {
 	case core.KindShell:
 	case core.KindAgent:
-		if jp.Harness != harnessClaude {
+		if _, ok := harness.ByID(jp.Harness); !ok {
 			return core.Pane{}, fmt.Errorf("unknown harness %q", jp.Harness)
 		}
 

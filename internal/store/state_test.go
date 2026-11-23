@@ -58,12 +58,18 @@ func roundTripped() core.State {
 }
 
 func TestEncodeDecodeRoundTrip(t *testing.T) {
-	data, err := Encode(fixedState())
+	t.Parallel()
+
+	st := fixedState()
+	st.Panes["p4"] = core.Pane{Kind: core.KindAgent, Cwd: "/home/me", Harness: "codex", Session: sessionB}
+	data, err := Encode(st)
 	noErr(t, err)
 	got, rep, err := decodeDefault(data)
 	noErr(t, err)
 	eq(t, rep, Report{})
-	eq(t, got, roundTripped())
+
+	st.Tabs[0].Layout.Ratio = 0.33
+	eq(t, got, st)
 }
 
 func TestEncodeGolden(t *testing.T) {
@@ -260,7 +266,7 @@ func TestDecodeValidation(t *testing.T) {
 		{"pane_ids names a missing pane", doc("2", "0", tabDoc("t1", "p1", `"p1","p2","p7"`, twoLayout), twoPanes)},
 		{"pane in no tab", doc("2", "0", tabDoc("t1", "p1", `"p1"`, `{"pane":"p1"}`), twoPanes)},
 		{"kind review", doc("2", "0", one, `"p1":{"kind":"review"},"p2":{"kind":"shell"}`)},
-		{"harness codex", doc("2", "0", one, `"p1":{"kind":"agent","harness":"codex"},"p2":{"kind":"shell"}`)},
+		{"harness ID with wrong case", doc("2", "0", one, `"p1":{"kind":"agent","harness":"Codex"},"p2":{"kind":"shell"}`)},
 		{"agent without harness", doc("2", "0", one, `"p1":{"kind":"agent"},"p2":{"kind":"shell"}`)},
 		{"empty tab beside another", doc("2", "0", one+","+tabDoc("t2", "", ``, `null`), twoPanes)},
 		{"tab id shape", doc("2", "0", tabDoc("x1", "p1", `"p1","p2"`, twoLayout), twoPanes)},

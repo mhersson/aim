@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/mhersson/aim/internal/core"
+	"github.com/mhersson/aim/internal/harness"
 )
 
 // startRestored starts every pane of every tab at its own rect: shells in
@@ -69,17 +70,8 @@ func (a *App) startRestored() tea.Cmd {
 
 // startRestoredPane starts one saved pane, or closes it when it cannot start.
 func (a *App) startRestoredPane(id core.PaneID, m core.Pane, cols, rows int, collect func()) tea.Cmd {
-	cwd, resume := m.Cwd, core.SessionID("")
-	if cwd == "" {
-		cwd = a.cwd
-	}
-
-	if m.Kind == core.KindAgent {
-		resume = m.Session
-	}
-
 	a.notice = ""
-	pn, used, err := a.startPane(id, m.Kind, cwd, cols, rows, resume)
+	pn, used, err := a.startPane(id, m, cols, rows)
 
 	collect()
 
@@ -90,8 +82,12 @@ func (a *App) startRestoredPane(id core.PaneID, m core.Pane, cols, rows int, col
 		return nil
 	}
 
-	// Without hooks no SessionStart can end the resume.
-	pn.resuming = resume != "" && a.settingsFor(a.harnessOf(m)) != ""
+	// Codex can wait for hook trust with a live session. The foreground probe
+	// decides whether it resumed even when SessionStart never arrives.
+	if m.Kind == core.KindAgent && m.Session != "" {
+		h := a.harnessOf(m)
+		pn.resuming = h.ID() == (harness.Codex{}).ID() || a.settingsFor(h) != ""
+	}
 
 	if used != m.Cwd {
 		_ = a.dispatch(core.SetPaneCwd{ID: id, Cwd: used})
@@ -117,12 +113,10 @@ func (a *App) restartFresh(id core.PaneID) tea.Cmd {
 
 	cols, rows := old.size()
 
-	cwd := m.Cwd
-	if cwd == "" {
-		cwd = a.cwd
-	}
+	launch := m
+	launch.Session = ""
 
-	pn, used, err := a.startPane(id, core.KindAgent, cwd, cols, rows, "")
+	pn, used, err := a.startPane(id, launch, cols, rows)
 	if err != nil {
 		// Give up the restart so the kind rule applies and no probe retries it.
 		old.resuming = false
