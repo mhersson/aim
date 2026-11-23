@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -48,12 +49,11 @@ func launchLiveCodex(t *testing.T, dir, pane string, args, env []string) *codexT
 	ui := &codexTerminal{dir: dir, env: append(slices.Clone(env), "AIM_PANE="+pane), socket: filepath.Join(dir, pane+".sock")}
 
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// Cleanup begins after the test context is canceled.
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		if _, err := os.Stat(ui.socket); err == nil {
-			_, _ = ui.tmux(ctx, "kill-server")
-		}
+		ui.stop(ctx, t)
 	})
 
 	if out, err := ui.tmux(t.Context(), append([]string{"new-session", "-d", "-P", "-F", "#{pane_pid}", "-x", "110", "-y", "40"}, args...)...); err != nil {
@@ -65,14 +65,27 @@ func launchLiveCodex(t *testing.T, dir, pane string, args, env []string) *codexT
 	return ui
 }
 
-func (ui *codexTerminal) stop(t *testing.T) {
+func (ui *codexTerminal) stop(ctx context.Context, t *testing.T) {
 	t.Helper()
 
-	ctx, cancel := context.WithTimeout(t.Context(), 6*time.Second)
-	defer cancel()
-
 	if out, err := ui.tmux(ctx, "kill-server"); err != nil {
-		t.Fatalf("stopping private server: %v %s", err, out)
+		// An exited server can leave its private socket behind.
+		var exit *exec.ExitError
+
+		gone := errors.As(err, &exit) && exit.ExitCode() == 1 && (strings.Contains(out, "no server running on ") || strings.Contains(out, "(No such file or directory)") || strings.Contains(out, "(Connection refused)"))
+		if !gone {
+			t.Errorf("stopping private tmux server %s: %v %s", ui.socket, err, out)
+		}
+	}
+
+	ui.waitExit(ctx, t)
+}
+
+func (ui *codexTerminal) waitExit(ctx context.Context, t *testing.T) {
+	t.Helper()
+
+	if ui.pid == "" {
+		return
 	}
 
 	for {
@@ -80,16 +93,18 @@ func (ui *codexTerminal) stop(t *testing.T) {
 
 		var exit *exec.ExitError
 		if (errors.As(err, &exit) && exit.ExitCode() == 1) || strings.HasPrefix(strings.TrimSpace(string(out)), "Z") {
+			ui.pid = ""
+
 			return
 		}
 
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("checking private pane pid %s: %v", ui.pid, err)
 		}
 
 		select {
 		case <-ctx.Done():
-			t.Fatalf("private Codex pid %s is still running", ui.pid)
+			t.Fatalf("private pane pid %s is still running", ui.pid)
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
@@ -142,6 +157,17 @@ type codexDelivery struct {
 	Reply   chan string
 	Turn    string
 	Session string
+}
+
+func (d codexDelivery) replyTool(t *testing.T, item map[string]any) {
+	t.Helper()
+
+	data, err := json.Marshal(map[string]any{"type": "response.output_item.done", "item": item, "output_index": 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	d.Reply <- "data: " + string(data) + "\n\n" + codexComplete
 }
 
 type codexPayload struct {
@@ -239,6 +265,10 @@ func newCodexFixture(t *testing.T, root string) *codexFixture {
 	fixture.url = server.URL
 
 	return fixture
+}
+
+func (f *codexFixture) config() string {
+	return fmt.Sprintf("approval_policy = 'on-request'\nmodel = 'gpt-6.2-sol'\nmodel_provider = 'fixture'\n[model_providers.fixture]\nname = 'fixture'\nbase_url = '%s/v1'\nwire_api = 'responses'\n", f.url)
 }
 
 func (f *codexFixture) next(t *testing.T) codexDelivery {
@@ -358,8 +388,8 @@ func (ui *codexTerminal) skipHookReview(t *testing.T) {
 	ui.wait(t, "Ask Codex")
 }
 
-func TestLiveCodexHooks(t *testing.T) {
-	t.Parallel()
+func liveEnvironment(t *testing.T) (string, []string) {
+	t.Helper()
 
 	root, err := os.MkdirTemp("/tmp", "ah")
 	if err != nil {
@@ -384,16 +414,22 @@ func TestLiveCodexHooks(t *testing.T) {
 		env = append(env, key+"="+path)
 	}
 
+	return root, env
+}
+
+func TestLiveCodexHooks(t *testing.T) {
+	t.Parallel()
+	root, env := liveEnvironment(t)
 	fixture := newCodexFixture(t, root)
 
-	cfg := fmt.Sprintf("approval_policy = 'on-request'\nmodel = 'gpt-6.2-sol'\nmodel_provider = 'fixture'\n[model_providers.fixture]\nname = 'fixture'\nbase_url = '%s/v1'\nwire_api = 'responses'\n", fixture.url)
-	if err = os.WriteFile(filepath.Join(root, "CODEX_HOME", "config.toml"), []byte(cfg), 0o600); err != nil {
+	cfg := fixture.config()
+	if err := os.WriteFile(filepath.Join(root, "CODEX_HOME", "config.toml"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
 	userHooks := `{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"\"$AIM_BIN\" user"}]}]}}`
 
-	if err = os.WriteFile(filepath.Join(root, "CODEX_HOME", "hooks.json"), []byte(userHooks), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "CODEX_HOME", "hooks.json"), []byte(userHooks), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -414,7 +450,7 @@ if [ "$1" = hook ] && [ "$AIM_PANE" = first ] && mkdir "$TMPDIR/captured" 2>/dev
 fi
 exec curl --silent --show-error --max-time 30 --data-binary @- ` + fixture.url + `/hook/"$AIM_PANE"/"$1"
 `
-	if err = os.WriteFile(exe, []byte(recorder), 0o700); err != nil {
+	if err := os.WriteFile(exe, []byte(recorder), 0o700); err != nil {
 		t.Fatal(err)
 	}
 
@@ -496,17 +532,9 @@ exec curl --silent --show-error --max-time 30 --data-binary @- ` + fixture.url +
 
 	patch := "*** Begin Patch\n*** Add File: added.txt\n+new\n*** Update File: edit.txt\n@@\n-before\n+after\n*** Update File: move.txt\n*** Move to: moved.txt\n@@\n-before\n+moved\n*** Delete File: delete.txt\n*** End Patch"
 	item := map[string]any{"type": "custom_tool_call", "id": "patch_1", "call_id": "call_1", "name": "apply_patch", "input": patch}
-	event := func(v any) string {
-		b, err := json.Marshal(v)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		return "data: " + string(b) + "\n\n"
-	}
-
 	done := codexComplete
-	d.Reply <- event(map[string]any{"type": "response.output_item.done", "item": item, "output_index": 0}) + done
+
+	d.replyTool(t, item)
 
 	var hooks []string
 
@@ -559,7 +587,10 @@ exec curl --silent --show-error --max-time 30 --data-binary @- ` + fixture.url +
 
 	pending.Reply <- done
 
-	ui.stop(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	ui.stop(ctx, t)
+	cancel()
+
 	resumed := launchLiveCodex(t, root, "resumed", a.Launch(a.HookTable(false), core.SessionID(prompt.Session)), env)
 	resumed.wait(t, "fixture-message")
 	resumed.submit(t, "resume-fixture")
@@ -573,7 +604,7 @@ exec curl --silent --show-error --max-time 30 --data-binary @- ` + fixture.url +
 
 	fixture.release(resumedPrompt, resumeAck)
 
-	fixture.model(t, "resumed", resumedPrompt).Reply <- event(map[string]any{"type": "response.output_item.done", "item": approval, "output_index": 0}) + done
+	fixture.model(t, "resumed", resumedPrompt).replyTool(t, approval)
 
 	for {
 		d = fixture.next(t)
@@ -599,4 +630,330 @@ exec curl --silent --show-error --max-time 30 --data-binary @- ` + fixture.url +
 
 	resumed.wait(t, "Print fixture directory?")
 	resumed.send(t, "Escape")
+}
+
+func liveCommand(t *testing.T, dir string, env []string, program string, args ...string) string {
+	t.Helper()
+	c := exec.CommandContext(t.Context(), program, args...)
+	c.Dir, c.Env = dir, env
+
+	out, err := c.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%s %v: %v %s", program, args, err, out)
+	}
+
+	return strings.TrimSpace(string(out))
+}
+
+func TestLiveMixedAgentRestore(t *testing.T) {
+	t.Parallel()
+	root, env := liveEnvironment(t)
+	bin := filepath.Join(root, "bin")
+	repo := filepath.Join(root, "repo")
+	wt := filepath.Join(root, "codex-tree")
+
+	for _, dir := range []string{bin, repo} {
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	aim := filepath.Join(bin, "aim")
+	liveCommand(t, ".", nil, "go", "build", "-o", aim, ".")
+	liveCommand(t, ".", nil, "go", "build", "-o", filepath.Join(bin, "claude"), "./testdata/live-claude")
+
+	shell, profile := "/bin/bash", ".bash_profile"
+	if runtime.GOOS == "darwin" {
+		shell, profile = "/bin/zsh", ".zprofile"
+	}
+
+	writeFile(t, filepath.Join(root, "HOME", profile), "export PATH="+bin+":$PATH\n")
+	writeFile(t, filepath.Join(root, "HOME", ".zshrc"), "")
+
+	for i, v := range env {
+		if path, ok := strings.CutPrefix(v, "PATH="); ok {
+			env[i] = "PATH=" + bin + ":" + path
+		}
+
+		if strings.HasPrefix(v, "SHELL=") {
+			env[i] = "SHELL=" + shell
+		}
+	}
+
+	env = append(env, "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0")
+	t.Log(liveCommand(t, repo, env, "codex", "--version"), "with scratch AIM and compiled Claude fixture")
+	liveCommand(t, repo, env, "git", "init", "-b", "main")
+	liveCommand(t, repo, env, "git", "-c", "user.name=fixture", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-m", "fixture")
+	liveCommand(t, repo, env, "git", "worktree", "add", "-b", "codex-tree", wt)
+	fixture := newCodexFixture(t, wt)
+	cfg := fixture.config() + fmt.Sprintf("[projects.'%s']\ntrust_level='trusted'\n", wt)
+	writeFile(t, filepath.Join(root, "CODEX_HOME", "config.toml"), cfg)
+	config := filepath.Join(root, "config.toml")
+	writeFile(t, config, "icons=false\n[diff]\nmode='turn'\n")
+
+	start := func(name string) *codexTerminal {
+		return launchLiveCodex(t, repo, name, []string{aim, "--config", config}, env)
+	}
+	ui := start("first")
+	leader := func(k string) { ui.send(t, "C-Space", k) }
+	closed := func(label string) {
+		waitUntil(t, "still showing "+label, func() bool {
+			out, err := ui.tmux(t.Context(), "capture-pane", "-p")
+
+			return err == nil && !strings.Contains(out, label)
+		})
+	}
+	open := func(codex bool) {
+		leader("n")
+		ui.wait(t, "Claude Code")
+
+		if codex {
+			ui.send(t, "Down")
+		}
+
+		ui.send(t, "Enter")
+		ui.wait(t, "new worktree")
+
+		if codex {
+			ui.send(t, "codex-tree")
+			ui.wait(t, "1 of 2")
+		}
+
+		ui.send(t, "Enter")
+	}
+
+	ui.wait(t, "layout")
+	open(false)
+	ui.wait(t, "Claude fixture ready")
+	ui.submit(t, "claude-conversation")
+	ui.wait(t, "Claude fixture finished")
+	leader("d")
+	ui.wait(t, "A claude-edit.txt")
+	leader("d")
+	closed("A claude-edit.txt")
+	leader("c")
+	ui.wait(t, "2 ")
+	open(true)
+	leader("z")
+	ui.wait(t, "Review hooks")
+	waitFor(t, func() bool {
+		out, _ := ui.tmux(t.Context(), "capture-pane", "-p")
+		if strings.Contains(out, "› 2. Trust all") {
+			return true
+		}
+
+		ui.send(t, "2")
+
+		return false
+	})
+	ui.send(t, "Enter")
+	ui.wait(t, "Ask Codex")
+	writeFile(t, filepath.Join(wt, "before-prompt.txt"), "unrelated\n")
+	ui.submit(t, "codex-conversation")
+
+	model := fixture.next(t)
+	if model.Req.URL.Path != "/v1/responses" || model.Session == "" {
+		t.Fatalf("unexpected model delivery %s", model.Req.URL.Path)
+	}
+
+	model.replyTool(t, map[string]any{"type": "custom_tool_call", "id": "patch_1", "call_id": "call_1", "name": "apply_patch", "input": "*** Begin Patch\n*** Add File: codex-edit.txt\n+known edit\n*** End Patch"})
+
+	fixture.next(t).Reply <- codexComplete
+
+	ui.wait(t, "Worked for")
+	leader("d")
+	ui.wait(t, "turn 1/1")
+	ui.wait(t, "A codex-edit.txt")
+
+	screen, err := ui.tmux(t.Context(), "capture-pane", "-p")
+	if err != nil || strings.Contains(screen, "before-prompt.txt") {
+		t.Fatalf("turn diff: %v\n%s", err, screen)
+	}
+
+	leader("d")
+	closed("turn 1/1")
+	ui.submit(t, "approval-conversation")
+	fixture.next(t).replyTool(t, map[string]any{"type": "function_call", "name": "exec_command", "call_id": "approve_1", "arguments": `{"cmd":"pwd","sandbox_permissions":"require_escalated","justification":"Print fixture directory?"}`})
+	ui.wait(t, "Print fixture directory?")
+	leader("a")
+	ui.wait(t, "waiting for a prompt")
+	ui.wait(t, "blocked 1 idle 1")
+	ui.wait(t, "claude waiting for a prompt")
+	ui.wait(t, "codex Allow Bash pwd?")
+	leader("a")
+	ui.send(t, "Enter")
+
+	fixture.next(t).Reply <- codexComplete
+
+	leader("a")
+	ui.wait(t, "waiting for a prompt")
+	waitFor(t, func() bool {
+		out, _ := ui.tmux(t.Context(), "capture-pane", "-p")
+
+		return strings.Contains(out, "claude waiting for a prompt") && strings.Contains(out, "codex waiting for a prompt") && !strings.Contains(out, "blocked 1")
+	})
+	leader("a")
+
+	statePath := filepath.Join(core.StateDir(core.Env{Home: filepath.Join(root, "HOME"), GOOS: runtime.GOOS, Getenv: func(k string) string { return filepath.Join(root, k) }}), "state.json")
+	assertSessions := func() {
+		waitFor(t, func() bool {
+			st, ok := loadSaved(t, statePath)
+			if !ok {
+				return false
+			}
+
+			found := map[string]bool{}
+
+			for _, p := range st.Panes {
+				switch p.Harness {
+				case "codex":
+					found[p.Harness] = found[p.Harness] || (string(p.Session) == model.Session && p.Cwd == wt)
+				case "claude-code":
+					found[p.Harness] = string(p.Session) == "12345678-1234-4234-8234-123456789abc" && p.Cwd == repo
+				}
+			}
+
+			return found["codex"] && found["claude-code"]
+		})
+	}
+	assertSessions()
+
+	quit := func() {
+		leader("q")
+		ui.wait(t, "Quit AIM?")
+		ui.send(t, "y")
+
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+		defer cancel()
+
+		ui.waitExit(ctx, t)
+	}
+
+	leader("c")
+	ui.wait(t, "3 ")
+	ui.submit(t, "cd "+wt)
+	ui.submit(t, "codex")
+	ui.wait(t, "Ask Codex")
+	ui.submit(t, "typed-conversation")
+
+	typed := fixture.next(t)
+	if typed.Session == "" || typed.Session == model.Session {
+		t.Fatalf("hand-typed session %q", typed.Session)
+	}
+
+	typed.Reply <- codexComplete
+
+	ui.wait(t, "Worked for")
+
+	var typedID core.PaneID
+
+	waitFor(t, func() bool {
+		st, ok := loadSaved(t, statePath)
+		for id, p := range st.Panes {
+			if ok && p.Harness == "codex" && string(p.Session) == typed.Session {
+				typedID = id
+
+				return true
+			}
+		}
+
+		return false
+	})
+
+	quit()
+	// Only the hand-typed conversation is unavailable on the second launch.
+	rollouts, err := filepath.Glob(filepath.Join(root, "CODEX_HOME", "sessions", "*", "*", "*", "*-"+typed.Session+".jsonl"))
+	if err != nil || len(rollouts) != 1 {
+		t.Fatalf("typed rollout: paths=%v err=%v", rollouts, err)
+	}
+
+	if err := os.Remove(rollouts[0]); err != nil {
+		t.Fatal(err)
+	}
+
+	ui = start("second")
+
+	ctx, cancel := context.WithTimeout(t.Context(), 25*time.Second)
+	defer cancel()
+
+	for {
+		st, ok := loadSaved(t, statePath)
+		if ok && st.Panes[typedID].Kind == core.KindAgent && string(st.Panes[typedID].Session) != typed.Session {
+			break
+		}
+
+		select {
+		case <-ctx.Done():
+			t.Fatalf("refused resume did not retry: %+v", st.Panes[typedID])
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+
+	ui.wait(t, "Ask Codex")
+	ui.submit(t, "fresh-after-refusal")
+
+	fresh := fixture.next(t)
+	if fresh.Session == typed.Session || fresh.Session == model.Session {
+		t.Fatalf("fresh session %s", fresh.Session)
+	}
+
+	fresh.Reply <- codexComplete
+
+	ui.wait(t, "Worked for")
+	waitFor(t, func() bool {
+		st, ok := loadSaved(t, statePath)
+
+		return ok && string(st.Panes[typedID].Session) == fresh.Session
+	})
+	ui.submit(t, "/quit")
+	waitFor(t, func() bool {
+		st, ok := loadSaved(t, statePath)
+
+		return ok && st.Panes[typedID].Kind == core.KindShell
+	})
+	ui.submit(t, "printf '%s%s\\n' shell- ready")
+	ui.wait(t, "shell-ready")
+	leader("2")
+	ui.wait(t, "codex-conversation")
+	assertSessions()
+	ui.submit(t, "continued-codex")
+
+	resume := fixture.next(t)
+	if resume.Session != model.Session {
+		t.Fatalf("resumed session %s, want %s", resume.Session, model.Session)
+	}
+
+	resume.replyTool(t, map[string]any{"type": "function_call", "name": "exec_command", "call_id": "resumed_pwd", "arguments": `{"cmd":"pwd"}`})
+	result := fixture.next(t)
+
+	type toolResult struct {
+		CallID string `json:"call_id"`
+		Output string
+	}
+
+	var request struct{ Input []toolResult }
+	if err := json.Unmarshal(result.Body, &request); err != nil {
+		t.Fatal(err)
+	}
+
+	found := slices.ContainsFunc(request.Input, func(item toolResult) bool {
+		return item.CallID == "resumed_pwd" && strings.HasSuffix(strings.TrimSpace(item.Output), "\n"+wt)
+	})
+	if !found {
+		t.Fatalf("resumed pwd did not report %s: %s", wt, result.Body)
+	}
+
+	result.Reply <- codexComplete
+
+	ui.wait(t, "Worked for")
+	leader("1")
+	ui.wait(t, "continued claude-conversation")
+
+	if got := readFile(t, filepath.Join(root, "HOME", "claude-resumed-cwd")); got != repo {
+		t.Fatalf("resumed Claude cwd %q want %q", got, repo)
+	}
+
+	leader("d")
+	ui.wait(t, "A claude-edit.txt")
+	quit()
 }
