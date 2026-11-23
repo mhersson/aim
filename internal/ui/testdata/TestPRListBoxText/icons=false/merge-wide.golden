@@ -5,36 +5,36 @@
 │                                          ││                                                                                              │
 │   api                                 0s ││                                                                                              │
 │   feat/a              #5 ci 5/5 approved ││                                                                                              │
-│   waiting for a prompt                   ││                                                                                              │
+│   claude waiting for a prompt            ││                                                                                              │
 │                                          ││                                                                                              │
 │                                          ││                                                                                              │
 │ 2 api ──────────────────────────────── 2 ││                                                                                              │
 │              ╭─ Pull requests ────────────────────────────────────────────────────────────────────────────────────────────╮              │
 │ ⠋ api        │                                                                                                            │              │
 │   feat/a     │   Agents 4   Review requested   All open                                            tab next tab  1-3 jump │              │
-│              │              ╭─ Merge #9 ───────────────────────────────────────────────────────────────────╮              │              │
+│   claude     │              ╭─ Merge #9 ───────────────────────────────────────────────────────────────────╮              │              │
 │              │  acme/api ───│                                                                              │────────── 2  │              │
 │              │   #8 Retry on│  Login form                                                                  │eview yet  4m │              │
 │   api        │   #5 Add the │  acme/web  feat/b → main                                                     │ approved  3h │              │
 │   feat/c     │              │                                                                              │              │              │
-│   waiting for│  acme/web ───│  head 5f3a9c1, the commit listed; GitHub refuses if the PR moved since       │────────── 1  │              │
+│   claude wait│  acme/web ───│  head 5f3a9c1, the commit listed; GitHub refuses if the PR moved since       │────────── 1  │              │
 │              │  ▎#9 Login fo│  ci 2 failed   no review yet   mergeability unknown                          │ed  draft  8s │              │
 │              │              │  2 checks failed, 2 checks running, no approval yet                          │              │              │
 │ 3 web ───────│  acme/zeta ──│  enter still merges if GitHub allows it                                      │────────── 1  │              │
 │              │   #1 Zeta cha│                                                                              │  changes  2d │              │
 │▎  web        │              │  method   s squash   m merge   r rebase                                      │              │              │
 │   feat/b     │  enter diff  │                                                                              │esc close     │              │
-│              ╰──────────────│  [ ] delete feat/b after merging                                             │──────────────╯              │
+│   claude     ╰──────────────│  [ ] delete feat/b after merging                                             │──────────────╯              │
 │                             │                                                                              │                             │
 │                             │  s/m/r method    d delete branch    enter merge    esc cancel                │                             │
 │   web                       ╰──────────────────────────────────────────────────────────────────────────────╯                             │
 │   feat/m                       #3 merged ││                                                                                              │
-│   waiting for a prompt                   ││                                                                                              │
+│   claude waiting for a prompt            ││                                                                                              │
 │                                          ││                                                                                              │
 │                                          ││                                                                                              │
 │   web                                 0s ││                                                                                              │
 │   main                                   ││                                                                                              │
-│   waiting for a prompt                   ││                                                                                              │
+│   claude waiting for a prompt            ││                                                                                              │
 │                                          ││                                                                                              │
 │                                          ││                                                                                              │
 │ 4 zeta ─────────────────────────────── 1 ││                                                                                              │

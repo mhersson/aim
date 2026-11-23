@@ -67,7 +67,8 @@ func newTypedRig(t *testing.T, startupFiles map[string]string) *typedRig {
 	var keep []string
 
 	for _, d := range filepath.SplitList(os.Getenv("PATH")) {
-		if _, err := os.Stat(filepath.Join(d, "claude")); err != nil { //nolint:gosec // test PATH entries
+		_, codexErr := os.Stat(filepath.Join(d, "codex"))                                 //nolint:gosec // test PATH entries
+		if _, err := os.Stat(filepath.Join(d, "claude")); err != nil && codexErr != nil { //nolint:gosec // test PATH entries
 			keep = append(keep, d)
 		}
 	}
@@ -325,5 +326,108 @@ func TestTypedClaudeGetsAIMSettings(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestTypedCodexGetsAIMSettings(t *testing.T) {
+	bash, err := exec.LookPath("bash")
+	if err != nil || (runtime.GOOS == "darwin" && bash == "/bin/bash") {
+		t.Skip("needs bash with ENV support")
+	}
+
+	r := newTypedRig(t, map[string]string{".bash_profile": "export PATH=\"$HOME/.local/bin:$PATH\"\n"})
+	t.Setenv("SHELL", bash)
+	path, events := statusServer(t)
+	env := []string{"AIM_SOCK=" + path, "AIM_PANE=p", "AIM_BIN=" + r.copy, "AIM_CODEX_HOOKS={}"}
+	writeTestExec(t, filepath.Join(r.home, ".local", "bin", "codex"), []byte(`#!/bin/sh
+if [ -n "$AIM_CODEX_OWNER" ]; then
+  printf '%s' '{"session_id":"s","turn_id":"t","hook_event_name":"Stop"}' | "$AIM_BIN" hook codex > "$OUT_DIR/reply"
+fi
+{ for a in "$@"; do printf '%s\0' "$a"; done; printf '\0'; } > "$OUT_DIR/real"
+`))
+
+	pane := r.start(t, term.ShellCommand(os.Getenv, r.ig, r.home, env))
+	for _, tc := range []struct {
+		command string
+		args    []string
+		owned   bool
+	}{
+		{"codex --no-daemon hello", []string{"-c", "hooks={}", "--no-daemon", "hello"}, true},
+		{"codex resume id", []string{"--no-daemon", "-c", "hooks={}", "resume", "id"}, true},
+		{"codex -m exec 'my prompt'", []string{"--no-daemon", "-c", "hooks={}", "-m", "exec", "my prompt"}, true},
+		{"codex exec hello", []string{"exec", "hello"}, false},
+		{"AIM_CODEX_OWNER=1 codex nested", []string{"nested"}, false},
+		{"codex --remote unix://remote", []string{"--remote", "unix://remote"}, false},
+		{"codex background &", []string{"background"}, false},
+	} {
+		pane.typeLine(t, tc.command)
+
+		if got := r.realArgs(t); !slices.Equal(got, tc.args) {
+			t.Fatalf("%s: argv %q, want %q", tc.command, got, tc.args)
+		}
+
+		if tc.owned {
+			var start harness.Event
+			select {
+			case start = <-events:
+			default:
+				t.Fatal("owner registration missing")
+			}
+
+			if start.Name != harness.CodexOwnerStart || start.OwnerPID == 0 {
+				t.Fatalf("start %+v", start)
+			}
+
+			select {
+			case stop := <-events:
+				if stop.Name != "Stop" || stop.OwnerPID != start.OwnerPID {
+					t.Fatalf("stop %+v", stop)
+				}
+			default:
+				t.Fatal("owned hook missing")
+			}
+
+			reply, err := os.ReadFile(filepath.Join(r.out, "reply"))
+			if err != nil || string(reply) != "{}\n" {
+				t.Fatalf("reply %q, %v", reply, err)
+			}
+		} else {
+			select {
+			case ev := <-events:
+				t.Fatalf("unexpected event %+v", ev)
+			default:
+			}
+		}
+	}
+
+	if script, err := exec.LookPath("script"); err == nil {
+		command := script + " -qec 'codex inner' /dev/null"
+		if runtime.GOOS == "darwin" {
+			command = script + " -q /dev/null codex inner"
+		}
+
+		pane.typeLine(t, command)
+
+		if got := r.realArgs(t); !slices.Equal(got, []string{"inner"}) {
+			t.Fatalf("nested terminal argv %q", got)
+		}
+	}
+
+	// A launched agent still gets its private hooks with the shell integration disabled.
+	r.start(t, term.AgentCommand(os.Getenv, term.Integration{}, r.home, []string{r.copy, "exec-owned-codex", "resume", "explicit"}, env))
+
+	if got, want := r.realArgs(t), []string{"--no-daemon", "-c", "hooks={}", "resume", "explicit"}; !slices.Equal(got, want) {
+		t.Fatalf("explicit argv %q, want %q", got, want)
+	}
+
+	for _, name := range []string{harness.CodexOwnerStart, "Stop"} {
+		select {
+		case ev := <-events:
+			if ev.Name != name || ev.OwnerPID == 0 {
+				t.Fatalf("explicit event %+v", ev)
+			}
+		default:
+			t.Fatalf("explicit %s missing", name)
+		}
 	}
 }

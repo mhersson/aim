@@ -126,7 +126,7 @@ nothing, and anywhere else it closes the popover and goes no further.
   gets today's argv and environment.
 - Every pane gets `TERM=xterm-256color` and `COLORTERM=truecolor` and loses an
   inherited `TMUX`, `TMUX_PANE`, `AIM_PANE`, `AIM_SOCK`, `AIM_CLAUDE_HOOKS`, `AIM_BIN`, `AIM_TTY`,
-  `AIM_SHELL_DIR`, `AIM_ZDOTDIR` and `AIM_ENV` (`term.PaneEnv`). `term.Start`
+  `AIM_CODEX_OWNER`, `AIM_CODEX_HOOKS`, `AIM_SHELL_DIR`, `AIM_ZDOTDIR` and `AIM_ENV` (`term.PaneEnv`). `term.Start`
   opens the pty itself and sets `AIM_TTY` to the slave's path.
 - Every pane that gets `AIM_SOCK` also gets `AIM_BIN`, the binary the hooks run
   (the instance's own copy, below, else the installed one), so a pane can run
@@ -175,16 +175,18 @@ instance's settings file from two pieces, both from
   zsh with no startup files) gets the wrapper on PATH only.
 
 **Pane kind.** A pane is an agent while its terminal's foreground process
-group leader is `claude` (`internal/term/fg_linux.go`, `fg_darwin.go`), probed
+group leader is `claude` or an interactive local `codex` (`internal/term/fg_linux.go`, `fg_darwin.go`), probed
 with the cwd at most every 500 ms, so a hand-typed `claude` makes an agent and
 an exited one a shell. Hooks never change the kind. Up to 16 events for a shell
 pane are held while a probe they start runs (`holdHook`). They are applied once
 a probe makes the pane an agent, so a typed `claude`'s `SessionStart` is not
 lost to the 500 ms throttle, and they are dropped when that probe does not. A
 launched agent has 10 s (`agentGrace`) to show `claude` first.
-The leader's name is its comm on Linux. On macOS it is argv[0]'s base name, or
+Linux reads the leader's comm and checks native Codex and Node or Bun launcher arguments in procfs. On macOS it is argv[0]'s base name, or
 argv[1]'s when argv[0] is `node` or `bun` and argv[1] is not an option, since an
 npm install's `claude` runs as `node <path>/claude` (`internal/term/procargs.go`).
+
+**Interactive Codex.** The per-instance shell directory also supplies a `codex` wrapper and shell function. Explicit launches run the same wrapper through the instance binary, including with shell integration disabled. The wrapper identifies a local TUI or resume, checks foreground ownership, registers the process group leader with the turn gate, and execs the real CLI with `--no-daemon` and the hook table. Codex runs hook commands in detached sessions. Before sending, a hook reads the registered leader's terminal device and foreground group from procfs on Linux or kinfo_proc on Darwin, matching them against `AIM_TTY` and its launch PID. The pane probe and asynchronous edit lookups carry the same PID. A held hook waits for a probe requested after it arrived, and an edit lookup checks the launch as well as the session before changing the followed worktree. Exit or replacement retires that launch. New panes clear inherited ownership and hook settings. A foreground Codex without observed hooks shows `check /hooks` on the rail.
 
 **Launch settings.** Codex takes its hook table through a launch-scoped
 `-c hooks=...` override. Its handlers call `"$AIM_BIN" hook codex`. The CLI

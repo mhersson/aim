@@ -29,8 +29,12 @@ import (
 const closeTimeout = 3 * time.Second
 
 func main() {
-	if filepath.Base(os.Args[0]) == shimName {
-		os.Exit(runShim(os.Args[1:], os.Stderr))
+	if name := filepath.Base(os.Args[0]); name == shimName || name == "codex" {
+		os.Exit(runShim(name, os.Args[1:], os.Stderr))
+	}
+
+	if len(os.Args) > 1 && os.Args[1] == "exec-owned-codex" {
+		os.Exit(runShim("codex", os.Args[2:], os.Stderr))
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)

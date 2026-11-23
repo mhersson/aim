@@ -28,7 +28,7 @@ type proc interface {
 	Resize(cols, rows int) error
 	Done() <-chan struct{}
 	Cwd() (string, error)
-	Foreground() (string, error)
+	ForegroundProcess() (string, int, error)
 	Close() error
 }
 
@@ -66,19 +66,22 @@ type pane struct {
 	wg     sync.WaitGroup
 
 	// Update-goroutine state, outside mu.
-	holdArmed bool            // a holdTick is outstanding
-	cwdAt     time.Time       // start of the last cwd lookup
-	cwdBusy   bool            // a lookup is running
-	cwdWait   bool            // a deferred lookup is scheduled
-	launched  time.Time       // when AIM started the agent; zero otherwise
-	seen      bool            // the harness program was the foreground process
-	resuming  bool            // launched with --resume and no SessionStart yet
-	lastOut   time.Time       // when output last arrived
-	workingAt time.Time       // when the agent last entered working
-	held      []harness.Event // hooks that arrived while the pane was a shell, applied if a probe makes it an agent
-	heldProbe bool            // a probe started by a held hook is out
-	launchDue bool            // the next SessionStart names the directory Claude was typed in
-	stale     bool            // output or a resize arrived while its tab was hidden; render when shown
+	probeSeq, appliedProbe uint64
+	ownerPID               int
+	hooksSeen              bool
+	holdArmed              bool            // a holdTick is outstanding
+	cwdAt                  time.Time       // start of the last cwd lookup
+	cwdBusy                bool            // a lookup is running
+	cwdWait                bool            // a deferred lookup is scheduled
+	launched               time.Time       // when AIM started the agent; zero otherwise
+	seen                   bool            // the harness program was the foreground process
+	resuming               bool            // launched with --resume and no SessionStart yet
+	lastOut                time.Time       // when output last arrived
+	workingAt              time.Time       // when the agent last entered working
+	held                   []harness.Event // hooks that arrived while the pane was a shell, applied if a probe makes it an agent
+	heldProbe              uint64          // earliest probe that can confirm the held hooks
+	launchDue              bool            // the next SessionStart names the directory Claude was typed in
+	stale                  bool            // output or a resize arrived while its tab was hidden; render when shown
 
 	mu         sync.Mutex
 	vt         term.VT
@@ -396,21 +399,21 @@ func (p *pane) workingDir() string {
 
 // foreground is the name of the terminal's foreground process, or "" when it
 // cannot be read, which the kind rule treats as unknown.
-func (p *pane) foreground() string {
+func (p *pane) foreground() (string, int) {
 	p.mu.Lock()
 	closed := p.closed
 	p.mu.Unlock()
 
 	if closed {
-		return ""
+		return "", 0
 	}
 
 	// Outside mu: the lookup is file IO.
-	if name, err := p.proc.Foreground(); err == nil {
-		return name
+	if name, pid, err := p.proc.ForegroundProcess(); err == nil {
+		return name, pid
 	}
 
-	return ""
+	return "", 0
 }
 
 func (p *pane) sendKey(k uv.KeyPressEvent) {

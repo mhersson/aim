@@ -50,7 +50,8 @@ The last row, `new worktree…` (`+ new worktree…` with `icons = false`), open
 ### Shells beside the agent
 
 - `ctrl+space s` opens a shell below the focused pane, `ctrl+space v` one to its right. Both start in the focused pane's working directory and take focus. That is where a BSP tab puts them; the other layouts place a new pane by their own rule, see [Layouts](layouts.md).
-- Run `claude` in a shell and the pane becomes an agent pane; when Claude exits in an agent pane, it becomes a shell again. The rail lists agent panes only.
+- Run `claude`, `codex` or `codex resume <id>` in a pane shell to track the foreground agent. Exiting the agent returns the pane to a shell. The rail lists agent panes only.
+- A local Codex session reports turns, edits, its working directory and the model when supplied by a hook. If the rail says `check /hooks`, open `/hooks` in Codex to inspect its hook configuration and trust. Background jobs, nested terminals, remote sessions and `codex exec` run without AIM tracking.
 - A `claude` you type in a shell AIM started is a full agent: hooks, states, turns, follow, context, model, usage and resume, in the directory it started in. AIM does this without touching your shell startup files: a wrapper first on the shell's PATH adds the hooks to your `claude`, and a `claude` function in the shell calls it.
 - It may not be one when typed by full path, through `npx` or `bunx`, inside a shell or `tmux` started in the pane, in a terminal inside an editor (such as an nvim terminal) or another program run in the pane, in a shell other than zsh, bash or fish, under macOS's `/bin/bash`, in zsh when `/etc/zshenv` sets `ZDOTDIR`, or with its own `--settings`. Such a `claude` still makes the pane an agent pane, but its card on the rail may show no state, as for an agent with no hooks.
 - To see it: the shell's PATH starts with an AIM directory, and `type claude` names a function.

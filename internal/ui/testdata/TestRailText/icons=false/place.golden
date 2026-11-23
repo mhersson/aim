@@ -5,12 +5,12 @@
 │                                          ││                          ││                          │
 │ ⠋ multiplex  Opus 5.5            41%  8s ││                          ││                          │
 │   feat/follow-edits                      ││                          ││                          │
-│   Edit internal/ui/rail.go               ││                          ││                          │
+│   claude Edit internal/ui/rail.go        ││                          ││                          │
 │   +80 -6  4 files                        ││                          ││                          │
 │╭────────────────────────────────────────╮││                          ││                          │
 ││⠋ contextmatrix  Opus 5.5        62%  6s│││                          ││                          │
 ││  contextmatrix-agent · feat/retry    ↑2│││                          ││                          │
-││  Write internal/claim/retry.go         │││                          ││                          │
+││  claude Write internal/claim/retry.go  │││                          ││                          │
 ││  +120 -18  4 files                     │││                          ││                          │
 │╰────────────────────────────────────────╯││                          ││                          │
 │                                          ││                          ││                          │

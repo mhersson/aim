@@ -5,24 +5,24 @@
 │                                          ││                          ││                          │
 │▎  api                               8s ● ││                          ││                          │
 │   main                                   ││                          ││                          │
-│   Allow Bash rm ╭─ Commands ───────────────────────────────────────────────────╮                 │
+│   claude Allow B╭─ Commands ───────────────────────────────────────────────────╮                 │
 │   +12 -3  2 file│ ❯                                                            │                 │
 │╭────────────────├──────────────────────────────────────────────────────────────┤                 │
 ││⠋ web           │ Open command palette                            ctrl+space : │                 │
 ││  feat/login    │ Pick theme                                      ctrl+space t │                 │
-││  Edit src/login│ New agent pane                                  ctrl+space n │                 │
+││  claude Edit sr│ New agent pane                                  ctrl+space n │                 │
 ││  +120 -14  5 fi│ Agents rail                                     ctrl+space a │                 │
 │╰────────────────│ Claude usage                                    ctrl+space u │                 │
 │ 2 docs ─────────│ Split: shell below                              ctrl+space s │                 │
 │                 │ Split: shell right                              ctrl+space v │                 │
 │ ⠋ multiplex     │ Focus left                                      ctrl+space h │                 │
 │   feat/agents-ra│ Focus down                                      ctrl+space j │                 │
-│   Bash go test .│ Focus up                                        ctrl+space k │                 │
+│   claude Bash go│ Focus up                                        ctrl+space k │                 │
 │   +340 -12  9 fi├──────────────────────────────────────────────────────────────┤                 │
 │                 │ up/down move   enter run   esc close                         │                 │
 │   docs          ╰─────────────────────────────────────────────────── 1 of 121 ─╯                 │
 │   main                                   ││                          ││                          │
-│   waiting for a prompt                   ││                          ││                          │
+│   claude waiting for a prompt            ││                          ││                          │
 │   +0 -0  0 files                         ││                          ││                          │
 │                                          ││                          ││                          │
 │                                          ││                          ││                          │

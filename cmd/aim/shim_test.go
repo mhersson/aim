@@ -172,7 +172,7 @@ func TestPlanShim(t *testing.T) {
 				t.Chdir(tt.chdir)
 			}
 
-			plan, ok := planShim(tt.args, tt.env, fs.self, func(tty string) bool { return tt.leads && tty == "/dev/pts/7" })
+			plan, ok := planShim("claude", tt.args, tt.env, fs.self, func(tty string) bool { return tt.leads && tty == "/dev/pts/7" })
 			if ok != tt.wantOK {
 				t.Fatalf("ok = %v, want %v (plan %+v)", ok, tt.wantOK, plan)
 			}
@@ -219,12 +219,12 @@ func TestPlanShimWithoutSelf(t *testing.T) {
 	pathEnv := filepath.Join(shellDir, "bin") + string(os.PathListSeparator) + fs.f
 	env := []string{"PATH=" + pathEnv, "AIM_SHELL_DIR=" + shellDir}
 
-	plan, ok := planShim(nil, env, nil, func(string) bool { return false })
+	plan, ok := planShim("claude", nil, env, nil, func(string) bool { return false })
 	if !ok || plan.path != fs.fakeClaude {
 		t.Errorf("with AIM_SHELL_DIR: plan %+v, %v; want %s", plan, ok, fs.fakeClaude)
 	}
 
-	if _, ok := planShim(nil, []string{"PATH=" + pathEnv}, nil, func(string) bool { return false }); ok {
+	if _, ok := planShim("claude", nil, []string{"PATH=" + pathEnv}, nil, func(string) bool { return false }); ok {
 		t.Error("without self and AIM_SHELL_DIR the plan must fail rather than risk exec'ing itself")
 	}
 }
@@ -253,7 +253,7 @@ func TestShimNotFound(t *testing.T) {
 
 	var buf bytes.Buffer
 
-	if got := runShim([]string{"a"}, &buf); got != 127 {
+	if got := runShim("claude", []string{"a"}, &buf); got != 127 {
 		t.Errorf("exit = %d, want 127", got)
 	}
 

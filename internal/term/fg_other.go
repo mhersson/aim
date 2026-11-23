@@ -5,4 +5,4 @@ package term
 import "errors"
 
 // Foreground is not implemented on this platform.
-func (p *Process) Foreground() (string, error) { return "", errors.ErrUnsupported }
+func (p *Process) ForegroundProcess() (string, int, error) { return "", 0, errors.ErrUnsupported }

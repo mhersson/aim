@@ -7,14 +7,14 @@
 │╭────────────────────────────────────────╮││                          ││                          │
 ││  api                               8s ●│││                          ││                          │
 ││  main                                  │││                          ││                          │
-││  Allow Bash rm -rf build/?             │││                          ││                          │
+││  claude Allow Bash rm -rf build/?      │││                          ││                          │
 ││  +12 -3  2 files                       │││                          ││                          │
 │╰────────────────────────────────────────╯││                          ││                          │
 │ 2 docs ─────────────────────────────── 1 ││                          ││                          │
 │                                          ││                          ││                          │
 │   docs                                1d ││                          ││                          │
 │   main                                   ││                          ││                          │
-│   waiting for a prompt                   ││                          ││                          │
+│   claude waiting for a prompt            ││                          ││                          │
 │   +0 -0  0 files                         ││                          ││                          │
 │                                          ││                          ││                          │
 │                                          ││                          ││                          │

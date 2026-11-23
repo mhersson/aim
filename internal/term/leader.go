@@ -46,3 +46,18 @@ func foregroundOf(path string) (int, error) {
 
 	return pgrp, nil
 }
+
+// ForegroundOwner verifies the leader from kernel process information. Codex
+// starts hooks in new sessions where TIOCGPGRP on the pane slave fails.
+func ForegroundOwner(path string, pid int) bool {
+	if pid <= 0 || path == "" {
+		return false
+	}
+
+	var st unix.Stat_t
+	if unix.Stat(path, &st) != nil || st.Mode&unix.S_IFMT != unix.S_IFCHR {
+		return false
+	}
+
+	return matchesForeground(pid, st)
+}

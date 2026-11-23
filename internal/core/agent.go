@@ -56,6 +56,10 @@ func (a SetPaneKind) apply(s *State) error {
 			return fmt.Errorf("core: SetPaneKind agent for pane %q without a harness", a.ID)
 		}
 
+		if p.Harness != a.Harness {
+			p = Pane{Cwd: p.Cwd}
+		}
+
 		p.Kind, p.Harness = KindAgent, a.Harness
 	default:
 		return fmt.Errorf("core: SetPaneKind with unknown kind %q", a.Kind)

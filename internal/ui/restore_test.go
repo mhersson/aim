@@ -525,6 +525,7 @@ func TestResumeCodex(t *testing.T) {
 		fg       string
 		settings string
 	}{
+		{fg: "claude"},
 		{fg: "zsh"},
 		{fg: "codex", settings: "{SessionStart=[]}"},
 	} {
@@ -547,7 +548,21 @@ func TestResumeCodex(t *testing.T) {
 			}
 
 			old := r.a.panes["p1"]
+			r.st.proc(0).setFg("codex")
+			probeAt(t, r, "p1", 0)
 			r.st.proc(0).setFg(tc.fg)
+
+			if tc.fg == "claude" {
+				probeAt(t, r, "p1", time.Second)
+
+				m := r.a.store.State().Panes["p1"]
+				if m.Harness != "claude-code" || m.Session != "" || old.resuming || r.st.count() != 3 {
+					t.Fatalf("direct foreground switch during resume: %+v, resuming=%v, starts=%d", m, old.resuming, r.st.count())
+				}
+
+				return
+			}
+
 			probeAt(t, r, "p1", agentGrace)
 
 			m := r.a.store.State().Panes["p1"]
@@ -573,7 +588,9 @@ func TestResumeCodex(t *testing.T) {
 			}
 
 			fresh := r.a.panes["p1"]
-			r.a.Update(hookMsg{ev: harness.Event{Harness: "codex", Pane: "p1", Name: "SessionStart", Session: restoreSession, Start: true}})
+			r.st.proc(3).setFg("codex")
+			probeAt(t, r, "p1", 0)
+			r.a.Update(hookMsg{ev: harness.Event{Harness: "codex", OwnerPID: 42, Pane: "p1", Name: "SessionStart", Session: restoreSession, Start: true}})
 			r.clk.Advance(agentGrace)
 			r.a.Update(paneCwdMsg{id: "p1", p: old, fg: "zsh", due: true})
 

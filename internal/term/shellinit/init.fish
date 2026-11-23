@@ -16,4 +16,13 @@ if test -n "$AIM_SHELL_DIR"
             end
         end
     end
+    if not functions -q codex
+        function codex
+            if test -x "$AIM_SHELL_DIR/bin/codex"
+                "$AIM_SHELL_DIR/bin/codex" $argv
+            else
+                command codex $argv
+            end
+        end
+    end
 end

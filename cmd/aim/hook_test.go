@@ -320,7 +320,7 @@ func TestRunHookPrintsTheNote(t *testing.T) {
 	}
 }
 
-func TestCodexHookForwarding(t *testing.T) {
+func TestCodexHookWithoutOwner(t *testing.T) {
 	t.Parallel()
 	path, out := statusServer(t)
 
@@ -333,11 +333,8 @@ func TestCodexHookForwarding(t *testing.T) {
 
 		select {
 		case ev := <-out:
-			if ev.Harness != "codex" || ev.Pane != "p" || ev.Session != "s" || ev.Name != tt.name {
-				t.Fatalf("event %+v", ev)
-			}
+			t.Fatalf("unowned event forwarded: %+v", ev)
 		default:
-			t.Fatal("missing event")
 		}
 
 		if reply.String() != tt.reply {

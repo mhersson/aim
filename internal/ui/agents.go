@@ -47,19 +47,32 @@ func (a *App) waitEvent() tea.Cmd {
 // onHook applies a hook or status event. An event for a pane that is not open is
 // ignored, and one for a shell pane is held until the probe answers (holdHook).
 func (a *App) onHook(ev harness.Event) tea.Cmd {
+	return a.applyHook(ev, true)
+}
+
+func (a *App) applyHook(ev harness.Event, probe bool) tea.Cmd {
 	if ev.Show {
 		return a.onSent(ev)
 	}
 
 	m, ok := a.store.State().Panes[ev.Pane]
-	if ok && m.Kind != core.KindAgent {
+	p := a.panes[ev.Pane]
+	ownerMismatch := ev.Harness == "codex" && (p == nil || p.ownerPID == 0 || p.ownerPID != ev.OwnerPID)
+
+	wrongHarness := ev.Harness != "" && ev.Harness != m.Harness
+	if probe && ok && (m.Kind != core.KindAgent || ((ev.Start || (p != nil && p.heldProbe != 0)) && (ownerMismatch || wrongHarness))) {
 		return a.holdHook(ev)
 	}
 
-	if !ok {
+	staleSession := !ev.Start && m.Session != "" && ev.Session != "" && ev.Session != m.Session && (!ev.Subagent || ev.End)
+	if !ok || m.Kind != core.KindAgent || wrongHarness || ownerMismatch || staleSession {
 		a.log.Debug("hook event ignored", "pane", ev.Pane, "event", ev.Name)
 
 		return nil
+	}
+
+	if p != nil && ev.Harness == "codex" {
+		p.hooksSeen = true
 	}
 
 	if ev.Status {
@@ -106,17 +119,21 @@ func (a *App) onHook(ev harness.Event) tea.Cmd {
 		_ = a.changeAgentState(ev.Pane, core.AgentUnknown)
 	}
 
+	if ev.Harness == "codex" && ev.Model != "" {
+		_ = a.dispatch(core.SetAgentStatus{ID: ev.Pane, Session: ev.Session, Model: ev.Model})
+	}
+
 	if ev.ActionSet {
 		_ = a.dispatch(core.SetAgentAction{ID: ev.Pane, Action: ev.Action})
 	}
 
 	var edit, changed tea.Cmd
 	if ev.Edit != "" {
-		edit = a.noteEdit(m, ev.Pane, ev.Edit)
+		edit = a.noteEdit(m, ev.Pane, ev.OwnerPID, ev.Edit)
 	}
 
 	if len(ev.Changed) > 0 {
-		changed = a.noteChanged(m, ev.Pane, ev.Changed)
+		changed = a.noteChanged(m, ev.Pane, ev.OwnerPID, ev.Changed)
 	}
 
 	plans := a.notePlans(m, ev.Pane, ev)
@@ -163,11 +180,9 @@ func (a *App) holdHook(ev harness.Event) tea.Cmd {
 
 	p.held = append(p.held, ev)
 
-	if p.heldProbe {
+	if p.heldProbe != 0 {
 		return nil
 	}
-
-	p.heldProbe = true
 
 	return probe(p, true, true)
 }
@@ -179,7 +194,7 @@ func (a *App) replayHeld(p *pane) tea.Cmd {
 
 	cmds := make([]tea.Cmd, 0, len(held))
 	for _, ev := range held {
-		cmds = append(cmds, a.onHook(ev))
+		cmds = append(cmds, a.applyHook(ev, false))
 	}
 
 	return tea.Batch(cmds...)
@@ -260,7 +275,7 @@ func (a *App) onAgentTick() tea.Cmd {
 
 	for id, m := range a.store.State().Panes {
 		p, ok := a.panes[id]
-		if !ok || m.State != core.AgentWorking {
+		if !ok || m.Harness == "codex" || m.State != core.AgentWorking {
 			continue
 		}
 
@@ -311,7 +326,8 @@ func dialogKey(key string) bool {
 // answerDialog makes a blocked agent work again when a key answers its dialog;
 // no hook fires for a denied permission or an interrupt.
 func (a *App) answerDialog(p *pane, key string) {
-	if !dialogKey(key) || a.store.State().Panes[p.id].State != core.AgentBlocked {
+	m := a.store.State().Panes[p.id]
+	if !dialogKey(key) || m.Harness == "codex" || m.State != core.AgentBlocked {
 		return
 	}
 

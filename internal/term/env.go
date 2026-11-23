@@ -16,7 +16,7 @@ func PaneEnv(base []string) []string {
 	for _, kv := range base {
 		switch k, _, _ := strings.Cut(kv, "="); k {
 		case "TERM", "COLORTERM", "TMUX", "TMUX_PANE", "AIM_PANE", "AIM_SOCK", "AIM_CLAUDE_HOOKS", "AIM_BIN", "AIM_TTY",
-			"AIM_SHELL_DIR", "AIM_ZDOTDIR", "AIM_ENV":
+			"AIM_CODEX_OWNER", "AIM_CODEX_HOOKS", "AIM_SHELL_DIR", "AIM_ZDOTDIR", "AIM_ENV":
 		default:
 			out = append(out, kv)
 		}

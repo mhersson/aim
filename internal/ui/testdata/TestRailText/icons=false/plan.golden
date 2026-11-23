@@ -5,19 +5,19 @@
 │                                          ││                                                      │
 │▎  api  Opus 5.5          62%  plan  8s ● ││                                                      │
 │   main                                   ││                                                      │
-│   Allow Bash rm -rf build/?              ││                                                      │
+│   claude Allow Bash rm -rf build/?       ││                                                      │
 │   +0 -0  0 files                         ││                                                      │
 │╭────────────────────────────────────────╮││                                                      │
 ││⠋ t16-implementer-with-a-long-… plan  4m│││                                                      │
 ││  feat/login                            │││                                                      │
-││  Edit src/login.tsx                    │││                                                      │
+││  claude Edit src/login.tsx             │││                                                      │
 ││  +0 -0  0 files                        │││                                                      │
 │╰────────────────────────────────────────╯││                                                      │
 │ 2 docs ─────────────────────────────── 1 ││                                                      │
 │                                          ││                                                      │
 │   docs  Haiku 5.5                 5%  1d ││                                                      │
 │   main                                   ││                                                      │
-│   waiting for a prompt                   ││                                                      │
+│   claude waiting for a prompt            ││                                                      │
 │   +0 -0  0 files                         ││                                                      │
 │                                          ││                                                      │
 │                                          ││                                                      │

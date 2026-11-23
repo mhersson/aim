@@ -48,4 +48,14 @@ if [ -n "$AIM_SHELL_DIR" ]; then
       fi
     }
   fi
+  if ! declare -F codex >/dev/null; then
+    function codex {
+      if [[ -x $AIM_SHELL_DIR/bin/codex ]]; then
+        "$AIM_SHELL_DIR/bin/codex" "$@"
+      else
+        hash -d codex 2>/dev/null
+        command codex "$@"
+      fi
+    }
+  fi
 fi

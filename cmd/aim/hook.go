@@ -3,7 +3,10 @@ package main
 import (
 	"context"
 	"io"
+	"strconv"
 	"time"
+
+	"github.com/mhersson/aim/internal/term"
 
 	"github.com/spf13/cobra"
 
@@ -74,6 +77,15 @@ func runHook(ctx context.Context, id string, note bool, stdin io.Reader, stdout 
 	sock, pane := getenv("AIM_SOCK"), getenv("AIM_PANE")
 	if sock == "" || pane == "" {
 		return
+	}
+
+	if id == "codex" {
+		expected, err := strconv.Atoi(getenv("AIM_CODEX_OWNER"))
+		if err != nil || !term.ForegroundOwner(getenv("AIM_TTY"), expected) {
+			return
+		}
+
+		ev.OwnerPID = expected
 	}
 
 	ev.Pane = core.PaneID(pane)

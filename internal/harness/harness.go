@@ -63,8 +63,9 @@ const (
 
 // Event is one hook, statusline or aim show payload reduced to what the app needs.
 type Event struct {
-	Harness string `json:"harness,omitempty"`
-	TurnID  string `json:"turn_id,omitempty"`
+	Harness  string `json:"harness,omitempty"`
+	TurnID   string `json:"turn_id,omitempty"`
+	OwnerTTY string `json:"owner_tty,omitempty"` // only the exec wrapper registers a tty
 	// OwnerPID identifies the foreground launch, independently of its session.
 	OwnerPID   int             `json:"owner_pid,omitempty"`
 	Pane       core.PaneID     `json:"pane"`

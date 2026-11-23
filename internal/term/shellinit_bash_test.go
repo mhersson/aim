@@ -274,7 +274,7 @@ func TestBashIntegration(t *testing.T) {
 			t.Error("the integration shell has no claude function")
 		}
 
-		with = slices.DeleteFunc(with, func(l string) bool { return l == fn })
+		with = slices.DeleteFunc(with, func(l string) bool { return l == fn || l == "declare -f codex" })
 
 		if !slices.Equal(with, without) {
 			t.Errorf("state differs from a plain bash -l:\nwith:  %q\nplain: %q", with, without)

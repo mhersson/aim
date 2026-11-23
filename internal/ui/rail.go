@@ -27,6 +27,7 @@ const idleAction = "waiting for a prompt"
 
 // railCard is one agent on the rail.
 type railCard struct {
+	harness    string
 	pane       core.PaneID
 	tab        int // 0-based
 	tabName    string
@@ -175,10 +176,14 @@ func (a *App) railCards(st core.State) []railGroup {
 		ti, _ := st.TabOf(id)
 
 		c := railCard{
-			pane: id, tab: ti, state: m.State, action: cardAction(m),
+			harness: a.harnessOf(m).Program(), pane: id, tab: ti, state: m.State, action: cardAction(m),
 			model: cleanModel(m.Model), meter: m.Context, meterKnown: m.ContextKnown,
 			plan: m.Plan.Path != "" && m.Plan.Unread,
 		}
+		if p := a.panes[id]; m.Harness == "codex" && (p == nil || !p.hooksSeen) {
+			c.action = "check /hooks"
+		}
+
 		if ti < len(tabs) {
 			c.tabName = tabs[ti].name
 		}

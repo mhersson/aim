@@ -79,9 +79,9 @@
 # native = true
 
 [shell]
-## Give a claude typed in a pane's shell AIM's hooks, as a claude AIM starts
-## has: a wrapper first on the shell's PATH and a claude function, from
-## files in AIM's state directory. Your startup files are not changed.
+## Give interactive claude and codex commands typed in a pane shell AIM's hooks.
+## AIM supplies wrappers and shell functions from its state directory.
+## Agents launched by AIM get their hooks with either setting.
 ## values: true | false
 # integration = true
 

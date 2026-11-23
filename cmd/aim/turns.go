@@ -15,6 +15,7 @@ import (
 	"github.com/mhersson/aim/internal/core"
 	"github.com/mhersson/aim/internal/git"
 	"github.com/mhersson/aim/internal/harness"
+	"github.com/mhersson/aim/internal/term"
 )
 
 const (
@@ -348,6 +349,7 @@ type paneCurrent struct {
 }
 
 type codexLaunch struct {
+	tty     string
 	pid     int
 	session core.SessionID
 	retired map[core.SessionID]bool
@@ -453,7 +455,7 @@ func runTurnGate(ctx context.Context, in <-chan harness.Event, out chan<- harnes
 			switch ev.Name {
 			case harness.CodexOwnerStart:
 				if ev.OwnerPID > 0 && (owner == nil || owner.pid != ev.OwnerPID) {
-					owners[ev.Pane] = &codexLaunch{pid: ev.OwnerPID, retired: map[core.SessionID]bool{}}
+					owners[ev.Pane] = &codexLaunch{pid: ev.OwnerPID, tty: ev.OwnerTTY, retired: map[core.SessionID]bool{}}
 					delete(current, ev.Pane)
 				}
 
@@ -495,9 +497,15 @@ func runTurnGate(ctx context.Context, in <-chan harness.Event, out chan<- harnes
 				continue
 			}
 		} else if owner != nil && !ev.Show {
-			release(ev)
+			// A Codex that exits between probes can be followed immediately by Claude.
+			if !ev.Start || owner.tty == "" || term.ForegroundOwner(owner.tty, owner.pid) {
+				release(ev)
 
-			continue
+				continue
+			}
+
+			delete(owners, ev.Pane)
+			delete(current, ev.Pane)
 		}
 
 		arrived := time.Now()

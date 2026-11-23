@@ -24,14 +24,15 @@ const agentGrace = 10 * time.Second
 
 // paneCwdMsg carries a pane's looked-up working directory and foreground
 // process name; each is empty when unknown. due marks any probe outside the
-// cwd throttle, hook the one that held hooks started.
+// cwd throttle.
 type paneCwdMsg struct {
-	id   core.PaneID
-	p    *pane
-	cwd  string
-	fg   string
-	due  bool
-	hook bool
+	seq uint64
+	id  core.PaneID
+	p   *pane
+	cwd string
+	pid int
+	fg  string
+	due bool
 }
 
 // paneKindDueMsg is the probe agentGrace after an agent launch.
@@ -187,6 +188,10 @@ func (a *App) startPaneRunning(id core.PaneID, m core.Pane, cols, rows int, run 
 	env := []string{"AIM_PANE=" + string(id)}
 	if a.hookSock != "" {
 		env = append(env, "AIM_SOCK="+a.hookSock)
+		if a.codexSettings != "" {
+			env = append(env, "AIM_CODEX_HOOKS="+a.codexSettings)
+		}
+
 		if a.hookSettings == "" {
 			env = append(env, "AIM_CLAUDE_HOOKS=off")
 		}
@@ -201,7 +206,16 @@ func (a *App) startPaneRunning(id core.PaneID, m core.Pane, cols, rows int, run 
 	switch {
 	case kind == core.KindAgent:
 		h := a.harnessOf(m)
-		c = term.AgentCommand(a.getenv, a.shell, cwd, h.Launch(a.settingsFor(h), m.Session), env)
+
+		argv := h.Launch(a.settingsFor(h), m.Session)
+		if h.ID() == "codex" && a.hookBin != "" && a.codexSettings != "" {
+			argv = []string{a.hookBin, "exec-owned-codex"}
+			if m.Session != "" {
+				argv = append(argv, "resume", string(m.Session))
+			}
+		}
+
+		c = term.AgentCommand(a.getenv, a.shell, cwd, argv, env)
 	case run != nil && run.once:
 		c = term.EditorOnlyCommand(a.getenv, a.shell, cwd, run.program, run.args, env)
 	case run != nil:
@@ -293,7 +307,26 @@ func (a *App) closePane(id core.PaneID) tea.Cmd {
 
 // closeAsync closes a pane that has left the registry. Pane.close can take a
 // second, so it never runs on the update loop; Close waits for it.
+func (a *App) retireCodex(p *pane) {
+	pid := p.ownerPID
+	p.ownerPID, p.hooksSeen = 0, false
+
+	if pid == 0 || a.hookSock == "" {
+		return
+	}
+
+	ev := harness.Event{Harness: "codex", Pane: p.id, Name: harness.CodexOwnerEnd, OwnerPID: pid}
+
+	a.closing.Go(func() {
+		ctx, cancel := context.WithTimeout(a.ctx, 2*time.Second)
+		defer cancel()
+
+		_ = harness.Send(ctx, a.hookSock, ev)
+	})
+}
+
 func (a *App) closeAsync(p *pane) {
+	a.retireCodex(p)
 	a.closing.Go(func() {
 		if err := p.close(); err != nil {
 			a.log.Warn("close pane", "pane", p.id, "err", err)
@@ -481,8 +514,17 @@ func (a *App) runProbe(p *pane) tea.Cmd {
 // probe (the grace and held-hook ones) leaves the cwd throttle alone; hook marks
 // the probe a held hook started.
 func probe(p *pane, due, hook bool) tea.Cmd {
+	p.probeSeq++
+
+	seq := p.probeSeq
+	if hook {
+		p.heldProbe = seq
+	}
+
 	return func() tea.Msg {
-		return paneCwdMsg{id: p.id, p: p, cwd: p.workingDir(), fg: p.foreground(), due: due, hook: hook}
+		fg, pid := p.foreground()
+
+		return paneCwdMsg{seq: seq, id: p.id, p: p, cwd: p.workingDir(), fg: fg, pid: pid, due: due}
 	}
 }
 
@@ -522,8 +564,13 @@ func (a *App) onCwd(msg paneCwdMsg) tea.Cmd {
 		p.cwdBusy = false
 	}
 
-	if msg.hook {
-		p.heldProbe = false
+	if msg.seq != 0 {
+		// A probe requested before the hook can still report the previous agent.
+		if msg.seq < max(p.appliedProbe, p.heldProbe) {
+			return nil
+		}
+
+		p.appliedProbe = msg.seq
 	}
 
 	m := a.store.State().Panes[msg.id]
@@ -534,12 +581,28 @@ func (a *App) onCwd(msg paneCwdMsg) tea.Cmd {
 		_ = a.dispatch(core.SetPaneCwd{ID: msg.id, Cwd: msg.cwd})
 	}
 
+	if msg.fg != "" && p.ownerPID != 0 && (msg.fg != "codex" || msg.pid != p.ownerPID) {
+		a.retireCodex(p)
+
+		if msg.fg == "codex" {
+			// A replacement Codex starts a new session even though the program name stayed the same.
+			_ = a.dispatch(core.SetPaneKind{ID: p.id, Kind: core.KindShell})
+			p.resuming = false
+		}
+	}
+
+	if msg.fg == "codex" {
+		p.ownerPID = msg.pid
+	}
+
 	kind := a.applyKind(p, msg.fg)
 
-	switch {
-	case len(p.held) > 0 && a.store.State().Panes[msg.id].Kind == core.KindAgent:
-		return tea.Batch(kind, a.replayHeld(p))
-	case msg.hook:
+	if p.heldProbe != 0 && msg.seq >= p.heldProbe {
+		p.heldProbe = 0
+		if msg.fg != "" && a.store.State().Panes[msg.id].Kind == core.KindAgent {
+			return tea.Batch(kind, a.replayHeld(p))
+		}
+
 		p.held = nil
 	}
 
@@ -583,6 +646,11 @@ func (a *App) applyKind(p *pane, fg string) tea.Cmd {
 
 	h := a.harnessOf(m)
 
+	if candidate, ok := harness.ByProgram(fg); ok && fg != h.Program() {
+		h = candidate
+		p.resuming = false
+	}
+
 	if p.resuming && m.Kind == core.KindAgent {
 		switch {
 		case a.clock.Now().Before(p.launched.Add(agentGrace)):
@@ -599,7 +667,8 @@ func (a *App) applyKind(p *pane, fg string) tea.Cmd {
 	}
 
 	switch {
-	case m.Kind == core.KindShell && fg == h.Program():
+	case (m.Kind == core.KindShell || m.Harness != h.ID()) && fg == h.Program():
+		p.hooksSeen = false
 		p.seen = true
 		p.launched = time.Time{}
 		p.launchDue = true

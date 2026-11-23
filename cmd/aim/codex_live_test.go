@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -396,14 +397,33 @@ func TestLiveCodexHooks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	exe := filepath.Join(root, "record")
-	if err = os.WriteFile(exe, []byte("#!/bin/sh\nexec curl --silent --show-error --max-time 30 --data-binary @- "+fixture.url+"/hook/\"$AIM_PANE\"/\"$1\"\n"), 0o700); err != nil {
+	sock, tracked := statusServer(t)
+
+	bin, err := os.Executable()
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	env = append(env, "AIM_BIN="+exe)
+	exe := filepath.Join(root, "record")
+
+	recorder := `#!/bin/sh
+if [ "$1" = hook ] && [ "$AIM_PANE" = first ] && mkdir "$TMPDIR/captured" 2>/dev/null; then
+    cat > "$TMPDIR/captured/input"
+    "$AIM_PROBE" hook codex < "$TMPDIR/captured/input" >/dev/null
+    exec < "$TMPDIR/captured/input"
+fi
+exec curl --silent --show-error --max-time 30 --data-binary @- ` + fixture.url + `/hook/"$AIM_PANE"/"$1"
+`
+	if err = os.WriteFile(exe, []byte(recorder), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	env = append(env, "AIM_BIN="+exe, "AIM_PROBE="+bin)
 	a := harness.Codex{}
-	ui := launchLiveCodex(t, root, "first", a.Launch(a.HookTable(false), ""), env)
+	launch := []string{"/bin/sh", "-c", `AIM_TTY=$(tty); export AIM_TTY; exec "$@"`, "aim", bin, "exec-owned-codex"}
+
+	initialEnv := append(slices.Clone(env), "AIM_SOCK="+sock, "AIM_CODEX_HOOKS="+a.HookTable(false))
+	ui := launchLiveCodex(t, root, "first", launch, initialEnv)
 	ui.skipHookReview(t)
 	ui.submit(t, "unreviewed-fixture")
 
@@ -429,6 +449,17 @@ func TestLiveCodexHooks(t *testing.T) {
 	start, prompt, held := fixture.firstPrompt(t, "first", "fixture-message")
 	if start.Name != "" && (start.Source != "startup" || start.Session != prompt.Session) {
 		t.Fatalf("start %+v, prompt %+v", start, prompt)
+	}
+
+	for _, want := range []string{harness.CodexOwnerStart, "UserPromptSubmit"} {
+		select {
+		case ev := <-tracked:
+			if ev.Name != want || ev.Pane != "first" || strconv.Itoa(ev.OwnerPID) != ui.pid || (ev.Name != harness.CodexOwnerStart && string(ev.Session) != prompt.Session) {
+				t.Fatalf("production hook route %+v, foreground pid %s", ev, ui.pid)
+			}
+		default:
+			t.Fatalf("missing production %s", want)
+		}
 	}
 
 	second := launchLiveCodex(t, root, "second", []string{"/bin/sh", "-i"}, append(slices.Clone(env), "AIM_TEST_HOOKS=hooks="+a.HookTable(false)))

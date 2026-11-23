@@ -1,16 +1,19 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 
 	"golang.org/x/sys/unix"
 
+	"github.com/mhersson/aim/internal/core"
 	"github.com/mhersson/aim/internal/harness"
 	"github.com/mhersson/aim/internal/term"
 )
@@ -20,15 +23,14 @@ const shimName = "claude"
 
 // shimPlan is the exec the wrapper performs.
 type shimPlan struct {
+	owner     bool
 	path      string
 	argv, env []string
 }
 
-// planShim finds the first claude on PATH that is not the wrapper itself and
-// plans its exec, adding this instance's settings when the claude is a typed
-// one that leads the pane's own terminal (own is given AIM_TTY). With self nil (its file is unknown) the wrapper
-// is told apart by AIM_SHELL_DIR/bin instead.
-func planShim(args, environ []string, self os.FileInfo, own func(paneTTY string) bool) (shimPlan, bool) {
+// The first executable after removing this instance's wrappers is resolved on
+// the pane's PATH, including relative entries after a shell changes directory.
+func planShim(name string, args, environ []string, self os.FileInfo, own func(paneTTY string) bool) (shimPlan, bool) {
 	getenv := func(key string) (string, bool) {
 		for _, e := range slices.Backward(environ) {
 			if v, ok := strings.CutPrefix(e, key+"="); ok {
@@ -59,7 +61,7 @@ func planShim(args, environ []string, self os.FileInfo, own func(paneTTY string)
 	)
 
 	for _, dir := range filepath.SplitList(pathEnv) {
-		candidate := filepath.Join(dir, shimName) // an empty entry is the cwd, as in a shell
+		candidate := filepath.Join(dir, name) // an empty entry is the cwd, as in a shell
 
 		if self == nil && dir != "" && filepath.Clean(dir) == shellBin {
 			continue
@@ -96,9 +98,34 @@ func planShim(args, environ []string, self os.FileInfo, own func(paneTTY string)
 		env[i] = e
 	}
 
-	argv := append([]string{shimName}, shimArgs(args, getenv, own)...)
+	owner := false
 
-	return shimPlan{path: found, argv: argv, env: env}, true
+	if name == "codex" {
+		settings, _ := getenv("AIM_CODEX_HOOKS")
+		tty, _ := getenv("AIM_TTY")
+		parent, _ := getenv("AIM_CODEX_OWNER")
+		sock, _ := getenv("AIM_SOCK")
+		pane, _ := getenv("AIM_PANE")
+		interactive, private := term.CodexOptions(args)
+		owner = settings != "" && sock != "" && pane != "" && tty != "" && parent == "" && interactive && own(tty)
+		env = slices.DeleteFunc(env, func(kv string) bool { return strings.HasPrefix(kv, "AIM_CODEX_OWNER=") })
+
+		if owner {
+			prefix := (harness.Codex{}).Launch(settings, "")[1:]
+			if private {
+				prefix = prefix[1:]
+			}
+
+			args = append(prefix, args...)
+			env = append(env, "AIM_CODEX_OWNER="+strconv.Itoa(os.Getpid()))
+		}
+	} else {
+		args = shimArgs(args, getenv, own)
+	}
+
+	argv := append([]string{name}, args...)
+
+	return shimPlan{owner: owner, path: found, argv: argv, env: env}, true
 }
 
 // shimArgs returns args with this instance's settings in front when all the
@@ -138,7 +165,7 @@ func shimArgs(args []string, getenv func(string) (string, bool), own func(paneTT
 
 // runShim runs as claude: it execs the real claude and returns only when that
 // fails, with the exit status a shell gives.
-func runShim(args []string, stderr io.Writer) int {
+func runShim(name string, args []string, stderr io.Writer) int {
 	var self os.FileInfo
 
 	if exe, err := os.Executable(); err == nil {
@@ -153,15 +180,22 @@ func runShim(args []string, stderr io.Writer) int {
 		return err == nil && ok
 	}
 
-	plan, ok := planShim(args, os.Environ(), self, own)
+	plan, ok := planShim(name, args, os.Environ(), self, own)
 	if !ok {
-		_, _ = fmt.Fprintln(stderr, shimName+": command not found")
+		_, _ = fmt.Fprintln(stderr, name+": command not found")
 
 		return 127
 	}
 
+	if plan.owner {
+		ctx, cancel := context.WithTimeout(context.Background(), hookBudget)
+		_ = harness.Send(ctx, os.Getenv("AIM_SOCK"), harness.Event{Harness: "codex", Pane: core.PaneID(os.Getenv("AIM_PANE")), Name: harness.CodexOwnerStart, OwnerPID: os.Getpid(), OwnerTTY: os.Getenv("AIM_TTY")})
+
+		cancel()
+	}
+
 	err := syscall.Exec(plan.path, plan.argv, plan.env) //nolint:gosec // G204: the exec is the wrapper's purpose
-	_, _ = fmt.Fprintf(stderr, "%s: %v\n", shimName, err)
+	_, _ = fmt.Fprintf(stderr, "%s: %v\n", name, err)
 
 	return 126
 }

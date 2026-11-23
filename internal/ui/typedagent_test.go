@@ -20,6 +20,55 @@ func TestHeldHooksWaitForTheProbe(t *testing.T) {
 	launch := t.TempDir()
 	ev := startEvent(launch)
 
+	t.Run("Codex launch owns the session", func(t *testing.T) {
+		t.Parallel()
+		a, st, clk := kindApp(t)
+		st.proc(0).setFg("codex")
+
+		start := ev
+
+		start.Harness, start.OwnerPID = "codex", 42
+		for _, msg := range collect(hook(a, start)) {
+			a.Update(msg)
+		}
+
+		m := a.store.State().Panes["p1"]
+		if m.Harness != "codex" || m.Session != start.Session || m.Cwd != launch || !a.panes["p1"].hooksSeen {
+			t.Fatalf("typed Codex = %+v", m)
+		}
+
+		p := a.panes["p1"]
+		a.onCwd(paneCwdMsg{p: p, id: p.id, seq: p.appliedProbe + 2, fg: "codex", pid: 42})
+		a.onCwd(paneCwdMsg{p: p, id: p.id, seq: p.appliedProbe - 1, fg: "bash", pid: 99})
+
+		stale := start
+		stale.Start, stale.Session, stale.Cwd, stale.State = false, "retired", "/foreign", core.AgentBlocked
+		hook(a, stale)
+		hook(a, harness.Event{Pane: "p1", Harness: "claude-code", Status: true, Session: start.Session, Model: "foreign"})
+		hook(a, harness.Event{Pane: "p1", Harness: "claude-code", End: true, Cwd: "/foreign"})
+
+		m = a.store.State().Panes["p1"]
+		if m.Session != start.Session || m.WorkDir() != launch || m.Model != "" || m.State != core.AgentIdle {
+			t.Fatalf("foreign event changed pane: %+v", m)
+		}
+
+		start.Start, start.State = false, core.AgentBlocked
+		hook(a, start)
+		a.answerDialog(p, "enter")
+
+		if a.store.State().Panes["p1"].State != core.AgentBlocked {
+			t.Fatal("key guessed a Codex permission answer")
+		}
+
+		start.Start, start.State = false, core.AgentWorking
+		hook(a, start)
+		clk.Advance(2 * agentQuiet)
+		a.onAgentTick()
+
+		if a.store.State().Panes["p1"].State != core.AgentWorking {
+			t.Fatal("quiet Codex turn lost working state")
+		}
+	})
 	t.Run("claude in front", func(t *testing.T) {
 		t.Parallel()
 
@@ -127,6 +176,29 @@ func TestHeldHooksWaitForTheProbe(t *testing.T) {
 		}
 	})
 
+	t.Run("previous foreground probe precedes an agent switch", func(t *testing.T) {
+		t.Parallel()
+		a, st, clk := kindApp(t)
+		st.proc(0).setFg("claude")
+		probeKind(t, a, clk, "p1")
+		old := probe(a.panes["p1"], true, false)()
+
+		st.proc(0).setFg("codex")
+
+		start := ev
+		start.Harness, start.OwnerPID = "codex", 42
+		pending := hook(a, start)
+		a.Update(old)
+
+		for _, msg := range collect(pending) {
+			a.Update(msg)
+		}
+
+		m := a.store.State().Panes["p1"]
+		if m.Harness != "codex" || m.Session != start.Session || m.Cwd != launch {
+			t.Fatalf("replacement pane %+v", m)
+		}
+	})
 	t.Run("at most maxHeld", func(t *testing.T) {
 		t.Parallel()
 

@@ -319,7 +319,13 @@ func railCases() []railCase {
 		{"body-3-rows", fixture(100, 5, nil)},
 		{"toast", fixture(100, 30, func(a *App) { a.notice = "layout: bsp" })},
 		{"toast-over-rail", fixture(64, 30, func(a *App) { a.notice = longNotice })},
-		{"no-hooks-selected", fixture(100, 30, func(a *App) { a.rail.sel = "p6" })},
+		{"no-hooks-selected", func(t *testing.T, th string, icons bool) *App {
+			a := fixture(100, 30, nil)(t, th, icons)
+			a.rail.sel = "p6"
+			openIn(t, a, core.SetPaneKind{ID: "p6", Kind: core.KindAgent, Harness: "codex"})
+
+			return a
+		}},
 		{"palette", fixture(100, 30, func(a *App) { pressRun(a, keyLeader, keyRune(':')) })},
 		{"many", func(t *testing.T, th string, icons bool) *App {
 			a := drawApp(t, th, icons, 100, 30, manyAgents(64, 9))

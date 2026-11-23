@@ -2472,6 +2472,27 @@ func TestGateCodexOwnership(t *testing.T) {
 	}
 }
 
+func TestClaudeAfterUnobservedCodexExit(t *testing.T) {
+	t.Parallel()
+
+	r := startWriterGate(t, &recordingWriter{}, dirSeq)
+	r.in <- harness.Event{Pane: "p", Harness: "codex", Name: harness.CodexOwnerStart, OwnerPID: 42, OwnerTTY: filepath.Join(t.TempDir(), "closed-pty")}
+
+	start := harness.Event{Pane: "p", Harness: "claude-code", Name: "SessionStart", Start: true, Session: gateSession}
+	r.in <- start
+
+	drain(t, r)
+
+	select {
+	case got := <-r.out:
+		if got.Harness != start.Harness || got.Session != start.Session || !got.Start {
+			t.Fatalf("unexpected event %+v", got)
+		}
+	default:
+		t.Fatal("lost Claude start following a short Codex launch")
+	}
+}
+
 func TestCodexPatchSnapshotMissing(t *testing.T) {
 	t.Parallel()
 
