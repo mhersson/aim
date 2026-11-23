@@ -59,6 +59,10 @@ type RateWindow struct {
 
 // Event is one hook, statusline or aim show payload reduced to what the app needs.
 type Event struct {
+	Harness string `json:"harness,omitempty"`
+	TurnID  string `json:"turn_id,omitempty"`
+	// OwnerPID identifies the foreground launch, independently of its session.
+	OwnerPID   int             `json:"owner_pid,omitempty"`
 	Pane       core.PaneID     `json:"pane"`
 	Name       string          `json:"name"` // the harness's hook event name, or "statusline", for logs
 	Session    core.SessionID  `json:"session,omitempty"`
@@ -83,14 +87,14 @@ type Event struct {
 	// Plan is the cleaned absolute path of the plan file an ExitPlanMode
 	// PreToolUse names; empty for every other event. The text is not carried.
 	Plan string `json:"plan,omitempty"`
-	// Before marks a PreToolUse whose Edit names a file its tool has not
-	// changed yet; the server holds its answer like a turn start's.
-	Before bool `json:"before,omitempty"`
+	// Before holds the socket reply until the baseline for Edit or BeforePaths is ready.
+	Before      bool     `json:"before,omitempty"`
+	BeforePaths []string `json:"before_paths,omitempty"`
+	// PathsIncomplete means a patch may touch additional worktrees.
+	PathsIncomplete bool `json:"paths_incomplete,omitempty"`
 	// Subagent marks an event a subagent sent, not the agent's own session.
 	Subagent bool `json:"subagent,omitempty"`
-	// Changed holds the cleaned absolute paths of the files a finished Bash
-	// command changed, as Claude Code lists them: one per directory, at most 16
-	// and 32 KiB once encoded.
+	// Changed holds bounded absolute paths reported by a completed tool.
 	Changed []string `json:"changed,omitempty"`
 
 	// Images are the cleaned absolute image paths sent to the user, in order,
