@@ -30,6 +30,7 @@ type Config struct {
 	Shell         ShellConfig         `toml:"shell"`
 	Layout        LayoutConfig        `toml:"layout"`
 	Diff          DiffConfig          `toml:"diff"`
+	Agents        AgentsConfig        `toml:"agents"`
 	Worktrees     WorktreesConfig     `toml:"worktrees"`
 	Notifications NotificationsConfig `toml:"notifications"`
 	Images        ImagesConfig        `toml:"images"`
@@ -198,6 +199,28 @@ func (c DiffConfig) Split() bool { return c.Layout == "split" }
 // pane has turns.
 func (c DiffConfig) BranchFirst() bool { return c.Mode != string(ReviewTurn) }
 
+type AgentsConfig struct {
+	Default string `toml:"default"`
+}
+
+func AgentIDs() []string { return []string{"claude-code", "codex"} }
+
+func (c AgentsConfig) Validate() error {
+	if !slices.Contains(AgentIDs(), c.Default) {
+		return fmt.Errorf("agents.default: %q is not claude-code or codex", c.Default)
+	}
+
+	return nil
+}
+
+func (c AgentsConfig) DefaultID() string {
+	if c.Default == "" {
+		return "claude-code"
+	}
+
+	return c.Default
+}
+
 // WorktreesConfig is the [worktrees] section. Validate rejects an unknown root
 // from a file; Sibling reads a zero field as the default, so a hand-built
 // WorktreesConfig behaves as the defaults.
@@ -360,6 +383,7 @@ func DefaultConfig() Config {
 			MasterCount: 1, MasterGrid: new(true), ColumnWidth: 50,
 		},
 		Diff:          DiffConfig{Layout: "unified", Mode: string(ReviewBranch), MaxFiles: 400, MaxBytes: 2 << 20, MaxLines: 5000},
+		Agents:        AgentsConfig{Default: "claude-code"},
 		Worktrees:     WorktreesConfig{Root: "inside"},
 		Notifications: NotificationsConfig{Notify: "all", Protocol: "auto"},
 		Plans:         PlansConfig{Paths: []string{"docs/superpowers/plans/", "docs/superpowers/specs/"}},

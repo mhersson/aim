@@ -90,7 +90,7 @@ func deliver(t *testing.T, a *App, cmd tea.Cmd) tea.Cmd {
 func askPicker(t *testing.T, a *App) {
 	t.Helper()
 
-	deliver(t, a, press(a, keyLeader, keyRune('n')))
+	deliver(t, a, press(a, keyLeader, keyRune('n'), keyEnter))
 }
 
 func viewText(a *App) string { return ansi.Strip(a.View().Content) }
@@ -135,7 +135,7 @@ func agentsAt(t *testing.T, a *App, root string, n int) {
 func injectPicker(t *testing.T, a *App, repo git.Repo, trees []git.Worktree) {
 	t.Helper()
 
-	press(a, keyLeader, keyRune('n'))
+	press(a, keyLeader, keyRune('n'), keyEnter)
 
 	st := a.store.State()
 	a.Update(pickerOpenMsg{
@@ -170,12 +170,39 @@ func openSampleForm(t *testing.T, a *App) {
 	a.Update(pickerPageMsg{seq: a.picker.open.seq, base: "main"})
 }
 
+func TestAgentPickerSelectsCodex(t *testing.T) {
+	t.Parallel()
+	dir := plainDir(t)
+
+	a, starts := pickerApp(t, dir)
+	if cmd := press(a, keyLeader, keyRune('n')); cmd != nil || a.picker.open == nil {
+		t.Fatal("new agent must show the choices before checking git")
+	}
+
+	golden.RequireEqual(t, []byte(viewText(a)))
+	press(a, keyEsc)
+
+	if a.picker.open != nil || starts.count() != 1 {
+		t.Fatal("cancel started an agent or left the picker open")
+	}
+
+	pressRun(a, keyLeader, keyRune(':'))
+	typeText(a, "New agent pane")
+	pressRun(a, keyEnter, keyDown)
+	deliver(t, a, press(a, keyEnter))
+
+	st := a.store.State()
+	if p := st.Panes[st.Tab().Focus]; p.Harness != "codex" || p.Cwd != dir {
+		t.Fatalf("new pane = %+v", p)
+	}
+}
+
 func TestPickerOutsideARepoOpensAtOnce(t *testing.T) {
 	t.Parallel()
 	dir := plainDir(t)
 	a, st := pickerApp(t, dir)
 
-	cmd := press(a, keyLeader, keyRune('n'))
+	cmd := press(a, keyLeader, keyRune('n'), keyEnter)
 	if cmd == nil {
 		t.Fatal("leader n raised no command for the repository check")
 	}
@@ -319,7 +346,7 @@ func TestPickerOpensAnAgentInTheWorktree(t *testing.T) {
 	main.worktree(t, wt, "feat/x")
 
 	a, st := pickerAppOn(t, f, dir)
-	askPicker(t, a)
+	deliver(t, a, press(a, keyLeader, keyRune('n'), keyDown, keyEnter))
 
 	if a.picker.open == nil {
 		t.Fatal("the picker did not open in a repository")
@@ -343,8 +370,8 @@ func TestPickerOpensAnAgentInTheWorktree(t *testing.T) {
 		t.Fatalf("starts = %d, want the agent to start", st.count())
 	}
 
-	if c := st.cmds[1]; c.Dir != wt || !slices.Contains(argvOf(c), "claude") {
-		t.Errorf("second start = %+v, want claude in %s", c, wt)
+	if c := st.cmds[1]; c.Dir != wt || a.store.State().Panes[a.store.State().Tab().Focus].Harness != "codex" {
+		t.Errorf("second start = %+v, want codex in %s", c, wt)
 	}
 
 	s := a.store.State()
@@ -388,7 +415,7 @@ func TestNewWorktreeCreatesAndOpens(t *testing.T) {
 	f := newFakeGit(t)
 	dir := committedRepo(t, f).Root()
 	a, st := pickerAppOn(t, f, dir)
-	askPicker(t, a)
+	deliver(t, a, press(a, keyLeader, keyRune('n'), keyDown, keyEnter))
 
 	press(a, keyUp)
 	deliver(t, a, press(a, keyEnter))
@@ -437,8 +464,8 @@ func TestNewWorktreeCreatesAndOpens(t *testing.T) {
 		t.Fatalf("starts = %d, want the agent to start", st.count())
 	}
 
-	if c := st.cmds[1]; c.Dir != want || !slices.Contains(argvOf(c), "claude") {
-		t.Errorf("second start = %+v, want claude in %s", c, want)
+	if c := st.cmds[1]; c.Dir != want || a.store.State().Panes[a.store.State().Tab().Focus].Harness != "codex" {
+		t.Errorf("second start = %+v, want codex in %s", c, want)
 	}
 
 	if !strings.Contains(a.notice, ".worktrees/feat-x") || a.noticeLevel() != levelNotice {
@@ -925,8 +952,8 @@ func TestPickerStaleAnswersAreDropped(t *testing.T) {
 		dir := committedRepo(t, f).Root()
 		a, _ := pickerAppOn(t, f, dir)
 
-		first := press(a, keyLeader, keyRune('n'))
-		second := press(a, keyLeader, keyRune('n'))
+		first := press(a, keyLeader, keyRune('n'), keyEnter)
+		second := press(a, keyLeader, keyRune('n'), keyEnter)
 
 		a.Update(first())
 
@@ -948,7 +975,7 @@ func TestPickerStaleAnswersAreDropped(t *testing.T) {
 		dir := committedRepo(t, f).Root()
 		a, _ := pickerAppOn(t, f, dir)
 
-		cmd := press(a, keyLeader, keyRune('n'))
+		cmd := press(a, keyLeader, keyRune('n'), keyEnter)
 		openIn(t, a, core.OpenPane{Kind: core.KindShell, Cwd: dir, Split: core.SplitVertical, Area: a.bodyArea()})
 		a.Update(cmd())
 
@@ -964,7 +991,7 @@ func TestPickerStaleAnswersAreDropped(t *testing.T) {
 		dir := committedRepo(t, f).Root()
 		a, _ := pickerAppOn(t, f, dir)
 
-		cmd := press(a, keyLeader, keyRune('n'))
+		cmd := press(a, keyLeader, keyRune('n'), keyEnter)
 		press(a, keyLeader, keyRune(':'))
 		a.Update(cmd())
 
@@ -1015,12 +1042,20 @@ func TestPickerStaleAnswersAreDropped(t *testing.T) {
 
 		cmd := press(a, keyEnter)
 		pressRun(a, keyEsc, keyEsc)
+		a.picker.agents = core.AgentsConfig{Default: "codex"}
 		askPicker(t, a)
 
 		a.Update(cmd())
 
 		if st.count() != 1 || a.picker.open == nil {
-			t.Errorf("starts = %d, picker open = %v, want the new picker untouched", st.count(), a.picker.open != nil)
+			t.Fatalf("starts = %d, picker open = %v, want the new picker untouched", st.count(), a.picker.open != nil)
+		}
+
+		press(a, keyEnter)
+
+		s := a.store.State()
+		if p := s.Panes[s.Tab().Focus]; p.Harness != "codex" || p.Cwd != dir {
+			t.Fatalf("replacement pane = %+v", p)
 		}
 	})
 }
@@ -1048,7 +1083,7 @@ func TestPickerDoesNotOpenOverAModal(t *testing.T) {
 			dir := committedRepo(t, f).Root()
 			a, st := pickerAppOn(t, f, dir)
 
-			cmd := press(a, keyLeader, keyRune('n'))
+			cmd := press(a, keyLeader, keyRune('n'), keyEnter)
 
 			tt.open(a)
 			a.Update(cmd())

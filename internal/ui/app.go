@@ -83,7 +83,9 @@ type Options struct {
 	Places placeFinder
 	// Diff is the [diff] config: the review drawer's starting layout and mode and
 	// the diff engine's limits. The zero value means the defaults.
-	Diff core.DiffConfig
+	Diff   core.DiffConfig
+	Agents core.AgentsConfig
+
 	// Worktrees is the [worktrees] config: where a new worktree goes. The zero
 	// value means inside the main checkout.
 	Worktrees core.WorktreesConfig
@@ -364,6 +366,7 @@ func New(opts Options) (*App, error) {
 	a.drawer.caches, a.drawer.hl = caches, &caches.hl
 	a.drawer.cfg = opts.Diff
 	a.picker.cfg = opts.Worktrees
+	a.picker.agents = opts.Agents
 	a.notify = newNotifier(opts.Notifications, getenv)
 	a.plans = opts.Plans
 	a.drawersOpen = anyReview(opts.Store.State())

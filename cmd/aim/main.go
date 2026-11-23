@@ -229,6 +229,7 @@ func run(ctx context.Context, env core.Env, configPath, recordDir string, fresh 
 		Keys:   cfg.Keys,
 		Themes: themes,
 
+		Agents:        cfg.Agents,
 		Worktrees:     cfg.Worktrees,
 		Notifications: cfg.Notifications,
 		Plans:         cfg.Plans,

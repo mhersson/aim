@@ -110,6 +110,11 @@
 ## range: 1 or more
 # max_lines = 5000
 
+[agents]
+## Which agent is selected when the new agent picker opens.
+## values: claude-code | codex
+# default = "claude-code"
+
 [worktrees]
 ## Where a new worktree goes: inside the repository's worktree folder, or
 ## beside the main checkout.

@@ -318,7 +318,7 @@ func testEnv(t *testing.T) (env core.Env, cfg string) {
 	t.Setenv("XDG_STATE_HOME", shortDir(t))
 	t.Setenv("SHELL", "/bin/sh")
 
-	// run launches in the cwd; inside a repository leader n opens the worktree picker.
+	// run launches in the cwd; inside a repository choosing the agent would also require choosing a worktree.
 	t.Chdir(t.TempDir())
 
 	env, err := core.DefaultEnv()
@@ -548,9 +548,9 @@ func TestRunRestoresTheSession(t *testing.T) {
 	first := startSession(t, env, cfg, false)
 
 	waitFor(t, panesAre(1))
-	first.keys(t, "\x00n")
+	first.keys(t, "\x00n\r")
 	waitFor(t, panesAre(2))
-	first.keys(t, "\x00n")
+	first.keys(t, "\x00n\r")
 	waitFor(t, panesAre(3))
 	first.keys(t, "\x00v")
 	waitFor(t, panesAre(4))

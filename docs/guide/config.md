@@ -39,6 +39,8 @@ Fix the line and start again.
 
 When something goes wrong after the start, look in the log. It is `aim.log` in AIM's state directory, `$XDG_STATE_HOME/aim` (`~/.local/state/aim` when that is unset or relative) on Linux and `~/Library/Application Support/aim` on macOS. Each start keeps the previous run's log as `aim.log.1`, replacing any older one. A [second AIM](agents.md#two-aims) leaves both alone and appends to `aim-<pid>.log`, starting each run with a line that names the first AIM's log. An AIM that saves removes such a log as it starts, once the AIM that wrote it has ended and the log has not been written for 7 days. A config error is printed instead of logged, because it stops AIM before the log opens.
 
+Under `[agents]`, set `default = "codex"` to select Codex when the new agent picker opens. The default is `"claude-code"`. You can choose either agent each time.
+
 ## Remapping keys
 
 The `[keys]` table changes the leader key, the delay before the which-key popup and the keys of each view. [Keys](keys.md) lists the default bindings and the command each runs; this section holds the rules for changing them.

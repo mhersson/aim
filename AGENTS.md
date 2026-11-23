@@ -1,7 +1,7 @@
 # AIM
 
-AIM (Agents In-flight Multiplexer) is a Go TUI that hosts coding agents (Claude
-Code in v1) in live terminal panes, with live diffs, PR review, CI status, push,
+AIM (Agents In-flight Multiplexer) is a Go TUI that hosts coding agents (Claude Code
+and Codex) in live terminal panes, with live diffs, PR review, CI status, push,
 open PR and merge beside them. Terminal emulation comes from `tuios.dev/vt`;
 everything above it is ours.
 

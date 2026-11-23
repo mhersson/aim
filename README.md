@@ -10,7 +10,7 @@
 
 </div>
 
-AIM (Agents In-flight Multiplexer) hosts Claude Code agents in live terminal panes, with each agent's diff, its pull request and the CI checks beside it. You review what the agents change while they change it, and push, open, check and merge their pull requests without leaving the terminal.
+AIM (Agents In-flight Multiplexer) hosts Claude Code and Codex agents in live terminal panes, with each agent's diff, its pull request and the CI checks beside it. You review what the agents change while they change it, and push, open, check and merge their pull requests without leaving the terminal.
 
 <div align="center">
 
@@ -31,12 +31,12 @@ Watch it as a [video (MP4)](https://github.com/user-attachments/assets/26f3b30c-
 - **Plans and markdown.** The agent's plan, any markdown file and a pull request's conversation open in a reading box, with pictures over the Kitty graphics protocol.
 - **Images agents send.** A screenshot an agent sends you opens in a viewer, with pictures over the Kitty graphics protocol.
 - **Keyboard first.** One leader key, which-key, a command palette, every key remappable, copy mode and mouse selection.
-- **Picks up where you left off.** Tabs, layouts and each agent's Claude session come back on restart.
+- **Picks up where you left off.** Tabs, layouts and each agent's session come back on restart.
 - **Themes.** Catppuccin Latte, Frappé, Macchiato and Mocha, plus [themes of your own](docs/guide/themes.md) from files beside the config, switched from the palette while AIM runs.
 
 ## What AIM touches
 
-- **Network.** AIM sends no telemetry and needs no account of its own; its GitHub features use the token under [Requirements](#requirements). Apart from the pushes you confirm, which go to your branch's own remote, it talks only to [GitHub](docs/architecture.md#github): the API, pull request fetches and pictures from GitHub's hosts. The Claude Code it runs talks to Anthropic as it always does.
+- **Network.** AIM sends no telemetry and needs no account of its own; its GitHub features use the token under [Requirements](#requirements). Apart from the pushes you confirm, which go to your branch's own remote, it talks only to [GitHub](docs/architecture.md#github): the API, pull request fetches and pictures from GitHub's hosts. Claude Code and Codex use their configured model providers and services.
 - **Agent state.** Type `codex` or `codex resume <id>` in a pane shell to track a local Codex session. Use `/hooks` in Codex to review its launch-scoped hooks. AIM learns what Claude does from [Claude Code's hooks](docs/architecture.md#claude-code-launch-hooks-and-the-socket), through a settings file it writes for each run and passes with `--settings`, never by reading the screen. It never edits `~/.claude` or your shell's startup files.
 
 ## Screenshots
@@ -73,7 +73,7 @@ Watch it as a [video (MP4)](https://github.com/user-attachments/assets/26f3b30c-
 - Linux or macOS (there is no Windows build).
 - A true-colour terminal. AIM is tested in Kitty and Ghostty; pictures need the Kitty graphics protocol.
 - A Nerd Font, or `icons = false` in the config.
-- Claude Code, with `claude` on the PATH of your login shell: agents start through `$SHELL -l -i -c`.
+- Claude Code or Codex CLI, with the corresponding executable (`claude` or `codex`) on your login shell's PATH. AIM has been tested with Codex CLI 0.171.0.
 - On macOS with a second input source, the system takes `ctrl+space`, AIM's default leader key, for "Select the previous input source". Turn that shortcut off in System Settings, Keyboard, Keyboard Shortcuts, Input Sources, or set another leader, such as `leader_key = "ctrl+a"` under `[keys]` (see [the leader key](docs/guide/config.md#the-leader-key)).
 - git 2.36 or newer.
 - For pull requests and checks, a GitHub token, found the way `gh` finds one: `GH_TOKEN` or `GITHUB_TOKEN`, else the token `gh auth login` stored (see [what AIM needs](docs/guide/pull-requests.md#what-aim-needs)). Without one, everything but the GitHub features works.
@@ -111,8 +111,8 @@ This needs Go 1.27.4 or newer. Check any install with `aim --version`.
 The keys here are the defaults, and every key can be remapped (see [the keys page](docs/guide/keys.md)).
 
 1. Run `aim` in a git repository.
-2. Press `ctrl+space n`. The picker, titled "New agent", lists the repository's worktrees; its last row, `new worktree…`, makes a branch and its worktree and starts an agent there.
-3. Give Claude a task.
+2. Press `ctrl+space n`. Choose Claude Code or Codex and press `enter`. Then choose a worktree or select `new worktree…` to create one.
+3. Give the agent a task.
 4. Press `ctrl+space a` for the agents rail, which shows who is working and who is blocked on you.
 5. Press `ctrl+space d` for the review drawer: `t` shows the agent's last turn, `b` the whole branch.
 6. Press `ctrl+space g P` to push, after a confirm. `ctrl+space g o` opens the compose box and `ctrl+s` there creates the pull request. `ctrl+space g l` lists pull requests with their checks, and `M` there merges.
@@ -156,7 +156,7 @@ AIM needs no config. To change the theme, layouts, keys and more, copy `config.e
 
 ## Limitations
 
-- Claude Code is the only agent AIM hosts in v1.
+- Codex tracking covers local interactive sessions and resumes. Codex needs trusted hooks to report turns and edits.
 - Linux and macOS only.
 - A pull request from a fork never matches an agent's branch, and worktree cleanup refuses one with `#<n>'s branch is in another repository`.
 

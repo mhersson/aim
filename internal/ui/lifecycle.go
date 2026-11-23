@@ -68,12 +68,14 @@ func contentSize(r core.Rect) (cols, rows int) {
 // openPane starts a pane of kind next to the focused one, in its working
 // directory, and focuses it. Nothing changes when the process does not start.
 func (a *App) openPane(kind core.PaneKind, split core.Split) tea.Cmd {
-	return a.openPaneIn(kind, split, a.focusedCwd(a.store.State()))
+	st := a.store.State()
+	cmd, _ := a.openPaneAt(kind, split, st.Tab().Focus, a.focusedCwd(st), nil)
+
+	return cmd
 }
 
-// openPaneIn is openPane in cwd.
-func (a *App) openPaneIn(kind core.PaneKind, split core.Split, cwd string) tea.Cmd {
-	cmd, _ := a.openPaneAt(kind, split, a.store.State().Tab().Focus, cwd, nil)
+func (a *App) openAgentIn(agent, cwd string) tea.Cmd {
+	cmd, _ := a.startOpenPane(core.OpenPane{Kind: core.KindAgent, Harness: agent, Cwd: cwd, Split: core.SplitVertical, Beside: a.store.State().Tab().Focus}, nil)
 
 	return cmd
 }
@@ -103,6 +105,15 @@ type paneRun struct {
 // place of the plain shell and, unless run.once is set, keeps a shell after it.
 // It reports whether the pane opened; when it did not, nothing changed.
 func (a *App) openPaneAt(kind core.PaneKind, split core.Split, anchor core.PaneID, cwd string, run *paneRun) (tea.Cmd, bool) {
+	act := core.OpenPane{Kind: kind, Cwd: cwd, Split: split, Beside: anchor}
+	if kind == core.KindAgent {
+		act.Harness = a.harness.ID()
+	}
+
+	return a.startOpenPane(act, run)
+}
+
+func (a *App) startOpenPane(act core.OpenPane, run *paneRun) (tea.Cmd, bool) {
 	// Without a size there is no rect to start at.
 	if !a.started {
 		return nil, false
@@ -113,10 +124,8 @@ func (a *App) openPaneAt(kind core.PaneKind, split core.Split, anchor core.PaneI
 		return nil, false
 	}
 
-	act := core.OpenPane{Kind: kind, Cwd: cwd, Split: split, Area: a.bodyArea(), Beside: anchor}
-	if kind == core.KindAgent {
-		act.Harness = a.harness.ID()
-	}
+	act.Area = a.bodyArea()
+	kind, cwd := act.Kind, act.Cwd
 
 	id := st.NewPaneID()
 

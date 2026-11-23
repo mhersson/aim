@@ -110,6 +110,7 @@ An unpinned drawer shows the worktree of the agent's latest edit. When the agent
 
 These edits move the drawer:
 
+- Codex's main session reports file paths through its `apply_patch` hooks, including both paths of a rename.
 - Claude Code's `Edit`, `Write`, `MultiEdit` and `NotebookEdit` tools, seen when the tool starts and when it finishes. A subagent's edit counts like the agent's own. An edit that you then refuse still moves the drawer, since AIM sees it before the permission prompt.
 - Files a shell command changed, only when Claude Code reports them. Claude Code reports the files a Bash command changed in auto and `bypassPermissions` mode, and in every mode when the `bashEditDiffEnabled` setting is on. You set that in your own Claude Code settings; AIM never changes them. A command that moves the working tree, such as `git checkout`, reports none.
 

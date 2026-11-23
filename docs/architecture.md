@@ -105,7 +105,9 @@ nothing, and anywhere else it closes the popover and goes no further.
 
 ## Claude Code: launch, hooks and the socket
 
-**Launch.** An agent pane runs
+**Agent selection.** The new agent command opens on the configured default harness. Confirming the harness starts the repository lookup for the original tab, pane and directory. The lookup and the worktree picker keep that request's harness ID. Worktree creation answers are matched to the picker sequence before the pane starts.
+
+**Claude launch.** A Claude Code pane runs
 `$SHELL -l -i -c '<fixed script>' <shell name> claude --settings <file>`, plus
 `--resume <id>` on a restore (`term.AgentCommand`, `internal/term/env.go`).
 

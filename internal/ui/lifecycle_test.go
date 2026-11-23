@@ -142,14 +142,15 @@ func lifeAppSized(t *testing.T, w, h int) (*App, *starts) {
 	return a, st
 }
 
-// chord presses the leader and then the key. The new agent request's repository
-// check is answered at once, so the pane has opened when chord returns.
+// chord presses the leader and then the key. For a new agent it accepts the default and
+// answers the repository check, so the pane has opened when chord returns.
 func chord(a *App, key rune) tea.Cmd {
 	cmd := press(a, keyLeader, keyRune(key))
-	if key != 'n' || cmd == nil {
+	if key != 'n' || a.picker.open == nil || a.picker.open.page != pageAgent {
 		return cmd
 	}
 
+	cmd = press(a, keyEnter)
 	_, cmd = a.Update(cmd())
 
 	return cmd

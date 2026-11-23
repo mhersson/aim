@@ -39,8 +39,26 @@ func (a *App) overlayPicker(f *frameLayers, base string, lk look) string {
 	p := a.picker.open
 	pt := palette.NewBox(lk.theme, w)
 
-	lines := a.pickerListLines(p, pt)
-	if p.page == pageNewWorktree {
+	var lines []string
+
+	switch p.page {
+	case pageAgent:
+		fill := pt.On(pt.UI().Fg)
+		lines = []string{pt.Top(a.titled(iconAgent, "New agent"))}
+
+		for _, choice := range []struct{ id, label string }{{"claude-code", "Claude Code"}, {"codex", "Codex"}} {
+			row := fill
+			if choice.id == p.agent {
+				row = row.Background(pt.UI().Selection).Bold(true)
+			}
+
+			lines = append(lines, pt.Row(row.Render(" "+choice.label), row))
+		}
+
+		lines = append(lines, pt.Divider(), pt.Row(pt.Hints([][2]string{{"up/down", "move"}, {"enter", "select"}, {"esc", "close"}}), fill), pt.Bottom(""))
+	case pageWorktrees:
+		lines = a.pickerListLines(p, pt)
+	case pageNewWorktree:
 		lines = a.pickerFormLines(p, pt)
 	}
 
@@ -51,6 +69,10 @@ func (a *App) overlayPicker(f *frameLayers, base string, lk look) string {
 // nil when the box is clipped away.
 func (a *App) pickerCursor() *tea.Cursor {
 	p := a.picker.open
+
+	if p.page == pageAgent {
+		return nil
+	}
 
 	left, top, w, ok := a.pickerBox()
 	if !ok {

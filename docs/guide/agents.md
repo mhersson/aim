@@ -1,12 +1,12 @@
 # Agents side by side
 
-AIM runs Claude Code in panes next to each other, in tabs, with a rail that lists every agent and a layout that comes back after a restart. This page covers starting agents, moving between panes and tabs, the rail, notifications, the command palette, closing things and what a restart restores.
+AIM runs Claude Code and Codex in panes next to each other, in tabs, with a rail that lists every agent and a layout that comes back after a restart. This page covers starting agents, moving between panes and tabs, the rail, notifications, the command palette, closing things and what a restart restores.
 
 The keys here are the defaults. A changed `leader_key` or `[keys]` table changes them; see [Keys](keys.md) for the full list and [Configuration](config.md#remapping-keys) for how to remap.
 
 ## The leader key
 
-AIM's own keys sit behind a leader key, `ctrl+space`, so every other key goes to the focused pane and the agent in it. Press the leader, then the key of a command: `ctrl+space n` opens an agent.
+AIM's own keys sit behind a leader key, `ctrl+space`, so every other key goes to the focused pane and the agent in it. Press the leader, then the key of a command: `ctrl+space n` opens the new agent picker.
 
 - Press the leader and wait a moment (`which_key_delay`, see [`config.example.toml`](../../config.example.toml)) and a which-key popup lists the keys, grouped as Panes, Layout, Tabs, Git and App.
 - Some keys start a two-key sequence: `ctrl+space g l` opens the pull request list. After the first key (`g`, `>`, `.` or `;`) a smaller popup lists the second keys at once.
@@ -20,10 +20,10 @@ In Claude Code one `esc` interrupts a turn. When an `esc` closes something of AI
 
 ## Start an agent
 
-To start an agent next to the focused pane, press `ctrl+space n`.
+To start an agent next to the focused pane, press `ctrl+space n`. Choose Claude Code or Codex with the arrow keys and press `enter`. The initial selection comes from `[agents] default` and starts at Claude Code. Press `esc` to cancel.
 
-- Outside a git repository, the agent starts at once, in the focused pane's working directory.
-- Inside one, the worktree picker opens first (titled "New agent"). It lists the repository's worktrees, each with its branch, its path, how many agents already run there, and `locked` or `prunable` when git says so.
+- Outside a git repository, the selected agent starts, in the focused pane's working directory.
+- Inside one, the worktree list opens next (titled "New agent"). It lists the repository's worktrees, each with its branch, its path, how many agents already run there, and `locked` or `prunable` when git says so.
 
 In the picker:
 
@@ -51,7 +51,7 @@ The last row, `new worktree…` (`+ new worktree…` with `icons = false`), open
 
 - `ctrl+space s` opens a shell below the focused pane, `ctrl+space v` one to its right. Both start in the focused pane's working directory and take focus. That is where a BSP tab puts them; the other layouts place a new pane by their own rule, see [Layouts](layouts.md).
 - Run `claude`, `codex` or `codex resume <id>` in a pane shell to track the foreground agent. Exiting the agent returns the pane to a shell. The rail lists agent panes only.
-- A local Codex session reports turns, edits, its working directory and the model when supplied by a hook. If the rail says `check /hooks`, open `/hooks` in Codex to inspect its hook configuration and trust. Background jobs, nested terminals, remote sessions and `codex exec` run without AIM tracking.
+- A local Codex session reports turns, edits, its working directory and the model when supplied by a hook. If the rail says `check /hooks`, open `/hooks` in Codex to inspect and trust its hooks. With Codex CLI 0.171.0, skipping trust lets the session continue. After you trust the hooks, AIM starts tracking on the next prompt. Background jobs, nested terminals, remote sessions and `codex exec` run without AIM tracking.
 - A `claude` you type in a shell AIM started is a full agent: hooks, states, turns, follow, context, model, usage and resume, in the directory it started in. AIM does this without touching your shell startup files: a wrapper first on the shell's PATH adds the hooks to your `claude`, and a `claude` function in the shell calls it.
 - It may not be one when typed by full path, through `npx` or `bunx`, inside a shell or `tmux` started in the pane, in a terminal inside an editor (such as an nvim terminal) or another program run in the pane, in a shell other than zsh, bash or fish, under macOS's `/bin/bash`, in zsh when `/etc/zshenv` sets `ZDOTDIR`, or with its own `--settings`. Such a `claude` still makes the pane an agent pane, but its card on the rail may show no state, as for an agent with no hooks.
 - To see it: the shell's PATH starts with an AIM directory, and `type claude` names a function.
@@ -141,7 +141,7 @@ Click the module or press `ctrl+space u` (command "Claude usage") for the detail
 AIM sends a desktop notification to the terminal it runs in when an agent needs you or has finished, and only for an agent you cannot see. It notifies when:
 
 - an agent becomes blocked: a permission prompt or a question waits for you;
-- an agent's turn ends: Claude stopped, with or without an error, after working.
+- an agent's turn ends: the agent stopped, with or without an error, after working.
 
 An agent that goes quiet for a few seconds is not a finished turn, and an agent already blocked does not notify again until it has been in another state. Panes with no hooks never notify.
 
@@ -175,7 +175,7 @@ When a send arrives, on any tab, a card appears at the bottom right, about a thi
 
 Pictures need a terminal with the Kitty graphics protocol (kitty and Ghostty), not inside tmux. Without them the viewer shows each image's file name instead.
 
-AIM tells each agent about `aim show` at every session start, resume, `/clear` and compaction, so it can send you an image by itself. `tell_agents = false` under `[images]` in the config stops that. In Claude Code's auto mode `aim show` ran without asking in AIM's tests. In manual mode the agent asks every time it runs it, since the command starts with a variable, which no permission rule can match. Inside Claude's Bash sandbox `aim show` cannot reach AIM, and the agent names the image in its final reply instead.
+AIM tells Claude Code about `aim show` at every session start, resume, `/clear` and compaction, so it can send you an image by itself. Codex receives the same note when its trusted session-start hook runs. `tell_agents = false` under `[images]` in the config stops that. In Claude Code's auto mode `aim show` ran without asking in AIM's tests. In manual mode the agent asks every time it runs it, since the command starts with a variable, which no permission rule can match. Inside Claude's Bash sandbox `aim show` cannot reach AIM, and the agent names the image in its final reply instead.
 
 ## The command palette and themes
 

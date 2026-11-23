@@ -42,15 +42,17 @@ const (
 type pickerPage int
 
 const (
-	pageWorktrees pickerPage = iota
+	pageAgent pickerPage = iota
+	pageWorktrees
 	pageNewWorktree
 )
 
 // pickerState is the worktree picker's share of the App.
 type pickerState struct {
-	cfg  core.WorktreesConfig
-	seq  int     // counts requests; an answer for an earlier one is dropped
-	open *picker // nil unless the picker shows
+	agents core.AgentsConfig
+	cfg    core.WorktreesConfig
+	seq    int     // counts requests; an answer for an earlier one is dropped
+	open   *picker // nil unless the picker shows
 }
 
 // pickerTree is one listed worktree with the texts its row draws.
@@ -67,12 +69,14 @@ type pickerMatch struct {
 
 // picker is the open worktree picker. It owns every key until it closes.
 type picker struct {
-	seq   int
-	tab   core.TabID
-	repo  git.Repo
-	trees []pickerTree
-	main  string // the main checkout's path; "" when the list has none
-	home  string
+	pane       core.PaneID
+	cwd, agent string
+	seq        int
+	tab        core.TabID
+	repo       git.Repo
+	trees      []pickerTree
+	main       string // the main checkout's path; "" when the list has none
+	home       string
 
 	page    pickerPage
 	query   textinput.Model
@@ -93,6 +97,7 @@ type worktreeForm struct {
 
 // pickerOpenMsg answers the repository check of a new agent request.
 type pickerOpenMsg struct {
+	agent string
 	seq   int
 	tab   core.TabID
 	pane  core.PaneID // the focused pane when it was asked
@@ -123,9 +128,6 @@ type pickerSource []pickerTree
 func (s pickerSource) String(i int) string { return s[i].label + " " + s[i].short }
 func (s pickerSource) Len() int            { return len(s) }
 
-// newAgent implements agent.new. Whether the focused pane's working directory
-// is in a repository is found off the update loop: in one the picker opens on its
-// worktrees, elsewhere the agent opens at once.
 func (a *App) newAgent() tea.Cmd {
 	if !a.started {
 		return nil
@@ -139,13 +141,21 @@ func (a *App) newAgent() tea.Cmd {
 	cwd, tab, pane := a.focusedCwd(st), st.Tab().ID, st.Tab().Focus
 
 	a.picker.seq++
-	seq := a.picker.seq
+	p := &picker{seq: a.picker.seq, tab: tab, pane: pane, cwd: cwd, page: pageAgent, agent: a.picker.agents.DefaultID()}
+	a.picker.open = p
+
+	return nil
+}
+
+func (a *App) checkAgentWorktrees(p *picker) tea.Cmd {
+	a.picker.open = nil
+	seq, tab, pane, cwd, agent := p.seq, p.tab, p.pane, p.cwd, p.agent
 
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(a.ctx, pickerOpenTimeout)
 		defer cancel()
 
-		msg := pickerOpenMsg{seq: seq, tab: tab, pane: pane, cwd: cwd}
+		msg := pickerOpenMsg{agent: agent, seq: seq, tab: tab, pane: pane, cwd: cwd}
 		if msg.repo, msg.err = a.git.Open(ctx, cwd); msg.err == nil {
 			msg.trees, msg.err = a.git.ListWorktrees(ctx, msg.repo)
 		}
@@ -174,7 +184,7 @@ func (a *App) onPickerOpen(msg pickerOpenMsg) tea.Cmd {
 	if msg.err == nil && len(trees) > 0 {
 		a.endLeader()
 
-		p := &picker{seq: msg.seq, tab: msg.tab, repo: msg.repo, trees: trees, main: main, home: home, query: newPickerInput()}
+		p := &picker{page: pageWorktrees, agent: msg.agent, seq: msg.seq, tab: msg.tab, repo: msg.repo, trees: trees, main: main, home: home, query: newPickerInput()}
 		p.refilter()
 		a.picker.open = p
 
@@ -186,7 +196,7 @@ func (a *App) onPickerOpen(msg pickerOpenMsg) tea.Cmd {
 		a.log.Warn("new agent: list worktrees", "cwd", msg.cwd, "err", msg.err)
 	}
 
-	cmd := a.openPaneIn(core.KindAgent, core.SplitVertical, msg.cwd)
+	cmd := a.openAgentIn(msg.agent, msg.cwd)
 
 	// The pane's own notice (it did not open, or fell back to the launch dir) says more.
 	if failed && a.notice == "" {
@@ -305,6 +315,10 @@ func (p *picker) move(delta int) {
 // edit gives msg to the input that has the keyboard and keeps what depends on
 // its text in step.
 func (p *picker) edit(msg tea.Msg) {
+	if p.page == pageAgent {
+		return
+	}
+
 	if p.page == pageWorktrees {
 		before := p.query.Value()
 
@@ -335,6 +349,23 @@ func (a *App) handlePickerKey(msg tea.KeyPressMsg) tea.Cmd {
 	a.notice = ""
 
 	p := a.picker.open
+	if p.page == pageAgent {
+		switch msg.String() {
+		case "esc":
+			a.picker.open = nil
+		case "up", "down", "tab", "shift+tab", "ctrl+n", "ctrl+p":
+			if p.agent == "codex" {
+				p.agent = "claude-code"
+			} else {
+				p.agent = "codex"
+			}
+		case "enter":
+			return a.checkAgentWorktrees(p)
+		}
+
+		return nil
+	}
+
 	if p.page == pageNewWorktree {
 		return a.pickerFormKey(p, msg)
 	}
@@ -374,7 +405,7 @@ func (a *App) pickerChoose(p *picker) tea.Cmd {
 
 	a.picker.open = nil
 
-	return a.openPaneIn(core.KindAgent, core.SplitVertical, t.wt.Path)
+	return a.openAgentIn(p.agent, t.wt.Path)
 }
 
 // pickerShowForm shows the new-worktree page. The first time it also asks for
@@ -508,7 +539,7 @@ func (a *App) onPickerCreated(msg pickerCreatedMsg) tea.Cmd {
 	a.picker.open = nil
 
 	ver := a.storeVer
-	cmd := a.openPaneIn(core.KindAgent, core.SplitVertical, path)
+	cmd := a.openAgentIn(p.agent, path)
 
 	notice, level := "created "+shortPath(path, p.main, p.home), levelNotice
 
