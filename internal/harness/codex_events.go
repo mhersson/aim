@@ -46,6 +46,7 @@ func (Codex) ParseEvent(payload []byte) (Event, error) {
 	switch h.Name {
 	case "SessionStart":
 		ev.Start = true
+		ev.Resume = h.Source == "resume"
 
 		ev.NewConversation = h.Source == "startup" || h.Source == "clear"
 		if h.Source != "compact" {

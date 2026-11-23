@@ -53,6 +53,20 @@ type holdExpiredMsg struct {
 	p  *pane
 }
 
+type suspendedJob struct {
+	pid                  int
+	agent                core.Pane
+	hooksSeen, launchDue bool
+}
+
+func (p *pane) trackedCodexPID() int {
+	if p.suspended != nil {
+		return p.suspended.pid
+	}
+
+	return p.ownerPID
+}
+
 // pane owns one process and its emulator, and keeps a per-row render cache.
 // Its mutex serialises every VT call.
 type pane struct {
@@ -68,6 +82,7 @@ type pane struct {
 	// Update-goroutine state, outside mu.
 	probeSeq, appliedProbe uint64
 	ownerPID               int
+	suspended              *suspendedJob
 	hooksSeen              bool
 	holdArmed              bool            // a holdTick is outstanding
 	cwdAt                  time.Time       // start of the last cwd lookup

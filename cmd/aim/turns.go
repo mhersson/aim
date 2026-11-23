@@ -349,18 +349,50 @@ type paneCurrent struct {
 }
 
 type codexLaunch struct {
-	tty     string
-	pid     int
-	session core.SessionID
-	retired map[core.SessionID]bool
-	seen    map[string]chan struct{}
-	turn    string
+	tty      string
+	pid      int
+	session  core.SessionID
+	sessions map[core.SessionID]*codexPrompts
+	turn     string
+}
+
+// A completed submit keeps only its ID. Duplicate submits arriving during
+// its snapshot share the original acknowledgement.
+type codexPrompts struct {
+	mu   sync.Mutex
+	seen map[string]chan struct{}
+}
+
+func (p *codexPrompts) submit(ev *harness.Event) (bool, <-chan struct{}) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	id := ev.TurnID
+	if ack, exists := p.seen[id]; exists {
+		return false, ack
+	}
+
+	ack, done := make(chan struct{}), ev.Done
+	p.seen[id] = ack
+	ev.Done = sync.OnceFunc(func() {
+		if done != nil {
+			done()
+		}
+
+		p.mu.Lock()
+		p.seen[id] = nil
+
+		close(ack)
+		p.mu.Unlock()
+	})
+
+	return true, nil
 }
 
 // admit binds the first trusted parent prompt when hook review skipped SessionStart.
 // A duplicate submit shares the first submit's acknowledgement, including its deadline.
 func (l *codexLaunch) admit(ev *harness.Event) (allow bool, wait <-chan struct{}) {
-	if ev.OwnerPID != l.pid || ev.Subagent || !sessionIDRE.MatchString(string(ev.Session)) || l.retired[ev.Session] {
+	if ev.OwnerPID != l.pid || ev.Subagent || !sessionIDRE.MatchString(string(ev.Session)) {
 		return false, nil
 	}
 
@@ -368,36 +400,32 @@ func (l *codexLaunch) admit(ev *harness.Event) (allow bool, wait <-chan struct{}
 		return false, nil
 	}
 
+	prompts := l.sessions[ev.Session]
 	if ev.Session != l.session {
 		if !ev.Start && (l.session != "" || !ev.TurnStart) {
 			return false, nil
 		}
 
-		if l.session != "" {
-			l.retired[l.session] = true
+		if prompts != nil && !ev.Resume {
+			return false, nil
 		}
 
-		l.session, l.turn, l.seen = ev.Session, "", make(map[string]chan struct{})
+		if prompts == nil {
+			prompts = &codexPrompts{seen: make(map[string]chan struct{})}
+			l.sessions[ev.Session] = prompts
+		}
+
+		l.session, l.turn = ev.Session, ""
 		ev.Start = true
 	}
 
 	if ev.TurnStart {
-		if ack := l.seen[ev.TurnID]; ack != nil {
-			return false, ack
+		allow, wait := prompts.submit(ev)
+		if allow {
+			l.turn = ev.TurnID
 		}
 
-		ack, done := make(chan struct{}), ev.Done
-		l.seen[ev.TurnID] = ack
-		l.turn = ev.TurnID
-		ev.Done = sync.OnceFunc(func() {
-			if done != nil {
-				done()
-			}
-
-			close(ack)
-		})
-
-		return true, nil
+		return allow, wait
 	}
 
 	if ev.Start {
@@ -455,7 +483,7 @@ func runTurnGate(ctx context.Context, in <-chan harness.Event, out chan<- harnes
 			switch ev.Name {
 			case harness.CodexOwnerStart:
 				if ev.OwnerPID > 0 && (owner == nil || owner.pid != ev.OwnerPID) {
-					owners[ev.Pane] = &codexLaunch{pid: ev.OwnerPID, tty: ev.OwnerTTY, retired: map[core.SessionID]bool{}}
+					owners[ev.Pane] = &codexLaunch{pid: ev.OwnerPID, tty: ev.OwnerTTY, sessions: make(map[core.SessionID]*codexPrompts)}
 					delete(current, ev.Pane)
 				}
 
@@ -473,7 +501,7 @@ func runTurnGate(ctx context.Context, in <-chan harness.Event, out chan<- harnes
 				continue
 			}
 
-			if owner == nil {
+			if owner == nil || (owner.tty != "" && !term.ForegroundOwner(owner.tty, owner.pid)) {
 				release(ev)
 
 				continue

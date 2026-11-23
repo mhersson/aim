@@ -340,6 +340,9 @@ func TestTypedCodexGetsAIMSettings(t *testing.T) {
 	path, events := statusServer(t)
 	env := []string{"AIM_SOCK=" + path, "AIM_PANE=p", "AIM_BIN=" + r.copy, "AIM_CODEX_HOOKS={}"}
 	writeTestExec(t, filepath.Join(r.home, ".local", "bin", "codex"), []byte(`#!/bin/sh
+for arg in "$@"; do
+  if [ "$arg" = suspend-fixture ]; then kill -STOP "$$"; fi
+done
 if [ -n "$AIM_CODEX_OWNER" ]; then
   printf '%s' '{"session_id":"s","turn_id":"t","hook_event_name":"Stop"}' | "$AIM_BIN" hook codex > "$OUT_DIR/reply"
 fi
@@ -398,6 +401,28 @@ fi
 			default:
 			}
 		}
+	}
+
+	pane.typeLine(t, "codex suspend-fixture")
+
+	var suspended harness.Event
+	select {
+	case suspended = <-events:
+	case <-time.After(5 * time.Second):
+		t.Fatal("suspended job did not register")
+	}
+
+	waitFor(t, func() bool { return !term.ForegroundOwner(suspended.OwnerTTY, suspended.OwnerPID) })
+	pane.typeLine(t, "fg")
+	r.realArgs(t)
+
+	select {
+	case resumed := <-events:
+		if resumed.Name != "Stop" || resumed.OwnerPID != suspended.OwnerPID {
+			t.Fatalf("hook after fg: %+v", resumed)
+		}
+	default:
+		t.Fatal("foregrounded job lost hook routing")
 	}
 
 	if script, err := exec.LookPath("script"); err == nil {

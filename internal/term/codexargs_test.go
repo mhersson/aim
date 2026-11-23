@@ -10,6 +10,10 @@ func TestInteractiveCodex(t *testing.T) {
 		local bool
 	}{
 		{nil, true},
+		{[]string{"tcp-tunnel"}, false},
+		{[]string{"git-credential"}, false},
+		{[]string{"execpolicy"}, false},
+		{[]string{"responses-api-proxy"}, false},
 		{[]string{"--model", "exec", "resume", "id"}, true},
 		{[]string{"--cd", "resume", "exec", "hello"}, false},
 		{[]string{"resume", "--remote=unix://"}, false},

@@ -6,6 +6,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -26,13 +27,14 @@ const agentGrace = 10 * time.Second
 // process name; each is empty when unknown. due marks any probe outside the
 // cwd throttle.
 type paneCwdMsg struct {
-	seq uint64
-	id  core.PaneID
-	p   *pane
-	cwd string
-	pid int
-	fg  string
-	due bool
+	checkedOwner, liveOwner int
+	seq                     uint64
+	id                      core.PaneID
+	p                       *pane
+	cwd                     string
+	pid                     int
+	fg                      string
+	due                     bool
 }
 
 // paneKindDueMsg is the probe agentGrace after an agent launch.
@@ -314,10 +316,9 @@ func (a *App) closePane(id core.PaneID) tea.Cmd {
 	return tea.Batch(handBack, a.relayout())
 }
 
-// closeAsync closes a pane that has left the registry. Pane.close can take a
-// second, so it never runs on the update loop; Close waits for it.
 func (a *App) retireCodex(p *pane) {
-	pid := p.ownerPID
+	pid := p.trackedCodexPID()
+	p.suspended = nil
 	p.ownerPID, p.hooksSeen = 0, false
 
 	if pid == 0 || a.hookSock == "" {
@@ -334,6 +335,7 @@ func (a *App) retireCodex(p *pane) {
 	})
 }
 
+// Pane.close can take a second, so it runs off the update loop; Close waits for it.
 func (a *App) closeAsync(p *pane) {
 	a.retireCodex(p)
 	a.closing.Go(func() {
@@ -525,6 +527,8 @@ func (a *App) runProbe(p *pane) tea.Cmd {
 func probe(p *pane, due, hook bool) tea.Cmd {
 	p.probeSeq++
 
+	owner := p.trackedCodexPID()
+
 	seq := p.probeSeq
 	if hook {
 		p.heldProbe = seq
@@ -533,7 +537,12 @@ func probe(p *pane, due, hook bool) tea.Cmd {
 	return func() tea.Msg {
 		fg, pid := p.foreground()
 
-		return paneCwdMsg{seq: seq, id: p.id, p: p, cwd: p.workingDir(), fg: fg, pid: pid, due: due}
+		var live int
+		if owner > 0 && (owner == pid || syscall.Kill(owner, 0) == nil) {
+			live = owner
+		}
+
+		return paneCwdMsg{checkedOwner: owner, liveOwner: live, seq: seq, id: p.id, p: p, cwd: p.workingDir(), fg: fg, pid: pid, due: due}
 	}
 }
 
@@ -582,6 +591,10 @@ func (a *App) onCwd(msg paneCwdMsg) tea.Cmd {
 		p.appliedProbe = msg.seq
 	}
 
+	if tracked := p.trackedCodexPID(); msg.seq != 0 && tracked != 0 && msg.checkedOwner != tracked && msg.fg != "codex" {
+		return probe(p, true, p.heldProbe != 0)
+	}
+
 	m := a.store.State().Panes[msg.id]
 
 	// An agent's Cwd is its launch directory; the foreground's cwd may be stale.
@@ -591,7 +604,12 @@ func (a *App) onCwd(msg paneCwdMsg) tea.Cmd {
 	}
 
 	if msg.fg != "" && p.ownerPID != 0 && (msg.fg != "codex" || msg.pid != p.ownerPID) {
-		a.retireCodex(p)
+		if _, replacing := harness.ByProgram(msg.fg); !replacing && msg.liveOwner == p.ownerPID {
+			p.suspended = &suspendedJob{pid: p.ownerPID, agent: m, hooksSeen: p.hooksSeen, launchDue: p.launchDue}
+			p.ownerPID, p.hooksSeen = 0, false
+		} else {
+			a.retireCodex(p)
+		}
 
 		if msg.fg == "codex" {
 			// A replacement Codex starts a new session even though the program name stayed the same.
@@ -600,11 +618,26 @@ func (a *App) onCwd(msg paneCwdMsg) tea.Cmd {
 		}
 	}
 
+	job := p.suspended
+	if job != nil && msg.fg != "" {
+		if msg.fg == "codex" && msg.pid == job.pid {
+			p.suspended = nil
+		} else if _, replacing := harness.ByProgram(msg.fg); replacing || msg.liveOwner != job.pid {
+			a.retireCodex(p)
+
+			job = nil
+		}
+	}
+
 	if msg.fg == "codex" {
 		p.ownerPID = msg.pid
 	}
 
 	kind := a.applyKind(p, msg.fg)
+	if job != nil && msg.fg == "codex" && msg.pid == job.pid {
+		_ = a.dispatch(core.ResumePaneJob{ID: p.id, Agent: job.agent})
+		p.hooksSeen, p.launchDue = job.hooksSeen, job.launchDue
+	}
 
 	if p.heldProbe != 0 && msg.seq >= p.heldProbe {
 		p.heldProbe = 0

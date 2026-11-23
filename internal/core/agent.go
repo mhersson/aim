@@ -70,6 +70,22 @@ func (a SetPaneKind) apply(s *State) error {
 	return nil
 }
 
+// ResumePaneJob restores the pane metadata saved while its shell ran in the foreground.
+type ResumePaneJob struct {
+	ID    PaneID
+	Agent Pane
+}
+
+func (a ResumePaneJob) apply(s *State) error {
+	if _, ok := s.Panes[a.ID]; !ok || a.Agent.Kind != KindAgent {
+		return fmt.Errorf("core: cannot restore agent in pane %q", a.ID)
+	}
+
+	s.Panes[a.ID] = a.Agent
+
+	return nil
+}
+
 // agentPane returns the agent pane for id, or an error for an unknown or shell pane.
 func (s *State) agentPane(id PaneID) (Pane, error) {
 	p, ok := s.Panes[id]

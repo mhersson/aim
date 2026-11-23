@@ -80,6 +80,7 @@ type Event struct {
 	// NewConversation marks a session start that begins a new conversation, a
 	// /clear or a fresh start, rather than going on with one.
 	NewConversation bool `json:"new_conversation,omitempty"`
+	Resume          bool `json:"resume,omitempty"` // Codex SessionStart explicitly resumed this session
 
 	// Action is the agent's current action, short and printable. ActionSet true
 	// replaces the pane's action with it (empty clears it); false leaves it.

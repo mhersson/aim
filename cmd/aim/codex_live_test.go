@@ -587,12 +587,50 @@ exec curl --silent --show-error --max-time 30 --data-binary @- ` + fixture.url +
 
 	pending.Reply <- done
 
+	stopCtx, stopCancel := context.WithTimeout(t.Context(), 10*time.Second)
+	second.stop(stopCtx, t)
+	stopCancel()
+
+	for _, thread := range []struct{ search, history, session string }{
+		{"parallel-fixture", "interrupt-fixture", parallelPrompt.Session},
+		{"unreviewed-fixture", "fixture-message", prompt.Session},
+	} {
+		ui.submit(t, "/resume")
+		ui.wait(t, "Type to search")
+		ui.send(t, thread.search)
+		ui.wait(t, "1 / 1")
+		ui.send(t, "Enter")
+		ui.wait(t, thread.history)
+		ui.wait(t, "Ask Codex")
+
+		msg := "picked-" + thread.search
+		ui.submit(t, msg)
+
+		start, picked, pickedAck := fixture.firstPrompt(t, "first", msg)
+		if start.Source != "resume" || start.Session != thread.session || picked.Session != thread.session {
+			t.Fatalf("picker resume: %+v %+v, want %s", start, picked, thread.session)
+		}
+
+		fixture.release(picked, pickedAck)
+
+		fixture.model(t, "first", picked).Reply <- codexComplete
+
+		last := fixture.next(t)
+		if h := fixture.readHook(t, last, "first"); h.Name != "Stop" || h.Turn != picked.Turn {
+			t.Fatalf("unexpected picker completion: %+v", h)
+		}
+
+		last.Reply <- ""
+
+		ui.wait(t, "Worked for")
+	}
+
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	ui.stop(ctx, t)
 	cancel()
 
 	resumed := launchLiveCodex(t, root, "resumed", a.Launch(a.HookTable(false), core.SessionID(prompt.Session)), env)
-	resumed.wait(t, "fixture-message")
+	resumed.wait(t, "picked-unreviewed-fixture")
 	resumed.submit(t, "resume-fixture")
 
 	resumedStart, resumedPrompt, resumeAck := fixture.firstPrompt(t, "resumed", "resume-fixture")

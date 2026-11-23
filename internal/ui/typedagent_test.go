@@ -295,3 +295,58 @@ func TestLaunchedAgentKeepsItsCwd(t *testing.T) {
 		t.Errorf("cwd = %q after a probe, want %q", got, testCwd)
 	}
 }
+
+func TestForegroundSameCodexJob(t *testing.T) {
+	t.Parallel()
+	a, st, _ := kindApp(t)
+	st.proc(0).setFg("codex")
+
+	p := a.panes["p1"]
+	ev := startEvent("/launch")
+
+	ev.Harness, ev.OwnerPID = "codex", 42
+	for _, msg := range collect(hook(a, ev)) {
+		a.Update(msg)
+	}
+
+	ev.Start, ev.Cwd = false, "/agent"
+	hook(a, ev)
+	a.onCwd(paneCwdMsg{p: p, id: p.id, fg: "bash", pid: 11, liveOwner: 42})
+
+	if a.store.State().Panes[p.id].Kind != core.KindShell {
+		t.Fatal("suspended foreground remained an agent")
+	}
+
+	a.onCwd(paneCwdMsg{p: p, id: p.id, fg: "bash", pid: 11, cwd: "/shell", liveOwner: 42})
+	a.onCwd(paneCwdMsg{p: p, id: p.id, fg: "codex", pid: 42})
+
+	m := a.store.State().Panes[p.id]
+	if m.Kind != core.KindAgent || m.Session != ev.Session || m.Cwd != "/launch" || m.AgentCwd != "/agent" || !p.hooksSeen {
+		t.Fatalf("foregrounded job: %+v", m)
+	}
+}
+
+func TestCodexResumeSavedWithoutPrompt(t *testing.T) {
+	t.Parallel()
+
+	var saved saves
+
+	a, st, _ := kindApp(t, func(o *Options) { o.Save = saved.save })
+	st.proc(0).setFg("codex")
+
+	ev := startEvent("/launch")
+
+	ev.Harness, ev.OwnerPID = "codex", 42
+	for _, session := range []core.SessionID{restoreSession, restoreCodexSession, restoreSession} {
+		ev.Resume = session == restoreSession && ev.Session == restoreCodexSession
+
+		ev.Session = session
+		for _, msg := range collect(hook(a, ev)) {
+			a.Update(msg)
+		}
+
+		if got := saved.last().Panes[ev.Pane].Session; got != session {
+			t.Fatalf("saved session = %s, want %s", got, session)
+		}
+	}
+}

@@ -188,7 +188,7 @@ Linux reads the leader's comm and checks native Codex and Node or Bun launcher a
 argv[1]'s when argv[0] is `node` or `bun` and argv[1] is not an option, since an
 npm install's `claude` runs as `node <path>/claude` (`internal/term/procargs.go`).
 
-**Interactive Codex.** The per-instance shell directory also supplies a `codex` wrapper and shell function. Explicit launches run the same wrapper through the instance binary, including with shell integration disabled. The wrapper identifies a local TUI or resume, checks foreground ownership, registers the process group leader with the turn gate, and execs the real CLI with `--no-daemon` and the hook table. Codex runs hook commands in detached sessions. Before sending, a hook reads the registered leader's terminal device and foreground group from procfs on Linux or kinfo_proc on Darwin, matching them against `AIM_TTY` and its launch PID. The pane probe and asynchronous edit lookups carry the same PID. A held hook waits for a probe requested after it arrived, and an edit lookup checks the launch as well as the session before changing the followed worktree. Exit or replacement retires that launch. New panes clear inherited ownership and hook settings. A foreground Codex without observed hooks shows `check /hooks` on the rail.
+**Interactive Codex.** The per-instance shell directory also supplies a `codex` wrapper and shell function. Explicit launches run the same wrapper through the instance binary, including with shell integration disabled. The wrapper identifies a local TUI or resume, checks foreground ownership, registers the process group leader with the turn gate, and execs the real CLI with `--no-daemon` and the hook table. Codex runs hook commands in detached sessions. Before sending, a hook reads the registered leader's terminal device and foreground group from procfs on Linux or kinfo_proc on Darwin, matching them against `AIM_TTY` and its launch PID. The pane probe and asynchronous edit lookups carry the same PID. A held hook waits for a probe requested after it arrived, and an edit lookup checks the launch as well as the session before changing the followed worktree. A suspended job keeps its registration while the leader lives. A return to the same foreground PID restores its pane metadata. Exit or replacement retires that launch. New panes clear inherited ownership and hook settings. A foreground Codex without observed hooks shows `check /hooks` on the rail.
 
 **Launch settings.** Codex takes its hook table through a launch-scoped
 `-c hooks=...` override. Its handlers call `"$AIM_BIN" hook codex`. The CLI
@@ -346,11 +346,10 @@ The gate accepts Codex hooks only for the pane's registered foreground leader.
 Launch and detach controls carry its PID. A new launch retires its predecessor,
 and a detach applies only to its matching PID. SessionStart binds the parent
 session. A first trusted prompt also binds it if hook review skipped SessionStart.
-The gate drops child events, retired sessions and events for earlier turns.
+A parent SessionStart with source `resume` immediately rebinds a previously visited session, even without a following prompt. Codex 0.171.0 can defer that hook until the operator submits a prompt in the selected thread, leaving a read-only visit invisible to AIM. The gate drops child events and events for earlier turns.
 Each distinct prompt turn ID gets one numbered start. Duplicate submits share
 its acknowledgement. Stop and Interrupt retire the active turn, so a delayed
-tool event cannot change pane state. The gate forgets turn IDs at launch or
-session change.
+tool event cannot change pane state. Each session keeps its accepted turn IDs for the life of the launch. The gate releases each acknowledgement channel when its snapshot completes or reaches its deadline.
 
 A Codex patch shares one deadline and one acknowledgement across all its paths.
 The gate resolves distinct worktrees and claims each start before answering.

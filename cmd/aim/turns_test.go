@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -2469,6 +2470,56 @@ func TestGateCodexOwnership(t *testing.T) {
 
 	if len(r.out) != 0 || len(w.starts()) != 4 {
 		t.Fatalf("extra events %d, starts %+v", len(r.out), w.starts())
+	}
+}
+
+func TestCodexReturnToSession(t *testing.T) {
+	t.Parallel()
+
+	const (
+		a       = "aaaaaaaa-2222-4333-8444-555555555555"
+		b       = "bbbbbbbb-2222-4333-8444-555555555555"
+		first   = "00000000-0001-7000-8000-000000000001"
+		fresh   = "00000000-0001-7000-8000-000000000002"
+		earlier = "00000000-0000-7000-8000-000000000003"
+	)
+
+	launch := codexLaunch{pid: 42, sessions: make(map[core.SessionID]*codexPrompts)}
+
+	for _, step := range []struct {
+		session, name, source, turn, agent string
+		allow, bind                        bool
+	}{
+		{a, "SessionStart", "startup", "", "", true, true},
+		{a, "UserPromptSubmit", "", first, "", true, false},
+		{b, "SessionStart", "startup", "", "", true, true},
+		{a, "SessionStart", "startup", "", "", false, false},
+		{a, "SessionStart", "resume", "", "child", false, false},
+		{a, "SessionStart", "resume", "", "", true, true},
+		{a, "Stop", "", first, "", false, false},
+		{a, "UserPromptSubmit", "", first, "", false, false},
+		{a, "UserPromptSubmit", "", fresh, "child", false, false},
+		{a, "UserPromptSubmit", "", fresh, "", true, false},
+		{a, "Stop", "", fresh, "", true, false},
+		{a, "UserPromptSubmit", "", earlier, "", true, false},
+	} {
+		raw := fmt.Sprintf(`{"cwd":"/w","session_id":%q,"hook_event_name":%q,"source":%q,"turn_id":%q,"agent_id":%q}`, step.session, step.name, step.source, step.turn, step.agent)
+
+		ev, err := (harness.Codex{}).ParseEvent([]byte(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		ev.OwnerPID = 42
+
+		allow, _ := launch.admit(&ev)
+		if allow != step.allow || (allow && ev.Start != step.bind) {
+			t.Fatalf("%s: allow %v, bind %v", raw, allow, ev.Start)
+		}
+
+		if allow && ev.Done != nil {
+			ev.Done()
+		}
 	}
 }
 

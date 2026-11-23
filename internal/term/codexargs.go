@@ -33,7 +33,7 @@ func CodexOptions(args []string) (bool, bool) {
 		positional = true
 
 		switch arg {
-		case "exec", "e", "review", "login", "logout", "mcp", "mcp-server", "plugin", "app-server", "remote-control", "completion", "update", "doctor", "sandbox", "debug", "apply", "a", "queue", "archive", "delete", "migrate-rollouts", "migrate-nfs-db", "unarchive", "cloud", "exec-server", "features", "help", "agents":
+		case "exec", "e", "review", "login", "logout", "mcp", "mcp-server", "plugin", "app-server", "remote-control", "completion", "update", "doctor", "sandbox", "debug", "apply", "a", "queue", "archive", "delete", "migrate-rollouts", "migrate-nfs-db", "unarchive", "cloud", "exec-server", "tcp-tunnel", "git-credential", "execpolicy", "responses-api-proxy", "features", "help", "agents":
 			return false, private
 		}
 	}
