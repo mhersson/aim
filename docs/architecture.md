@@ -331,12 +331,28 @@ shares it. A turn ends at the next prompt, not at `Stop`: the new start's tree
 is also the old turn's end, in one transaction.
 
 **The gate** (`runTurnGate`, `cmd/aim/turns.go`) sits between the socket server
-and the app. It forwards every event in order, starts a snapshot before
+and the app. It forwards admitted events in order, starts a snapshot before
 forwarding its event (so a backed-up app channel cannot delay it), runs one
 pane's snapshots one at a time, and releases the held hook once the snapshot is
 written. It lives in `cmd/aim` because it joins `internal/harness` and
 `internal/git`, which do not import each other. The forwarded event carries
 `Snapped`, which the drawer waits on before it reloads the turn.
+
+The gate accepts Codex hooks only for the pane's registered foreground leader.
+Launch and detach controls carry its PID. A new launch retires its predecessor,
+and a detach applies only to its matching PID. SessionStart binds the parent
+session. A first trusted prompt also binds it if hook review skipped SessionStart.
+The gate drops child events, retired sessions and events for earlier turns.
+Each distinct prompt turn ID gets one numbered start. Duplicate submits share
+its acknowledgement. Stop and Interrupt retire the active turn, so a delayed
+tool event cannot change pane state. The gate forgets turn IDs at launch or
+session change.
+
+A Codex patch shares one deadline and one acknowledgement across all its paths.
+The gate resolves distinct worktrees and claims each start before answering.
+An incomplete path list or a failed lookup makes new worktrees for the rest
+of the turn receive missing-snapshot markers. Once the baselines settle, marker
+writes can continue after the patch acknowledgement.
 
 **Budgets.** A snapshot has 1.4 s from when the server read its line
 (`turnBudget`); the server holds the answer at most 1.5 s, and the hook command

@@ -55,6 +55,12 @@ type RateWindow struct {
 	ResetsAt int64   `json:"resets_at"`
 }
 
+// Launch controls are consumed by the snapshot gate before hooks reach the UI.
+const (
+	CodexOwnerStart = "codex-owner-start"
+	CodexOwnerEnd   = "codex-owner-end"
+)
+
 // Event is one hook, statusline or aim show payload reduced to what the app needs.
 type Event struct {
 	Harness string `json:"harness,omitempty"`

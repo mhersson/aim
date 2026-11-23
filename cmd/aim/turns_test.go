@@ -2271,3 +2271,312 @@ func TestGateLateEditOfThePreviousTurnWritesAMarker(t *testing.T) {
 		t.Errorf("calls in root/b = %+v, want one start marker and no start or end", got)
 	}
 }
+
+func TestCodexRepeatedPrompt(t *testing.T) {
+	t.Parallel()
+
+	block := newBlockedStart("/a")
+	w := &recordingWriter{onStart: block.onStart}
+	r := startWriterGate(t, w, dirSeq)
+
+	owner := harness.Event{Pane: "p", Harness: "codex", Name: harness.CodexOwnerStart, OwnerPID: 42}
+	r.in <- owner
+
+	ev, ack := turnEvent("UserPromptSubmit", gateSession, "/a")
+
+	ev.Pane, ev.Harness, ev.TurnID, ev.OwnerPID = "p", "codex", "turn-a", 42
+	r.in <- ev
+
+	within(t, block.entered, time.Second, "original snapshot")
+
+	dup, ack2 := turnEvent(ev.Name, gateSession, "/a")
+
+	dup.Pane, dup.Harness, dup.TurnID, dup.OwnerPID = ev.Pane, ev.Harness, ev.TurnID, ev.OwnerPID
+	r.in <- dup
+
+	first := forwardedAfter(t, r, ev.Name)
+	if !first.Start {
+		t.Fatal("first trusted prompt did not bind session")
+	}
+
+	r.in <- harness.Event{Name: "show", Show: true}
+
+	select {
+	case got := <-r.out:
+		if !got.Show {
+			t.Fatalf("duplicate forwarded: %+v", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("show blocked behind duplicate")
+	}
+
+	notYet(t, ack2, "duplicate acknowledgement")
+	close(block.unblock)
+	within(t, ack, time.Second, "original ACK")
+	within(t, ack2, time.Second, "duplicate ACK")
+	drain(t, r)
+
+	if len(w.starts()) != 1 {
+		t.Fatalf("snapshot starts = %+v", w.starts())
+	}
+}
+
+type heldGitWriter struct {
+	gitTurnWriter
+	block *blockedStart
+}
+
+func (w heldGitWriter) Start(ctx context.Context, dir, session string, turn, ends int, unchanged bool) error {
+	if err := w.block.onStart(ctx, dir); err != nil {
+		return err
+	}
+
+	return w.gitTurnWriter.Start(ctx, dir, session, turn, ends, unchanged)
+}
+
+func TestCodexPatchSnapshot(t *testing.T) {
+	repo := seededRepo(t)
+	wt := linkedWorktree(t, repo)
+	block := newBlockedStart(wt)
+
+	r := startPlacesGate(t, heldGitWriter{gitTurnWriter{tempDir: t.TempDir(), indexCache: t.TempDir()}, block}, testPlaces().Place, func(_ context.Context, dir string) (string, uint64, bool) { return dir, 0, false })
+	r.in <- harness.Event{Pane: "p", Harness: "codex", Name: harness.CodexOwnerStart, OwnerPID: 42}
+
+	ev, ack := turnEvent("UserPromptSubmit", gateSession, repo)
+
+	ev.Pane, ev.Harness, ev.TurnID, ev.OwnerPID = "p", "codex", "one", 42
+	r.in <- ev
+
+	within(t, ack, time.Second, "prompt")
+
+	edit, done := editEvent(gateSession, "", nil, nil)
+	edit.Pane, edit.Harness, edit.TurnID, edit.OwnerPID = ev.Pane, ev.Harness, ev.TurnID, ev.OwnerPID
+
+	edit.BeforePaths = []string{filepath.Join(repo, "a.txt"), filepath.Join(wt, "a.txt")}
+	r.in <- edit
+
+	within(t, block.entered, time.Second, "second worktree snapshot")
+	notYet(t, done, "patch ACK")
+	close(block.unblock)
+	within(t, done, time.Second, "patch ACK")
+
+	for _, dir := range []string{repo, wt} {
+		if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("after\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	duplicate, replayed := turnEvent(ev.Name, gateSession, repo)
+
+	duplicate.Pane, duplicate.Harness, duplicate.TurnID, duplicate.OwnerPID = ev.Pane, ev.Harness, ev.TurnID, ev.OwnerPID
+	r.in <- duplicate
+
+	within(t, replayed, time.Second, "duplicate prompt after editing")
+
+	for _, dir := range []string{repo, wt} {
+		turns := gitTurns(t, dir)
+		if len(turns) != 1 || turns[0].Missing || !strings.Contains(gitOut(t, dir, "diff", turns[0].Commit, "--", "a.txt"), "+after") {
+			t.Fatalf("turns in %s = %+v", dir, turns)
+		}
+	}
+}
+
+func TestGateCodexOwnership(t *testing.T) {
+	t.Parallel()
+
+	w := &recordingWriter{}
+	r := startWriterGate(t, w, dirSeq)
+
+	owner := harness.Event{Pane: "p", Harness: "codex", Name: harness.CodexOwnerStart, OwnerPID: 42}
+	r.in <- owner
+
+	session := harness.Event{Pane: owner.Pane, Harness: owner.Harness, OwnerPID: owner.OwnerPID, Session: gateSession, Name: "SessionStart", Start: true}
+	prompt := session
+	prompt.Name, prompt.Start, prompt.TurnStart, prompt.Cwd, prompt.TurnID = "UserPromptSubmit", false, true, "/a", "one"
+	child := session
+
+	child.Subagent = true
+	r.in <- child
+
+	r.in <- session
+
+	r.in <- prompt
+
+	next := prompt
+
+	next.TurnID = "two"
+	r.in <- next
+
+	r.in <- prompt
+
+	late := prompt
+
+	late.Name, late.TurnStart = "Interrupt", false
+	r.in <- late
+
+	switchSession := session
+
+	switchSession.Session = "aaaaaaaa-2222-4333-8444-555555555555"
+	r.in <- switchSession
+
+	r.in <- session
+
+	foreign := prompt
+
+	foreign.Harness = "claude-code"
+	r.in <- foreign
+
+	otherPane := foreign
+
+	otherPane.Pane = "other"
+	r.in <- otherPane
+
+	replacement := owner
+
+	replacement.OwnerPID++
+	r.in <- replacement
+
+	r.in <- prompt
+
+	end := owner
+
+	end.Name = harness.CodexOwnerEnd
+	r.in <- end
+
+	reopened := next
+
+	reopened.OwnerPID = replacement.OwnerPID
+	r.in <- reopened
+
+	end.OwnerPID = replacement.OwnerPID
+	r.in <- end
+
+	r.in <- reopened
+
+	drain(t, r)
+
+	want := []harness.Event{session, prompt, next, switchSession, otherPane, reopened}
+	for _, expected := range want {
+		select {
+		case got := <-r.out:
+			if got.Pane != expected.Pane || got.Session != expected.Session || got.TurnID != expected.TurnID || got.Name != expected.Name || got.OwnerPID != expected.OwnerPID || got.Subagent {
+				t.Fatalf("forwarded %+v, want %+v", got, expected)
+			}
+		default:
+			t.Fatalf("missing event %+v", expected)
+		}
+	}
+
+	if len(r.out) != 0 || len(w.starts()) != 4 {
+		t.Fatalf("extra events %d, starts %+v", len(r.out), w.starts())
+	}
+}
+
+func TestCodexPatchSnapshotMissing(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name      string
+		truncated bool
+	}{{"expired", false}, {"truncated", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			w := &recordingWriter{}
+
+			r := startPlacesGate(t, w, (&countingPlaces{}).place, dirSeq)
+			r.in <- harness.Event{Pane: "p", Harness: "codex", Name: harness.CodexOwnerStart, OwnerPID: 42}
+
+			ev, ack := turnEvent("UserPromptSubmit", gateSession, "/a")
+
+			ev.Pane, ev.Harness, ev.TurnID, ev.OwnerPID = "p", "codex", "one", 42
+			r.in <- ev
+
+			within(t, ack, time.Second, "prompt")
+
+			edit, done := editEvent(gateSession, "", nil, nil)
+			edit.Pane, edit.Harness, edit.TurnID, edit.OwnerPID = ev.Pane, ev.Harness, ev.TurnID, ev.OwnerPID
+			edit.BeforePaths = []string{"/b/first", "/b/second", "/c/third"}
+
+			edit.PathsIncomplete = tc.truncated
+			if !tc.truncated {
+				edit.Deadline = time.Now().Add(-time.Second)
+			}
+
+			r.in <- edit
+
+			within(t, done, time.Second, "patch ACK")
+			drain(t, r)
+
+			for _, root := range []string{"root/b", "root/c"} {
+				if calls := callsIn(w.all(), root); len(calls) != 1 || !calls[0].mark {
+					t.Fatalf("calls in %s = %+v", root, calls)
+				}
+			}
+		})
+	}
+}
+
+func TestGatePatchAcknowledgesBeforeMarkerWrite(t *testing.T) {
+	t.Parallel()
+
+	marker := newBlockedStart("root/b")
+	w := funcWriter{snap: func(_ context.Context, dir, _ string, _ bool) error {
+		if dir == "root/b" {
+			return errors.New("snapshot failed")
+		}
+
+		return nil
+	}, mark: func(ctx context.Context, dir, _ string, _ bool) error { return marker.onStart(ctx, dir) }}
+	r := startedTurn(t, w, (&countingPlaces{}).place)
+	ev, ack := editEvent(gateSession, "/b/f.go", nil, nil)
+
+	ev.Deadline = time.Now().Add(time.Hour)
+	r.in <- ev
+
+	within(t, marker.entered, time.Second, "marker write")
+	within(t, ack, time.Second, "patch acknowledgement")
+	close(marker.unblock)
+}
+
+func TestGateCodexFinishedTurn(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{"Stop", "Interrupt"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			w := &recordingWriter{}
+
+			r := startWriterGate(t, w, dirSeq)
+			r.in <- harness.Event{Pane: "p", Harness: "codex", Name: harness.CodexOwnerStart, OwnerPID: 42}
+
+			prompt, ack := turnEvent("UserPromptSubmit", gateSession, "/a")
+
+			prompt.Pane, prompt.Harness, prompt.OwnerPID, prompt.TurnID = "p", "codex", 42, "one"
+			r.in <- prompt
+
+			within(t, ack, time.Second, "prompt")
+
+			end := harness.Event{Name: name, Pane: "p", Harness: "codex", OwnerPID: 42, Session: gateSession, TurnID: "one"}
+			r.in <- end
+
+			forwardedAfter(t, r, name)
+
+			edit, answered := editEvent(gateSession, "/b/f.go", nil, nil)
+
+			edit.Pane, edit.Harness, edit.OwnerPID, edit.TurnID = "p", "codex", 42, "one"
+			r.in <- edit
+
+			within(t, answered, time.Second, "stale edit reply")
+
+			r.in <- prompt
+
+			drain(t, r)
+
+			if len(r.out) != 0 || len(w.starts()) != 1 {
+				t.Fatalf("extra events %d, starts %+v", len(r.out), w.starts())
+			}
+		})
+	}
+}
