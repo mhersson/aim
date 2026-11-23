@@ -1,0 +1,9 @@
+{
+  "session_id": "session-2",
+  "turn_id": "turn-2",
+  "transcript_path": "/state/sessions/session-2.jsonl",
+  "cwd": "/work/project",
+  "hook_event_name": "Interrupt",
+  "model": "gpt-6.2-sol",
+  "permission_mode": "default"
+}

@@ -1,0 +1,11 @@
+{
+  "session_id": "session-1",
+  "turn_id": "turn-1",
+  "transcript_path": "/state/sessions/session-1.jsonl",
+  "cwd": "/work/project",
+  "hook_event_name": "Stop",
+  "model": "gpt-6.2-sol",
+  "permission_mode": "default",
+  "stop_hook_active": false,
+  "last_assistant_message": null
+}

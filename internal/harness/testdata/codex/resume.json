@@ -1,0 +1,9 @@
+{
+  "session_id": "session-1",
+  "transcript_path": "/state/sessions/session-1.jsonl",
+  "cwd": "/work/project",
+  "hook_event_name": "SessionStart",
+  "model": "gpt-6.2-sol",
+  "permission_mode": "default",
+  "source": "resume"
+}
