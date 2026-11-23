@@ -52,6 +52,7 @@ func runStatusline(ctx context.Context, stdin io.Reader, getenv func(string) str
 		return
 	}
 
+	ev.Harness = (harness.Claude{}).ID()
 	ev.Pane = core.PaneID(pane)
 	_ = harness.Send(ctx, sock, ev)
 }

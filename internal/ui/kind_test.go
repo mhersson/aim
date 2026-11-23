@@ -256,6 +256,10 @@ func TestPanesGetAIMBin(t *testing.T) {
 		}
 
 		for i, c := range st.cmds {
+			if !slices.Contains(c.Env, "AIM_CLAUDE_HOOKS=off") {
+				t.Errorf("command %d allows the Claude shim without settings", i)
+			}
+
 			if !slices.Contains(c.Env, "AIM_BIN=/run/1-aim") {
 				t.Errorf("command %d env lacks AIM_BIN", i)
 			}

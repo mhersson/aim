@@ -217,6 +217,8 @@ func TestStartHooksSweepsDeadInstances(t *testing.T) {
 		strconv.Itoa(dead) + "-aim":             false,
 		strconv.Itoa(dead) + "-aim-0123":        false,
 		strconv.Itoa(live) + "-aim":             true,
+		strconv.Itoa(dead) + "-describe-0123":   false,
+		strconv.Itoa(live) + "-describe-0123":   true,
 		strconv.Itoa(dead) + "-aimed":           true,
 	}
 	for name := range files {
@@ -365,12 +367,8 @@ func TestStartHooksWritesTheShellIntegration(t *testing.T) {
 			t.Fatalf("runtime = %+v, want hooks off", h)
 		}
 
-		if h.Shell != (term.Integration{}) || exists(filepath.Join(runDir, strconv.Itoa(os.Getpid())+"-shell")) {
-			t.Error("the integration dir was written for a failed setup")
-		}
-
-		if exists(filepath.Join(runDir, strconv.Itoa(os.Getpid())+"-aim")) {
-			t.Error("a failed setup left the instance's binary behind")
+		if h.CodexSettings == "" || !exists(h.Sock) || h.Shell == (term.Integration{}) {
+			t.Error("Codex hooks or shell unavailable after Claude settings failure")
 		}
 	})
 }

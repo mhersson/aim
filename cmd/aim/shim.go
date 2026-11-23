@@ -104,6 +104,10 @@ func planShim(args, environ []string, self os.FileInfo, own func(paneTTY string)
 // shimArgs returns args with this instance's settings in front when all the
 // conditions hold; the cheap checks come first and the terminal probe last.
 func shimArgs(args []string, getenv func(string) (string, bool), own func(paneTTY string) bool) []string {
+	if v, _ := getenv("AIM_CLAUDE_HOOKS"); v == "off" {
+		return args
+	}
+
 	sock, _ := getenv("AIM_SOCK")
 
 	settings, ok := settingsForSock(sock)
@@ -120,7 +124,7 @@ func shimArgs(args []string, getenv func(string) (string, bool), own func(paneTT
 		return args
 	}
 
-	if _, err := os.Stat(settings); err != nil {
+	if info, err := os.Lstat(settings); err != nil || !info.Mode().IsRegular() {
 		return args
 	}
 

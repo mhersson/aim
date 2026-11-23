@@ -1013,7 +1013,7 @@ func TestByID(t *testing.T) {
 		t.Errorf("ByID(claude-code) = %v, %v", h, ok)
 	}
 
-	if h, ok := ByID("codex"); ok || h != nil {
+	if h, ok := ByID("codex"); !ok || h.Program() != "codex" {
 		t.Errorf("ByID(codex) = %v, %v", h, ok)
 	}
 }

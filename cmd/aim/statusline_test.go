@@ -53,7 +53,7 @@ func TestRunStatuslineDelivers(t *testing.T) {
 
 	select {
 	case ev := <-out:
-		if ev.Pane != core.PaneID("p7") || ev.Session != "s1" || !ev.Status || ev.Model != "Opus 4.5" {
+		if ev.Harness != "claude-code" || ev.Pane != core.PaneID("p7") || ev.Session != "s1" || !ev.Status || ev.Model != "Opus 4.5" {
 			t.Fatalf("event = %+v, want a status event for pane p7, session s1 and model Opus 4.5", ev)
 		}
 

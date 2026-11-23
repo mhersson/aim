@@ -20,15 +20,12 @@ import (
 // oneOffWaitDelay bounds the wait for the run's output once its group is killed.
 const oneOffWaitDelay = time.Second
 
-// errNoClaude is a run's error when PATH holds no claude but AIM's own binary.
-var errNoClaude = fmt.Errorf("no claude on PATH: %w", exec.ErrNotFound)
-
-// runOneOff runs the claude that the PATH in env names, skipping self, in dir
+// runOneOff runs the program that the PATH in env names, skipping self, in dir
 // with stdin, and returns its stdout. It starts in a new session, which has no
-// controlling terminal, so claude never reaches AIM's; ending ctx kills the
+// controlling terminal, so the agent never reaches AIM's; ending ctx kills the
 // session's process group.
-func runOneOff(ctx context.Context, env []string, self os.FileInfo, dir string, args []string, stdin string) (string, error) {
-	path, err := findClaude(pathOf(env), self)
+func runOneOff(ctx context.Context, program string, env []string, self os.FileInfo, dir string, args []string, stdin string) (string, error) {
+	path, err := findProgram(program, pathOf(env), self)
 	if err != nil {
 		return "", err
 	}
@@ -47,33 +44,33 @@ func runOneOff(ctx context.Context, env []string, self os.FileInfo, dir string, 
 	case err == nil:
 		return string(out), nil
 	case errors.Is(err, exec.ErrWaitDelay):
-		// claude exited 0 but something it left holds stdout; that holder is
+		// The agent exited 0 but something it left holds stdout; that holder is
 		// alive, so the group id is still its own.
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 
 		return string(out), nil
 	case ctx.Err() != nil:
-		return "", fmt.Errorf("claude: %w", ctx.Err())
+		return "", fmt.Errorf("%s: %w", program, ctx.Err())
 	case errors.As(err, &exit):
 		if line := lastLine(string(exit.Stderr)); line != "" {
-			return "", fmt.Errorf("claude failed (%w): %s", err, line)
+			return "", fmt.Errorf("%s failed (%w): %s", program, err, line)
 		}
 
-		return "", fmt.Errorf("claude failed (%w)", err)
+		return "", fmt.Errorf("%s failed (%w)", program, err)
 	default:
-		return "", fmt.Errorf("run claude: %w", err)
+		return "", fmt.Errorf("run %s: %w", program, err)
 	}
 }
 
-// findClaude is the first executable claude in an absolute directory of
+// findProgram returns the first matching executable in an absolute directory of
 // pathEnv that is not self; a relative entry would run whatever the cwd holds.
-func findClaude(pathEnv string, self os.FileInfo) (string, error) {
+func findProgram(program, pathEnv string, self os.FileInfo) (string, error) {
 	for _, dir := range filepath.SplitList(pathEnv) {
 		if !filepath.IsAbs(dir) {
 			continue
 		}
 
-		candidate := filepath.Join(dir, "claude")
+		candidate := filepath.Join(dir, program)
 
 		info, err := os.Stat(candidate)
 		if err != nil || info.IsDir() || unix.Access(candidate, unix.X_OK) != nil {
@@ -87,7 +84,7 @@ func findClaude(pathEnv string, self os.FileInfo) (string, error) {
 		return candidate, nil
 	}
 
-	return "", errNoClaude
+	return "", fmt.Errorf("no %s on PATH: %w", program, exec.ErrNotFound)
 }
 
 // pathOf is the last PATH in env, the one exec passes on.

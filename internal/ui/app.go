@@ -45,8 +45,9 @@ type Options struct {
 	NoOSC52, NoNativeClipboard bool
 	// Harness launches and recognises agents; nil means harness.Claude{}.
 	Harness harness.Harness
-	// HookSettings is the --settings file for agents; empty launches them without hooks.
-	HookSettings string
+	// HookSettings is the Claude settings file. CodexSettings is its CLI hook table.
+	HookSettings  string
+	CodexSettings string
 	// HookSock is AIM_SOCK for every pane; empty sets none.
 	HookSock string
 	// HookBin is AIM_BIN, the binary the hooks run, for every pane that gets AIM_SOCK.
@@ -230,20 +231,20 @@ type App struct {
 	copy        *copyState     // copy mode; owns every key and ignores the mouse while set
 	mouse       mouseState
 
-	focusFollows, copyOnSelect bool
-	harness                    harness.Harness
-	tick                       func(time.Duration, func(time.Time) tea.Msg) tea.Cmd // tea.Tick; tests replace it
-	hookSettings, hookSock     string
-	hookBin                    string
-	shell                      term.Integration
-	events                     <-chan harness.Event
-	spin                       int         // badge spinner frame
-	agentTicking               bool        // an agentTickMsg is outstanding
-	slideTicking               bool        // a drawerSlideMsg is outstanding
-	drawersOpen                bool        // some tab's state holds a review drawer; only dispatch changes it
-	settled                    settleKey   // what settleDrawer last found nothing to change in
-	load                       loadSampler // nil on platforms without a load reading
-	start                      func(ctx context.Context, c term.Command, cols, rows int) (proc, error)
+	focusFollows, copyOnSelect            bool
+	harness                               harness.Harness
+	tick                                  func(time.Duration, func(time.Time) tea.Msg) tea.Cmd // tea.Tick; tests replace it
+	hookSettings, codexSettings, hookSock string
+	hookBin                               string
+	shell                                 term.Integration
+	events                                <-chan harness.Event
+	spin                                  int         // badge spinner frame
+	agentTicking                          bool        // an agentTickMsg is outstanding
+	slideTicking                          bool        // a drawerSlideMsg is outstanding
+	drawersOpen                           bool        // some tab's state holds a review drawer; only dispatch changes it
+	settled                               settleKey   // what settleDrawer last found nothing to change in
+	load                                  loadSampler // nil on platforms without a load reading
+	start                                 func(ctx context.Context, c term.Command, cols, rows int) (proc, error)
 
 	// ctx is the lifetime of the pane processes; Close cancels it.
 	ctx     context.Context
@@ -321,7 +322,7 @@ func New(opts Options) (*App, error) {
 	}
 
 	a := &App{
-		git: opts.Git, harness: h, tick: tea.Tick, hookSettings: opts.HookSettings, hookSock: opts.HookSock, hookBin: opts.HookBin, shell: opts.Shell,
+		git: opts.Git, harness: h, tick: tea.Tick, hookSettings: opts.HookSettings, codexSettings: opts.CodexSettings, hookSock: opts.HookSock, hookBin: opts.HookBin, shell: opts.Shell,
 		events: opts.Events, notice: opts.Notice, save: opts.Save, marks: opts.Marks,
 		log: opts.Logger, store: opts.Store, themes: themes, reg: reg, keymap: km, keys: tables,
 		panes: map[core.PaneID]*pane{}, outerFocused: true,

@@ -21,9 +21,7 @@ const (
 // showNote is what a session-start hook tells the agent about aim show.
 const showNote = "You are running inside AIM, a terminal multiplexer. To show the user an image, such as a screenshot or a before and after pair, save it as PNG, JPEG, GIF or WebP and run `\"$AIM_BIN\" show <file>... --caption \"<text>\"` (at most 8 files); AIM displays it to them straight away."
 
-// newHookCmd is run by the agent for every hook event. It always succeeds
-// and prints only the SessionStart note: a failing or noisy hook would disturb
-// the agent it reports on.
+// A reporting failure must never disturb the agent that invoked the hook.
 func newHookCmd(getenv func(string) string) *cobra.Command {
 	var note bool
 
@@ -47,9 +45,6 @@ func newHookCmd(getenv func(string) string) *cobra.Command {
 	return cmd
 }
 
-// runHook forwards one hook payload to the AIM socket. Its only output is the
-// session-start note, which Claude Code adds to the agent's context; it drops
-// the event on any failure.
 func runHook(ctx context.Context, id string, note bool, stdin io.Reader, stdout io.Writer, getenv func(string) string) {
 	payload, ok := readPayload(ctx, stdin)
 	if !ok {
@@ -64,6 +59,12 @@ func runHook(ctx context.Context, id string, note bool, stdin io.Reader, stdout 
 	ev, err := h.ParseEvent(payload)
 	if err != nil {
 		return
+	}
+
+	ev.Harness = h.ID()
+	// Codex expects JSON from Stop. An empty object leaves its turn complete.
+	if id == (harness.Codex{}).ID() && ev.Name == "Stop" {
+		_, _ = io.WriteString(stdout, "{}\n")
 	}
 
 	if note && ev.Name == "SessionStart" && getenv("AIM_BIN") != "" {

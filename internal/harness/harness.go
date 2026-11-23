@@ -18,9 +18,6 @@ type Harness interface {
 	// Launch returns the agent argv. An empty settings omits the hooks file; an
 	// empty resume starts a fresh session.
 	Launch(settings string, resume core.SessionID) []string
-	// Settings returns the hooks file whose handlers run `exe hook <ID()>`.
-	// With note, the session-start handler also gets --note.
-	Settings(exe string, note bool) ([]byte, error)
 	// ParseEvent reads one hook payload as received on stdin.
 	ParseEvent(payload []byte) (Event, error)
 	// CustomName reads the name the user gave the session from its transcript
@@ -38,6 +35,7 @@ type DescribeRequest struct {
 	// launch directory, else the worktree.
 	Session core.SessionID
 	Dir     string
+	RunDir  string // AIM instance run directory for temporary final-message files
 
 	Branch, Base string
 	Commits      []Commit // oldest first
@@ -146,9 +144,23 @@ type Event struct {
 
 // ByID returns the harness saved under id.
 func ByID(id string) (Harness, bool) {
-	if id == (Claude{}).ID() {
+	switch id {
+	case (Claude{}).ID():
 		return Claude{}, true
+	case (Codex{}).ID():
+		return Codex{}, true
+	default:
+		return nil, false
 	}
+}
 
-	return nil, false
+func ByProgram(program string) (Harness, bool) {
+	switch program {
+	case (Claude{}).Program():
+		return Claude{}, true
+	case (Codex{}).Program():
+		return Codex{}, true
+	default:
+		return nil, false
+	}
 }

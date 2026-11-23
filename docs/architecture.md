@@ -125,7 +125,7 @@ nothing, and anywhere else it closes the popover and goes no further.
   `[shell] integration = false`, or when the files were not written, every pane
   gets today's argv and environment.
 - Every pane gets `TERM=xterm-256color` and `COLORTERM=truecolor` and loses an
-  inherited `TMUX`, `TMUX_PANE`, `AIM_PANE`, `AIM_SOCK`, `AIM_BIN`, `AIM_TTY`,
+  inherited `TMUX`, `TMUX_PANE`, `AIM_PANE`, `AIM_SOCK`, `AIM_CLAUDE_HOOKS`, `AIM_BIN`, `AIM_TTY`,
   `AIM_SHELL_DIR`, `AIM_ZDOTDIR` and `AIM_ENV` (`term.PaneEnv`). `term.Start`
   opens the pty itself and sets `AIM_TTY` to the slave's path.
 - Every pane that gets `AIM_SOCK` also gets `AIM_BIN`, the binary the hooks run
@@ -147,7 +147,7 @@ instance's settings file from two pieces, both from
   was started by, else to `os.Executable()`; `main` dispatches on
   `filepath.Base(os.Args[0])`, `runShim`, `cmd/aim/shim.go`). It puts
   `--settings <file>` in front of the arguments only when `AIM_SOCK` names
-  `<dir>/<pid>.sock` and the instance's settings file exists, `CLAUDECODE` is
+  `<dir>/<pid>.sock` and the instance's settings path is a regular file, `CLAUDECODE` is
   empty, the arguments hold no `--settings` before a `--`, and the process
   leads the foreground group of both its `/dev/tty` and the terminal at
   `AIM_TTY` (`term.OwnsForeground`). The second test is why `AIM_TTY` exists: a
@@ -158,7 +158,9 @@ instance's settings file from two pieces, both from
   PATH without those entries, so Claude and its tools never meet the wrapper.
 - **It fails open.** An error inside it execs the real `claude` unchanged. With
   no other `claude` it prints `claude: command not found` and exits 127; a
-  failed exec prints `claude: <error>` and exits 126. When AIM's binary is gone,
+  failed exec prints `claude: <error>` and exits 126. If settings setup fails while the socket stays available,
+  AIM sets `AIM_CLAUDE_HOOKS=off` in its panes so a stale settings file
+  cannot enable the wrapper. When AIM's binary is gone,
   the shells skip the dangling PATH entry and the scripts' function falls back
   to `command claude`.
 - **Per shell.** zsh reads AIM's `.zshenv` as `$ZDOTDIR/.zshenv`, puts the user's
@@ -184,7 +186,12 @@ The leader's name is its comm on Linux. On macOS it is argv[0]'s base name, or
 argv[1]'s when argv[0] is `node` or `bun` and argv[1] is not an option, since an
 npm install's `claude` runs as `node <path>/claude` (`internal/term/procargs.go`).
 
-**The settings file.** AIM never edits `~/.claude`. Each instance writes
+**Launch settings.** Codex takes its hook table through a launch-scoped
+`-c hooks=...` override. Its handlers call `"$AIM_BIN" hook codex`. The CLI
+reviews hook trust normally and runs its own hooks alongside these. AIM keeps
+the table available if writing the Claude settings file fails.
+
+AIM never edits `~/.claude`. Each instance writes
 `<state dir>/run/<pid>-claude.json` (`setupHooks`, `cmd/aim/hooks.go`) with one
 handler per hook event in the exec form (`command` plus `args`), so no shell
 parses the binary's path. Claude Code merges settings levels, so the user's and
@@ -212,7 +219,7 @@ with hooks.
 **The subcommands.** Claude runs `aim hook claude-code` per event and
 `aim statusline` for its status line (`cmd/aim/hook.go`, `statusline.go`). Each
 reads stdin, parses it with the harness, adds `AIM_PANE` and sends one JSON
-line to `AIM_SOCK`, within 2 s (1 s for the status line). Both always exit 0
+line to `AIM_SOCK`, within 2 s (1 s for the status line). Claude hook and status line commands always exit 0
 and print nothing, except the `SessionStart` note: when its handler carries
 `--note` and `AIM_BIN` is set, `aim hook` prints a fixed text about `aim show`,
 which Claude adds to the model's context, so the agent learns the command. The
@@ -237,14 +244,25 @@ so AIM's hooks never hear of it while the user's own hooks still run. It starts
 in a new session, with no controlling terminal, and `describeTimeout`
 (`internal/ui/compose.go`) kills its process group.
 
+Codex takes the branch summary in a fresh `codex exec --ephemeral` in the
+worktree with a read-only sandbox. AIM lists configured MCP servers in the
+worktree and disables each by name for this command. The CLI reads its
+configuration again at launch, so this assumes the server list stays stable
+between inventory and launch. AIM also disables apps, plugins and web search.
+A failed inventory ends generation. User hooks retain their usual configuration. The compose box reads the final-message file from a private
+temporary directory under the instance run directory, removed when the process ends. Both
+adapters strip AIM routing variables from the one-off environment. A Codex
+permission hook sends the event with no decision. Its Stop hook returns an
+empty JSON object.
+
 **The socket.** `<state dir>/run/<pid>.sock` is 0600 in a 0700 directory
 (`internal/harness/socket.go`). A connection carries one line of at most
 64 KiB, answered `ok` once queued, except a prompt or an edit's `PreToolUse`,
 held until its snapshot is written or 1.5 s pass (`turnHold`); an `aim show`
 line is answered `ok` once queued. The adapter caps
 what one event carries (16 changed paths, 32 KiB) to stay inside the line. When
-the socket or settings file cannot be set up, agents run without `--settings`
-and a notice says why; AIM still starts.
+the socket cannot be set up, both agents launch without AIM hooks. A Claude
+settings file failure disables only Claude hooks. AIM reports either failure.
 
 **From payload to state.** `harness.Claude.ParseEvent` reduces a payload to a
 `harness.Event`, and `App.onHook` (`internal/ui/agents.go`) applies it. The

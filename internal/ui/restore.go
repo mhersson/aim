@@ -91,7 +91,7 @@ func (a *App) startRestoredPane(id core.PaneID, m core.Pane, cols, rows int, col
 	}
 
 	// Without hooks no SessionStart can end the resume.
-	pn.resuming = resume != "" && a.hookSettings != ""
+	pn.resuming = resume != "" && a.settingsFor(a.harnessOf(m)) != ""
 
 	if used != m.Cwd {
 		_ = a.dispatch(core.SetPaneCwd{ID: id, Cwd: used})

@@ -26,15 +26,14 @@ import (
 // eventBuffer is how many hook events may wait for the update loop.
 const eventBuffer = 256
 
-// hookRuntime is what agents need to report through hooks. Settings and Sock
-// are empty, and Notice says why, when the setup failed.
+// Settings is Claude's settings path. CodexSettings is its inline hook table.
 type hookRuntime struct {
-	Settings, Sock string
-	Bin            string // the binary the hooks run; AIM_BIN in every pane with the socket
-	RunDir         string // where temporary git indexes go; empty when setup failed
-	Notice         string
-	Events         <-chan harness.Event
-	Shell          term.Integration // the zero value when the integration dir was not written
+	Settings, CodexSettings, Sock string
+	Bin                           string // the binary the hooks run; AIM_BIN in every pane with the socket
+	RunDir                        string // where temporary git indexes go; empty when setup failed
+	Notice                        string
+	Events                        <-chan harness.Event
+	Shell                         term.Integration // the zero value when the integration dir was not written
 
 	stop func()
 }
@@ -83,10 +82,7 @@ func prCopyDir(indexCache string) string {
 	return filepath.Join(indexCache, "prs")
 }
 
-// startHooks prepares <stateDir>/run: it sweeps files of dead instances, places
-// this instance's binary, writes its settings file and serves its socket. A
-// failure leaves nothing behind and yields a runtime with a notice, so agents
-// start without hooks. With cfg.shell it also writes the shell integration dir.
+// A shared socket failure leaves both agents usable without AIM hooks.
 func startHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.WatchSet, places *git.PlaceCache, cfg hookConfig) hookRuntime {
 	h, err := setupHooks(logger, stateDir, indexCache, watches, places, cfg, defaultHookTimes())
 	if err != nil {
@@ -149,16 +145,19 @@ func setupHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.W
 
 	hookExe := cmp.Or(bin, exe)
 
-	settings, err := harness.Claude{}.Settings(hookExe, cfg.note)
-	if err != nil {
-		return hookRuntime{}, err
+	settings, settingsErr := harness.Claude{}.Settings(hookExe, cfg.note)
+	if settingsErr == nil {
+		warnStatusLineOff(logger, hookExe)
+
+		settingsErr = store.WriteAtomicNoSync(settingsPath, settings)
 	}
 
-	warnStatusLineOff(logger, hookExe)
+	var notice string
 
-	// A per-instance file needs no sync: a crash leaves it to the next sweep.
-	if err := store.WriteAtomicNoSync(settingsPath, settings); err != nil {
-		return hookRuntime{}, fmt.Errorf("settings file: %w", err)
+	if settingsErr != nil {
+		logger.Warn("Claude hooks are off", "err", settingsErr)
+		notice = "Claude hooks are off: " + settingsErr.Error()
+		settingsPath = ""
 	}
 
 	var (
@@ -184,7 +183,9 @@ func setupHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.W
 
 	srv, err := harness.Listen(sockPath)
 	if err != nil {
-		_ = os.Remove(settingsPath)
+		if settingsPath != "" {
+			_ = os.Remove(settingsPath)
+		}
 
 		if shellDir != "" {
 			_ = os.RemoveAll(shellDir)
@@ -222,8 +223,10 @@ func setupHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.W
 
 		wg.Wait()
 
-		if err := os.Remove(settingsPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-			logger.Warn("remove settings file", "err", err)
+		if settingsPath != "" {
+			if err := os.Remove(settingsPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+				logger.Warn("remove settings file", "err", err)
+			}
 		}
 
 		if shellDir != "" {
@@ -239,7 +242,7 @@ func setupHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.W
 		}
 	})
 
-	return hookRuntime{Settings: settingsPath, Sock: sockPath, Bin: hookExe, RunDir: runDir, Events: events, Shell: ig, stop: stop}, nil
+	return hookRuntime{Settings: settingsPath, CodexSettings: (harness.Codex{}).HookTable(cfg.note), Notice: notice, Sock: sockPath, Bin: hookExe, RunDir: runDir, Events: events, Shell: ig, stop: stop}, nil
 }
 
 // warnStatusLineOff logs why Settings leaves out the status line for exe. The
@@ -400,7 +403,7 @@ func settingsForSock(sock string) (string, bool) {
 // runFilePid extracts the pid from "<pid>.sock", "<pid>-claude.json",
 // "<pid>-aim" and "<pid>-aim-<anything>" (the binary and its temporary copy),
 // "<pid>-index-<anything>" (a snapshot's temporary index or its lock) and the
-// integration dir "<pid>-shell".
+// integration dir "<pid>-shell". PR generation uses "<pid>-describe-<suffix>".
 func runFilePid(name string) (int, bool) {
 	digits, ok := strings.CutSuffix(name, ".sock")
 	if !ok {
@@ -417,6 +420,10 @@ func runFilePid(name string) (int, bool) {
 
 	if !ok {
 		digits, _, ok = strings.Cut(name, "-index-")
+	}
+
+	if !ok {
+		digits, _, ok = strings.Cut(name, "-describe-")
 	}
 
 	if !ok {

@@ -183,6 +183,10 @@ func (a *App) startPaneRunning(id core.PaneID, kind core.PaneKind, cwd string, c
 	env := []string{"AIM_PANE=" + string(id)}
 	if a.hookSock != "" {
 		env = append(env, "AIM_SOCK="+a.hookSock)
+		if a.hookSettings == "" {
+			env = append(env, "AIM_CLAUDE_HOOKS=off")
+		}
+
 		if a.hookBin != "" {
 			env = append(env, "AIM_BIN="+a.hookBin)
 		}
@@ -192,9 +196,8 @@ func (a *App) startPaneRunning(id core.PaneID, kind core.PaneKind, cwd string, c
 
 	switch {
 	case kind == core.KindAgent:
-		// Restored and restarted agents use the app's harness; a second harness
-		// must pass the pane's own (harness.ByID(Pane.Harness)).
-		c = term.AgentCommand(a.getenv, a.shell, cwd, a.harness.Launch(a.hookSettings, resume), env)
+		h := a.harnessOf(a.store.State().Panes[id])
+		c = term.AgentCommand(a.getenv, a.shell, cwd, h.Launch(a.settingsFor(h), resume), env)
 	case run != nil && run.once:
 		c = term.EditorOnlyCommand(a.getenv, a.shell, cwd, run.program, run.args, env)
 	case run != nil:
@@ -537,6 +540,14 @@ func (a *App) onCwd(msg paneCwdMsg) tea.Cmd {
 	}
 
 	return kind
+}
+
+func (a *App) settingsFor(h harness.Harness) string {
+	if h.ID() == (harness.Codex{}).ID() {
+		return a.codexSettings
+	}
+
+	return a.hookSettings
 }
 
 // harnessOf is the harness that recognises the pane's agent: the app's when it

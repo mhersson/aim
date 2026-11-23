@@ -22,9 +22,9 @@ func (a *App) composeGenerate(v *composeView) tea.Cmd {
 
 	m := a.store.State().Panes[v.t.pane]
 	h := a.harnessOf(m)
-	req := harness.DescribeRequest{Dir: v.t.root, Branch: v.t.branch, Base: v.t.bases[v.base], Template: v.template}
+	req := harness.DescribeRequest{Dir: v.t.root, RunDir: a.runDir, Branch: v.t.branch, Base: v.t.bases[v.base], Template: v.template}
 
-	if m.Kind == core.KindAgent && m.Session != "" && m.FollowDir() == v.t.dir {
+	if h.ID() != (harness.Codex{}).ID() && m.Kind == core.KindAgent && m.Session != "" && m.FollowDir() == v.t.dir {
 		req.Session, req.Dir = m.Session, cmp.Or(m.Cwd, v.t.root)
 	}
 
