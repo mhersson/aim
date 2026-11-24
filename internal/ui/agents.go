@@ -123,13 +123,24 @@ func (a *App) applyHook(ev harness.Event, probe bool) tea.Cmd {
 		_ = a.dispatch(core.SetAgentSession{
 			ID: ev.Pane, Session: ev.Session, Transcript: ev.Transcript, NewConversation: ev.NewConversation,
 		})
+
+		// The switch may clear the model and meter, and the provider resends only on change.
+		if p != nil && ev.Harness == "codex" {
+			a.codexModel(ev.Pane, p)
+		}
 	case ev.End:
 		_ = a.dispatch(core.SetAgentSession{ID: ev.Pane})
 		_ = a.changeAgentState(ev.Pane, core.AgentUnknown)
 	}
 
-	if ev.Harness == "codex" && ev.Model != "" {
-		_ = a.dispatch(core.SetAgentStatus{ID: ev.Pane, Session: ev.Session, Model: ev.Model})
+	// The status line's model wins; a hook's keeps the meter.
+	if ev.Harness == "codex" && ev.Model != "" && p != nil && p.codex.last.Session == "" {
+		cur := a.store.State().Panes[ev.Pane]
+
+		act := core.SetAgentStatus{ID: ev.Pane, Session: ev.Session, Model: ev.Model, Context: float64(cur.Context), ContextKnown: cur.ContextKnown}
+		if !act.Matches(cur) {
+			_ = a.dispatch(act)
+		}
 	}
 
 	if ev.ActionSet {

@@ -85,6 +85,7 @@ func (a *App) onCodexStatus(ev harness.Event) tea.Cmd {
 // A status never blocks a pane and never ends a turn, so it sends no notice.
 func (a *App) applyCodexStatus(m core.Pane, p *pane, ev harness.Event) tea.Cmd {
 	p.codex.note(ev, a.clock.Now())
+	a.codexModel(ev.Pane, p)
 
 	var state tea.Cmd
 
@@ -99,4 +100,18 @@ func (a *App) applyCodexStatus(m core.Pane, p *pane, ev harness.Event) tea.Cmd {
 
 	// A blocked pane whose status turned ready needs the tick the quiet rule runs on.
 	return tea.Batch(state, a.agentTickCmd())
+}
+
+// codexModel shows the latest status's model and meter. The name, model and
+// meter follow the thread on screen, so no thread rule applies.
+func (a *App) codexModel(id core.PaneID, p *pane) {
+	ev := p.codex.last
+	if ev.Session == "" {
+		return
+	}
+
+	act := core.SetAgentStatus{ID: id, Session: ev.Session, Model: ev.Model, Context: ev.Context, ContextKnown: ev.ContextKnown}
+	if !act.Matches(a.store.State().Panes[id]) {
+		_ = a.dispatch(act)
+	}
 }

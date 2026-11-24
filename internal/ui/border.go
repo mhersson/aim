@@ -150,7 +150,7 @@ func (a *App) topBorder(s core.State, id core.PaneID, r core.Rect, focused, brig
 
 	title := "shell"
 	if meta.Kind == core.KindAgent {
-		title = "claude"
+		title = a.harnessOf(meta).Program()
 	}
 
 	if p := a.panes[id]; p != nil {

@@ -209,7 +209,7 @@ func TestCodexWithoutStatusKeepsHookBehaviour(t *testing.T) {
 	}
 
 	start := codexHook(core.AgentIdle)
-	start.Name, start.Start = "SessionStart", true
+	start.Name, start.Start, start.Model = "SessionStart", true, "gpt-6.2-sol"
 
 	steps := []struct {
 		name string
@@ -233,6 +233,10 @@ func TestCodexWithoutStatusKeepsHookBehaviour(t *testing.T) {
 		if checksHooks(t, a) {
 			t.Errorf("%s: check /hooks shown", s.name)
 		}
+	}
+
+	if got := cardOf(t, a, "p1").model; got != "gpt-6.2-sol" {
+		t.Errorf("model = %q, want the hook's", got)
 	}
 }
 
@@ -269,5 +273,59 @@ func TestCodexStatusSurvivesSuspend(t *testing.T) {
 
 	if !checksHooks(t, a) {
 		t.Fatal("the status was lost across the suspend")
+	}
+}
+
+func TestCodexCardNameAndModel(t *testing.T) {
+	t.Parallel()
+
+	a, _, _ := codexApp(t)
+
+	early := codexHook(core.AgentWorking)
+	early.Model = "gpt-6.2-sol"
+	hook(a, early)
+
+	if got := cardOf(t, a, "p1").model; got != "gpt-6.2-sol" {
+		t.Fatalf("model before a status = %q, want the hook's", got)
+	}
+
+	status := codexStatusEv("working", "s1")
+	status.ThreadName, status.Model, status.Context, status.ContextKnown = "renamed", "GPT-6.2-Sol", 41.5, true
+	hook(a, status)
+
+	if got := a.cardName(a.store.State(), "p1"); got != "renamed" {
+		t.Errorf("card name = %q, want the thread's", got)
+	}
+
+	late := codexHook(core.AgentWorking)
+	late.Model = "x"
+	hook(a, late)
+
+	a.railSetSearch(true, "ren")
+
+	c := cardOf(t, a, "p1")
+	if c.model != "GPT-6.2-Sol" || !c.meterKnown || c.meter != 41 {
+		t.Errorf("card model %q meter %d known %v, want the status's GPT-6.2-Sol at 41", c.model, c.meter, c.meterKnown)
+	}
+}
+
+func TestCodexStatusAfterSessionSwitch(t *testing.T) {
+	t.Parallel()
+
+	a, _, _ := codexApp(t)
+
+	start := codexHook(core.AgentIdle)
+	start.Name, start.Start = "SessionStart", true
+	hook(a, start)
+
+	status := codexStatusEv("ready", "s1")
+	status.Model = "GPT-6.2-Sol"
+	hook(a, status)
+
+	start.Session = "s2"
+	hook(a, start)
+
+	if got := cardOf(t, a, "p1").model; got != "GPT-6.2-Sol" {
+		t.Errorf("model after the switch = %q, want the status's", got)
 	}
 }

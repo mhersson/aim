@@ -221,6 +221,11 @@ func (a *App) railFire(st core.State, id core.PaneID, k railProbeKind) tea.Cmd {
 	// The git probes run in the followed directory; the name probe reads the transcript.
 	cwd, own := m.FollowDir(), m.WorkDir()
 
+	// A Codex's name comes from its status line, not a transcript.
+	if k == probeName && m.Harness == "codex" {
+		return nil
+	}
+
 	target := cwd
 	if k == probeName {
 		target = m.Transcript

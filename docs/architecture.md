@@ -298,7 +298,13 @@ subagent or an unprompted `/resume` target on screen never idles a working pane.
 A status that arrives before the probe has seen its Codex is kept, latest wins,
 and applied once the probe confirms the owner, before any held hooks replay. A
 status never sets `hooksSeen`. The pane's status memory follows a suspended job
-and resets with a new launch.
+and resets with a new launch. The card's name, model and meter follow the thread
+on screen with no thread rule: the name is the status's thread name, never the
+name probe, which a Codex pane does not run. The status's model wins; a hook's
+model applies only until the launch's first status and keeps the meter. A
+SessionStart re-applies the last status's model and meter, since the session
+switch may clear them and the provider resends only on change. An agent pane's
+border falls back to its harness's program name when the terminal sets no title.
 
 **Images an agent sends.** An event with `Images` makes a batch in
 `App.onSent` (`internal/ui/sent.go`), from three sources: `SendUserFile`'s

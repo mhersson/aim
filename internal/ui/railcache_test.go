@@ -157,6 +157,15 @@ func TestRailCacheKeyCoversEveryInput(t *testing.T) {
 			visible: true,
 		},
 		{
+			name: "codex thread name",
+			prep: func(t *testing.T, a *App) {
+				openIn(t, a, core.SetPaneKind{ID: "p3", Kind: core.KindAgent, Harness: "codex"})
+				attachPanes(t, a, nil)
+			},
+			change:  func(t *testing.T, a *App) { a.panes["p3"].codex.last.ThreadName = "renamed" },
+			visible: true,
+		},
+		{
 			name: "session name",
 			prep: func(t *testing.T, a *App) {
 				openIn(t, a, core.SetAgentSession{ID: "p2", Session: "s2", Transcript: "/w/web/p2.jsonl"})
