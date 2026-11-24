@@ -211,7 +211,7 @@ func setupHooks(logger *slog.Logger, stateDir, indexCache string, watches *git.W
 	})
 
 	wg.Go(func() {
-		runTurnGate(ctx, raw, events, gitTurnWriter{tempDir: runDir, indexCache: indexCache}, places.Place, watchSeq(watches), logger)
+		runTurnGate(ctx, raw, events, gitTurnWriter{tempDir: runDir, indexCache: indexCache}, places.Place, watchSeq(watches), logger, gateOptions{})
 	})
 
 	stop := sync.OnceFunc(func() {

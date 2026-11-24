@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/mhersson/aim/internal/core"
@@ -356,6 +357,20 @@ type codexLaunch struct {
 	turn     string
 }
 
+// forgetTurn drops the pane's current turn when one of l's sessions opened it;
+// another agent's turn in the pane stays. A nil l forgets nothing.
+func (l *codexLaunch) forgetTurn(current map[core.PaneID]paneCurrent, pane core.PaneID) {
+	if l == nil {
+		return
+	}
+
+	if cur, ok := current[pane]; ok {
+		if _, own := l.sessions[core.SessionID(cur.session)]; own {
+			delete(current, pane)
+		}
+	}
+}
+
 // A completed submit keeps only its ID. Duplicate submits arriving during
 // its snapshot share the original acknowledgement.
 type codexPrompts struct {
@@ -443,9 +458,25 @@ func (l *codexLaunch) admit(ev *harness.Event) (allow bool, wait <-chan struct{}
 	return true, nil
 }
 
+// gateOptions holds the gate's probes of a registered Codex leader; a nil
+// probe uses the real one.
+type gateOptions struct {
+	ownerLeads func(tty string, pid int) bool
+	ownerAlive func(pid int) bool
+}
+
 // runTurnGate admits events in arrival order. Each pane's snapshots start
 // before UI forwarding and run one at a time independently of other panes.
-func runTurnGate(ctx context.Context, in <-chan harness.Event, out chan<- harness.Event, w turnWriter, places placeFunc, seq seqFunc, log *slog.Logger) {
+func runTurnGate(ctx context.Context, in <-chan harness.Event, out chan<- harness.Event, w turnWriter, places placeFunc, seq seqFunc, log *slog.Logger, opts gateOptions) {
+	if opts.ownerLeads == nil {
+		opts.ownerLeads = term.ForegroundOwner
+	}
+
+	if opts.ownerAlive == nil {
+		// A pid another user holds now is not the Codex this pane started.
+		opts.ownerAlive = func(pid int) bool { return syscall.Kill(pid, 0) == nil }
+	}
+
 	var wg sync.WaitGroup
 	defer wg.Wait()
 
@@ -483,8 +514,8 @@ func runTurnGate(ctx context.Context, in <-chan harness.Event, out chan<- harnes
 			switch ev.Name {
 			case harness.CodexOwnerStart:
 				if ev.OwnerPID > 0 && (owner == nil || owner.pid != ev.OwnerPID) {
+					owner.forgetTurn(current, ev.Pane)
 					owners[ev.Pane] = &codexLaunch{pid: ev.OwnerPID, tty: ev.OwnerTTY, sessions: make(map[core.SessionID]*codexPrompts)}
-					delete(current, ev.Pane)
 				}
 
 				release(ev)
@@ -493,7 +524,7 @@ func runTurnGate(ctx context.Context, in <-chan harness.Event, out chan<- harnes
 			case harness.CodexOwnerEnd:
 				if owner != nil && owner.pid == ev.OwnerPID {
 					delete(owners, ev.Pane)
-					delete(current, ev.Pane)
+					owner.forgetTurn(current, ev.Pane)
 				}
 
 				release(ev)
@@ -501,7 +532,7 @@ func runTurnGate(ctx context.Context, in <-chan harness.Event, out chan<- harnes
 				continue
 			}
 
-			if owner == nil || (owner.tty != "" && !term.ForegroundOwner(owner.tty, owner.pid)) {
+			if owner == nil || (owner.tty != "" && !opts.ownerLeads(owner.tty, owner.pid)) {
 				release(ev)
 
 				continue
@@ -525,15 +556,18 @@ func runTurnGate(ctx context.Context, in <-chan harness.Event, out chan<- harnes
 				continue
 			}
 		} else if owner != nil && !ev.Show {
-			// A Codex that exits between probes can be followed immediately by Claude.
-			if !ev.Start || owner.tty == "" || term.ForegroundOwner(owner.tty, owner.pid) {
+			if owner.tty != "" && opts.ownerLeads(owner.tty, owner.pid) {
 				release(ev)
 
 				continue
 			}
 
-			delete(owners, ev.Pane)
-			delete(current, ev.Pane)
+			// A suspended Codex keeps its registration. One whose exit the pane
+			// probe missed is retired by the next agent's hooks.
+			if !opts.ownerAlive(owner.pid) {
+				delete(owners, ev.Pane)
+				owner.forgetTurn(current, ev.Pane)
+			}
 		}
 
 		arrived := time.Now()

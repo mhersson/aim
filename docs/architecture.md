@@ -344,8 +344,13 @@ written. It lives in `cmd/aim` because it joins `internal/harness` and
 
 The gate accepts Codex hooks only for the pane's registered foreground leader.
 Launch and detach controls carry its PID. A new launch retires its predecessor,
-and a detach applies only to its matching PID. SessionStart binds the parent
-session. A first trusted prompt also binds it if hook review skipped SessionStart.
+and a detach applies only to its matching PID. Other agents' events in the pane
+pass unless the registered Codex leads the foreground, so a suspended job keeps
+its registration through them. The first such event after the leader has exited
+drops the registration. Retiring a launch clears the pane's current turn only
+when one of its sessions opened it, so another agent's turn stays.
+SessionStart binds the parent session. A first trusted prompt also binds it if
+hook review skipped SessionStart.
 A parent SessionStart with source `resume` immediately rebinds a previously visited session, even without a following prompt. Codex 0.171.0 can defer that hook until the operator submits a prompt in the selected thread, leaving a read-only visit invisible to AIM. The gate drops child events and events for earlier turns.
 Each distinct prompt turn ID gets one numbered start. Duplicate submits share
 its acknowledgement. Stop and Interrupt retire the active turn, so a delayed
