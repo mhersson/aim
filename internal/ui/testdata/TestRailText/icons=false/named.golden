@@ -5,32 +5,32 @@
 │╭────────────────────────────────────────╮││                          ││            ││     ││ │    
 ││  t16-implementer                    40s│││                          ││            ││     ││ │    
 ││  feat/review-drawer                    │││                          ││            ││     ││ │    
-││  claude Allow Bash go test ./...?      │││                          ││            ││     ││ │    
+││  Allow Bash go test ./...?             │││                          ││            ││     ││ │    
 ││  +12 -3  2 files                       │││                          ││            ││     ││ │    
 │╰────────────────────────────────────────╯││                          ││            ││     ││ │    
 │ ⠋ muxr-orchestrator                 8s ● ││                          ││            ││     ││ │    
 │   feat/review-drawer                     ││                          ││            ││     ││ │    
-│   claude Edit internal/ui/rail.go        ││                          ││            ││     ││ │    
+│   Edit internal/ui/rail.go               ││                          ││            ││     ││ │    
 │   +80 -6  4 files                        ││                          ││            ││     ││ │    
 │                                          ││                          ││            ││     ││ │    
 │ ⠋ a-session-name-far-too-long-for-a-… 3s ││                          ││            ││     ││ │    
 │   main                                   ││                          ││            ││     ││ │    
-│   claude Read README.md                  ││                          ││            ││     ││ │    
+│   Read README.md                         ││                          ││            ││     ││ │    
 │                                          ││                          ││            ││     ││ │    
 │                                          ││                          ││            ││     ││ │    
 │   t15-reviewer                        5m ││                          ││            ││     ││ │    
 │   feat/review-drawer                     ││                          ││            ││     ││ │    
-│   claude waiting for a prompt            ││                          ││            ││     ││ │    
+│   waiting for a prompt                   ││                          ││            ││     ││ │    
 │   +0 -0  0 files                         ││                          ││            ││     ││ │    
 │                                          ││                          ││            ││     ││ │    
 │   multiplex                           2h ││                          ││            ││     ││ │    
 │   main                                   ││                          ││            ││     ││ │    
-│   claude waiting for a prompt            ││                          ││            ││     ││ │    
+│   waiting for a prompt                   ││                          ││            ││     ││ │    
 │   +0 -0  0 files                         ││                          ││            ││     ││ │    
 │                                          ││                          ││            ││     ││ │    
 │   multiplex                           3h ││                          ││            ││     ││ │    
 │   main                                   ││                          ││            ││     ││ │    
-│   claude waiting for a prompt            ││                          ││            ││     ││ │    
+│   waiting for a prompt                   ││                          ││            ││     ││ │    
 │   +0 -0  0 files                         ││                          ││            ││     ││ │    
 │                                          ││                          ││            ││     ││ │    
 │                                          ││                          ││            ││     ││ │    

@@ -27,7 +27,7 @@ const idleAction = "waiting for a prompt"
 
 // railCard is one agent on the rail.
 type railCard struct {
-	harness    string
+	harness    string // the program's name; empty unless the rail lists more than one harness
 	pane       core.PaneID
 	tab        int // 0-based
 	tabName    string
@@ -167,6 +167,7 @@ func (a *App) railEntry(id core.PaneID) *railPane {
 // order, so a card changes group only when its pane changes tab.
 func (a *App) railCards(st core.State) []railGroup {
 	tabs := a.tabInfos()
+	mixed := a.railMixed(st)
 
 	var out []railGroup
 
@@ -176,10 +177,14 @@ func (a *App) railCards(st core.State) []railGroup {
 		ti, _ := st.TabOf(id)
 
 		c := railCard{
-			harness: a.harnessOf(m).Program(), pane: id, tab: ti, state: m.State, action: cardAction(m),
+			pane: id, tab: ti, state: m.State, action: cardAction(m),
 			model: cleanModel(m.Model), meter: m.Context, meterKnown: m.ContextKnown,
 			plan: m.Plan.Path != "" && m.Plan.Unread,
 		}
+		if mixed {
+			c.harness = a.harnessOf(m).Program()
+		}
+
 		if p := a.panes[id]; m.Harness == "codex" && (p == nil || !p.hooksSeen) {
 			c.action = "check /hooks"
 		}
@@ -229,6 +234,23 @@ func (a *App) railCards(st core.State) []railGroup {
 	}
 
 	return out
+}
+
+// railMixed reports whether the agent panes span two or more harnesses. It
+// counts every agent, not only the cards a search leaves.
+func (a *App) railMixed(st core.State) bool {
+	var first string
+
+	for _, id := range st.AgentPanes() {
+		hid := a.harnessOf(st.Panes[id]).ID()
+		if first == "" {
+			first = hid
+		} else if hid != first {
+			return true
+		}
+	}
+
+	return false
 }
 
 // cardLabels are the project and the session's name card line 1 can show, both

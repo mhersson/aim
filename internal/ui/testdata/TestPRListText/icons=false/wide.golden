@@ -5,36 +5,36 @@
 │                                          ││                                                                                              │
 │   api                                 0s ││                                                                                              │
 │   feat/a              #5 ci 5/5 approved ││                                                                                              │
-│   claude waiting for a prompt            ││                                                                                              │
+│   waiting for a prompt                   ││                                                                                              │
 │                                          ││                                                                                              │
 │                                          ││                                                                                              │
 │ 2 api ──────────────────────────────── 2 ││                                                                                              │
 │              ╭─ Pull requests ────────────────────────────────────────────────────────────────────────────────────────────╮              │
 │ ⠋ api        │                                                                                                            │              │
 │   feat/a     │   Agents 5   Review requested   All open                                            tab next tab  1-3 jump │              │
-│   claude     │                                                                                                            │              │
+│              │                                                                                                            │              │
 │              │  acme/api ───────────────────────────────────────────────────────────────────────────────────────────── 2  │              │
 │              │   #8 Retry on timeout  feat/c                                                    ci 3/5  no review yet  4m │              │
 │   api        │   #5 Add the a endpoint  feat/a                                                       ci 5/5  approved  3h │              │
 │   feat/c     │                                                                                                            │              │
-│   claude wait│  acme/multiplex ─────────────────────────────────────────────────────────────────────────────────────── 1  │              │
+│   waiting for│  acme/multiplex ─────────────────────────────────────────────────────────────────────────────────────── 1  │              │
 │              │  ▎#112 A pull request title that is far too long to…  feat/a-branch-with-a-rath…  ci 2 failed  changes  1d │              │
 │              │                                                                                                            │              │
 │ 3 web ───────│  acme/web ───────────────────────────────────────────────────────────────────────────────────────────── 1  │              │
 │              │   #9 Login form  feat/b                                                             ci 2 failed  draft  8s │              │
 │▎  web        │                                                                                                            │              │
 │   feat/b     │  acme/zeta ──────────────────────────────────────────────────────────────────────────────────────────── 1  │              │
-│   claude     │   #1 Zeta change  feat/z                                                                       changes  2d │              │
+│              │   #1 Zeta change  feat/z                                                                       changes  2d │              │
 │              │                                                                                                            │              │
 │              │  enter diff    i conversation    c checks    a approve    M merge    O browser    r refresh    esc close   │              │
 │   web        ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯              │
 │   feat/m                       #3 merged ││                                                                                              │
-│   claude waiting for a prompt            ││                                                                                              │
+│   waiting for a prompt                   ││                                                                                              │
 │                                          ││                                                                                              │
 │                                          ││                                                                                              │
 │   web                                 0s ││                                                                                              │
 │   main                                   ││                                                                                              │
-│   claude waiting for a prompt            ││                                                                                              │
+│   waiting for a prompt                   ││                                                                                              │
 │                                          ││                                                                                              │
 │                                          ││                                                                                              │
 │ 4 zeta ─────────────────────────────── 1 ││                                                                                              │

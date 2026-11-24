@@ -5,24 +5,24 @@
 │                      ││                  ││                  │
 │▎  api           8s ● ││                  ││                  │
 │   main               ││                  ││                  │
-│   claude Allow Bash… ││                  ││                  │
+│   Allow Bash rm -rf… ││                  ││                  │
 │   +12 -3  2 files    ││                  ││                  │
 │╭────────────────────╮││                  ││                  │
 ││⠋ web             4m│││                  ││                  │
 ││  feat/login        │││                  ││                  │
-││  claude Edit src/l…│││                  ││                  │
+││  Edit src/login.tsx│││                  ││                  │
 ││  +120 -14  5 files │││                  ││                  │
 │╰────────────────────╯││                  ││                  │
 │ 2 docs ─────────── 2 ││                  ││                  │
 │                      ││                  ││                  │
 │ ⠋ multiplex       1m ││                  ││                  │
 │   feat/agents-rail   ││                  ││                  │
-│   claude Bash go te… ││                  ││                  │
+│   Bash go test ./... ││                  ││                  │
 │   +340 -12  9 files  ││                  ││                  │
 │                      ││                  ││                  │
 │   docs            1d ││                  ││                  │
 │   main               ││                  ││                  │
-│   claude waiting fo… ││                  ││                  │
+│   waiting for a pro… ││                  ││                  │
 │   +0 -0  0 files     ││                  ││                  │
 │                      ││                  ││                  │
 │╭────────────────────────────────────────────────────────────╮│

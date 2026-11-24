@@ -5,36 +5,36 @@
 │                                          ││                                                                                              │
 │   api                                 0s ││                                                                                              │
 │   feat/a              #5 ci 5/5 approved ││                                                                                              │
-│   claude waiting for a prompt            ││                                                                                              │
+│   waiting for a prompt                   ││                                                                                              │
 │                                          ││                                                                                              │
 │                                          ││                                                                                              │
 │ 2 api ──────────────────────────────── 2 ││                                                                                              │
 │              ╭─ Pull requests ────────────────────────────────────────────────────────────────────────────────────────────╮              │
 │ ⠋ api        │                                                                                                            │              │
 │   feat/a     │   Agents 4   Review requested   All open                                            tab next tab  1-3 jump │              │
-│   claude     │                     ╭─ Approve #9 ───────────────────────────────────────────────────╮                     │              │
+│              │                     ╭─ Approve #9 ───────────────────────────────────────────────────╮                     │              │
 │              │  acme/api ──────────│                                                                │───────────────── 2  │              │
 │              │   #8 Retry on timeou│  Login form                                                    │5  no review yet  4m │              │
 │   api        │   #5 Add the a endpo│  at head 5f3a9c1, the commit listed                            │ci 5/5  approved  3h │              │
 │   feat/c     │                     │                                                                │                     │              │
-│   claude wait│  acme/web ──────────│  enter approve    esc cancel                                   │───────────────── 1  │              │
+│   waiting for│  acme/web ──────────│  enter approve    esc cancel                                   │───────────────── 1  │              │
 │              │  ▎#9 Login form  fea╰────────────────────────────────────────────────────────────────╯ 2 failed  draft  8s │              │
 │              │                                                                                                            │              │
 │ 3 web ───────│  acme/zeta ──────────────────────────────────────────────────────────────────────────────────────────── 1  │              │
 │              │   #1 Zeta change  feat/z                                                                       changes  2d │              │
 │▎  web        │                                                                                                            │              │
 │   feat/b     │  enter diff    i conversation    c checks    R ready    a approve    M merge    O browser    esc close     │              │
-│   claude     ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯              │
+│              ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯              │
 │                                          ││                                                                                              │
 │                                          ││                                                                                              │
 │   web                                 0s ││                                                                                              │
 │   feat/m                       #3 merged ││                                                                                              │
-│   claude waiting for a prompt            ││                                                                                              │
+│   waiting for a prompt                   ││                                                                                              │
 │                                          ││                                                                                              │
 │                                          ││                                                                                              │
 │   web                                 0s ││                                                                                              │
 │   main                                   ││                                                                                              │
-│   claude waiting for a prompt            ││                                                                                              │
+│   waiting for a prompt                   ││                                                                                              │
 │                                          ││                                                                                              │
 │                                          ││                                                                                              │
 │ 4 zeta ─────────────────────────────── 1 ││                                                                                              │

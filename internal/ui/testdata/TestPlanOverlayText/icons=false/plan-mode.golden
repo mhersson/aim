@@ -5,7 +5,7 @@
 │╭───│  ▎ Retry the push                                                                                          │    │
 ││  w│    ────────────────────────────────────────────────────────────────────────────────────────────────────    │    │
 ││   │                                                                                                            │    │
-││  c│    Context                                                                                                 │    │
+││   │    Context                                                                                                 │    │
 ││   │                                                                                                            │    │
 │╰───│    A push that fails on a flaky network should try twice more before it reports an error.                  │    │
 │    │                                                                                                            │    │

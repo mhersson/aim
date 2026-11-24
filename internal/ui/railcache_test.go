@@ -86,6 +86,13 @@ func TestRailCacheKeyCoversEveryInput(t *testing.T) {
 		{name: "stored top", change: func(t *testing.T, a *App) { a.rail.top = 3 }, visible: true},
 		{name: "spinner frame", change: func(t *testing.T, a *App) { a.spin++ }, visible: true},
 		{name: "pulse phase", change: func(t *testing.T, a *App) { a.rail.pulseDim = true }, visible: true},
+		{
+			name: "harness mix",
+			change: func(t *testing.T, a *App) {
+				openIn(t, a, core.SetPaneKind{ID: "p3", Kind: core.KindAgent, Harness: "codex"})
+			},
+			visible: true,
+		},
 		{name: "state", change: func(t *testing.T, a *App) { openIn(t, a, core.SetAgentState{ID: "p2", State: core.AgentIdle}) }, visible: true},
 		{name: "action", change: func(t *testing.T, a *App) { openIn(t, a, core.SetAgentAction{ID: "p2", Action: "Read go.mod"}) }, visible: true},
 		{

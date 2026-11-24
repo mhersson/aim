@@ -5,36 +5,36 @@
 │                      ││                  ││                  │
 │▎  api  Opus 5.5 8s ● ││                  ││                  │
 │   main               ││                  ││                  │
-│   claude Allow Bash… ││                  ││                  │
+│   Allow Bash rm -rf… ││                  ││                  │
 │   +12 -3  2 files    ││                  ││                  │
 │╭────────────────────╮││                  ││                  │
 ││⠋ t16-implementer 4m│││                  ││                  │
 ││  feat/login        │││                  ││                  │
-││  claude Edit src/l…│││                  ││                  │
+││  Edit src/login.tsx│││                  ││                  │
 ││  +120 -14  5 files │││                  ││                  │
 │╰────────────────────╯││                  ││                  │
 │ 2 docs ─────────── 2 ││                  ││                  │
 │                      ││                  ││                  │
 │ ⠋ multiplex       1m ││                  ││                  │
 │   feat/agents-rail   ││                  ││                  │
-│   claude Bash go te… ││                  ││                  │
+│   Bash go test ./... ││                  ││                  │
 │   +340 -12  9 files  ││                  ││                  │
 │                      ││                  ││                  │
 │   docs  Haiku 5.5 1d ││                  ││                  │
 │   main               ││                  ││                  │
-│   claude waiting fo… ││                  ││                  │
+│   waiting for a pro… ││                  ││                  │
 │   +0 -0  0 files     ││                  ││                  │
 │                      ││                  ││                  │
 │ 3 scratch ──────── 2 ││                  ││                  │
 │                      ││                  ││                  │
 │   infra          12m ││                  ││                  │
 │   a1b2c3d            ││                  ││                  │
-│   claude waiting fo… ││                  ││                  │
+│   waiting for a pro… ││                  ││                  │
 │   +2 -0  1 file      ││                  ││                  │
 │                      ││                  ││                  │
 │   scratch            ││                  ││                  │
 │                      ││                  ││                  │
-│   claude             ││                  ││                  │
+│                      ││                  ││                  │
 │                      ││                  ││                  │
 │                      ││                  ││                  │
 │                      ││                  ││                  │

@@ -121,7 +121,7 @@ Agents are grouped by the tab they are on, in tab order, and a tab with no agent
 
 1. the state, the session name (or the project), the model, the context meter, a plan mark while the plan is unread, the time since the last activity, and a dot when the agent changed state or went idle while its pane was not the focused one, until you focus it;
 2. the branch, the commits ahead of its upstream (`↑N`), and its pull request with checks and review;
-3. what the agent is doing now (the tool and its target, or the question a blocked agent asks); an idle agent reads `waiting for a prompt`;
+3. what the agent is doing now (the tool and its target, or the question a blocked agent asks); an idle agent reads `waiting for a prompt`. When agents of both kinds are on the rail, the line starts with `claude` or `codex`;
 4. the diff stats against the base branch: lines added, lines removed and the file count.
 
 ## Claude usage

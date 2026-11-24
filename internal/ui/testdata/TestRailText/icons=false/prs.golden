@@ -5,46 +5,46 @@
 │                                          ││                          ││            ││     ││     │
 │▎  api  Opus 5.5                62%  8s ● ││                          ││            ││     ││     │
 │   feat/api-keys      ↑1  #31 ci 2 failed ││                          ││            ││     ││     │
-│   claude Allow Bash rm -rf build/?       ││                          ││            ││     ││     │
+│   Allow Bash rm -rf build/?              ││                          ││            ││     ││     │
 │   +12 -3  2 files                        ││                          ││            ││     ││     │
 │╭────────────────────────────────────────╮││                          ││            ││     ││     │
 ││⠋ web  Sonnet 5.5                78%  4m│││                          ││            ││     ││     │
 ││  feat/login      ↑2  #8 ci 3/5 approved│││                          ││            ││     ││     │
-││  claude Edit src/login.tsx             │││                          ││            ││     ││     │
+││  Edit src/login.tsx                    │││                          ││            ││     ││     │
 ││  +120 -14  5 files                     │││                          ││            ││     ││     │
 │╰────────────────────────────────────────╯││                          ││            ││     ││     │
 │ 2 docs ─────────────────────────────── 2 ││                          ││            ││     ││     │
 │                                          ││                          ││            ││     ││     │
 │ ⠋ multiplex                           1m ││                          ││            ││     ││     │
 │   feat/agents… ↑14  #1042 ci 5/5 changes ││                          ││            ││     ││     │
-│   claude Bash go test ./...              ││                          ││            ││     ││     │
+│   Bash go test ./...                     ││                          ││            ││     ││     │
 │   +340 -12  9 files                      ││                          ││            ││     ││     │
 │                                          ││                          ││            ││     ││     │
 │   docs                                1d ││                          ││            ││     ││     │
 │   docs/readme                   #7 draft ││                          ││            ││     ││     │
-│   claude waiting for a prompt            ││                          ││            ││     ││     │
+│   waiting for a prompt                   ││                          ││            ││     ││     │
 │   +0 -0  0 files                         ││                          ││            ││     ││     │
 │                                          ││                          ││            ││     ││     │
 │ 3 scratch ──────────────────────────── 4 ││                          ││            ││     ││     │
 │                                          ││                          ││            ││     ││     │
 │   infra                              12m ││                          ││            ││     ││     │
 │   fix/infra                   #19 merged ││                          ││            ││     ││     │
-│   claude waiting for a prompt            ││                          ││            ││     ││     │
+│   waiting for a prompt                   ││                          ││            ││     ││     │
 │   +2 -0  1 file                          ││                          ││            ││     ││     │
 │                                          ││                          ││            ││     ││     │
 │   ops                                 3h ││                          ││            ││     ││     │
 │   fix/ops                     #20 closed ││                          ││            ││     ││     │
-│   claude waiting for a prompt            ││                          ││            ││     ││     │
+│   waiting for a prompt                   ││                          ││            ││     ││     │
 │   +0 -0  0 files                         ││                          ││            ││     ││     │
 │                                          ││                          ││            ││     ││     │
 │   tools                               5m ││                          ││            ││     ││     │
 │   feat/tools                          #5 ││                          ││            ││     ││     │
-│   claude waiting for a prompt            ││                          ││            ││     ││     │
+│   waiting for a prompt                   ││                          ││            ││     ││     │
 │   +0 -0  0 files                         ││                          ││            ││     ││     │
 │                                          ││                          ││            ││     ││     │
 │   scratch                                ││                          ││            ││     ││     │
 │                                          ││                          ││            ││     ││     │
-│   claude                                 ││                          ││            ││     ││     │
+│                                          ││                          ││            ││     ││     │
 │                                          ││                          ││            ││     ││     │
 │ j/k move  enter jump  p plan  / search   ││                          ││            ││     ││     │
 ╰──────────────────────────────────── 1 ↓ ─╯╰──────────────────────────╯╰────────────╯╰─────╯╰─────╯

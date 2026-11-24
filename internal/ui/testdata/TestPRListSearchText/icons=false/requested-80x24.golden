@@ -17,7 +17,7 @@
 │ │                                                                          │ │
 │ │  enter diff    i conversation    c checks    a approve    esc close      │ │
 │ ╰──────────────────────────────────────────────────────────────────────────╯ │
-│   claude waiting for a prompt        ││                                      │
+│   waiting for a prompt               ││                                      │
 │                                      ││                                      │
 │                                      ││                                      │
 │ j/k move  enter jump  p plan         ││                                      │
