@@ -329,3 +329,55 @@ func TestCodexStatusAfterSessionSwitch(t *testing.T) {
 		t.Errorf("model after the switch = %q, want the status's", got)
 	}
 }
+
+func TestCodexDialogKeys(t *testing.T) {
+	t.Parallel()
+
+	permission := codexHook(core.AgentBlocked)
+	permission.Name = "PermissionRequest"
+
+	question := codexHook(core.AgentBlocked)
+	question.Name = "PreToolUse"
+
+	tests := []struct {
+		name string
+		pre  []harness.Event // hooks delivered before ev
+		ev   harness.Event
+		key  string
+		want core.AgentState
+	}{
+		{"enter answers a permission", nil, permission, "enter", core.AgentWorking},
+		{"esc answers a permission", nil, permission, "esc", core.AgentWorking},
+		{"y answers a permission", nil, permission, "y", core.AgentWorking},
+		{"p answers a permission", nil, permission, "p", core.AgentWorking},
+		{"enter answers a question", nil, question, "enter", core.AgentWorking},
+		{"y does not answer a question", nil, question, "y", core.AgentBlocked},
+		{"y does not answer a question after a permission", []harness.Event{permission}, question, "y", core.AgentBlocked},
+		{"a digit answers nothing", nil, permission, "1", core.AgentBlocked},
+		{"another key answers nothing", nil, permission, "x", core.AgentBlocked},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			a, p, _ := codexApp(t)
+
+			for _, ev := range tt.pre {
+				hook(a, ev)
+			}
+
+			hook(a, tt.ev)
+
+			if got := agentState(a, "p1"); got != core.AgentBlocked {
+				t.Fatalf("setup: state = %v, want blocked", got)
+			}
+
+			a.answerDialog(p, tt.key)
+
+			if got := agentState(a, "p1"); got != tt.want {
+				t.Errorf("state = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

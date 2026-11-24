@@ -90,6 +90,10 @@ func (a *App) applyHook(ev harness.Event, probe bool) tea.Cmd {
 		return nil
 	}
 
+	if p != nil && ev.Harness == "codex" && ev.State != core.AgentUnknown {
+		p.codex.permission = ev.State == core.AgentBlocked && ev.Name == "PermissionRequest"
+	}
+
 	// A relative cwd would resolve against AIM's directory, so it counts as none.
 	// A subagent may work in a directory of its own, so its cwd says nothing of the agent's.
 	if !ev.Subagent && filepath.IsAbs(ev.Cwd) && ev.Cwd != m.AgentCwd {
@@ -348,7 +352,12 @@ func anyBlocked(st core.State) bool {
 }
 
 // dialogKey reports whether key answers a permission or question dialog.
-func dialogKey(key string) bool {
+// Codex has no digit keys; y and p answer only its permission prompt.
+func dialogKey(key string, codex, permission bool) bool {
+	if codex {
+		return key == "enter" || key == "esc" || permission && (key == "y" || key == "p")
+	}
+
 	switch key {
 	case "enter", "esc", "1", "2", "3", "4", "5", "6", "7", "8", "9":
 		return true
@@ -361,7 +370,7 @@ func dialogKey(key string) bool {
 // no hook fires for a denied permission or an interrupt.
 func (a *App) answerDialog(p *pane, key string) {
 	m := a.store.State().Panes[p.id]
-	if !dialogKey(key) || m.Harness == "codex" || m.State != core.AgentBlocked {
+	if m.State != core.AgentBlocked || !dialogKey(key, m.Harness == "codex", p.codex.permission) {
 		return
 	}
 

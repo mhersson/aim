@@ -56,8 +56,8 @@ func TestHeldHooksWaitForTheProbe(t *testing.T) {
 		hook(a, start)
 		a.answerDialog(p, "enter")
 
-		if a.store.State().Panes["p1"].State != core.AgentBlocked {
-			t.Fatal("key guessed a Codex permission answer")
+		if a.store.State().Panes["p1"].State != core.AgentWorking {
+			t.Fatal("enter did not answer the Codex block")
 		}
 
 		start.Start, start.State = false, core.AgentWorking

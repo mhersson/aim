@@ -280,7 +280,9 @@ hooks miss:
 
 - No hook fires when a permission prompt is dismissed with `esc`. So a working
   pane silent for 3 s becomes idle, and a key that answers a dialog makes a
-  blocked pane working. Hooks always win. A Codex pane's form of the quiet rule
+  blocked pane working. Claude's keys are `enter`, `esc` and the digits; Codex's
+  are `enter` and `esc`, plus `y` and `p` when a `PermissionRequest` blocked it.
+  Hooks always win. A Codex pane's form of the quiet rule
   reads its status line: `ready` for 3 s with no hook idles a working or blocked
   Codex pane, which covers a missed `Stop` or interrupt.
 - One `esc` interrupts a Claude turn, so after an `esc` that hands a pane the

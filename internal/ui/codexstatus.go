@@ -12,10 +12,11 @@ import (
 // codexStatus is what a pane keeps of its Codex's status line for the current
 // launch. The provider sends only on change, so it survives a suspend.
 type codexStatus struct {
-	last     harness.Event // latest status from the pane's owner; Session "" means none yet
-	since    time.Time     // when last's thread and run class (ready, busy, other) began
-	hookAt   time.Time     // the latest real hook this launch
-	longBusy bool          // a busy run lasted agentQuiet before the status left it
+	last       harness.Event // latest status from the pane's owner; Session "" means none yet
+	since      time.Time     // when last's thread and run class (ready, busy, other) began
+	hookAt     time.Time     // the latest real hook this launch
+	permission bool          // the block came from a PermissionRequest hook, so y and p answer it
+	longBusy   bool          // a busy run lasted agentQuiet before the status left it
 }
 
 func codexBusy(state string) bool { return state == "working" || state == "thinking" }
