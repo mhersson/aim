@@ -64,7 +64,11 @@ func (a *App) applyHook(ev harness.Event, probe bool) tea.Cmd {
 		return a.holdHook(ev)
 	}
 
-	staleSession := !ev.Start && m.Session != "" && ev.Session != "" && ev.Session != m.Session && (!ev.Subagent || ev.End)
+	// Only Codex drops other-session hooks; any harness drops another session's
+	// end, so a late end of the old session cannot wipe the new one.
+	otherSession := !ev.Start && m.Session != "" && ev.Session != "" && ev.Session != m.Session
+
+	staleSession := otherSession && (ev.Harness == "codex" && (!ev.Subagent || ev.End) || ev.End)
 	if !ok || m.Kind != core.KindAgent || wrongHarness || ownerMismatch || staleSession {
 		a.log.Debug("hook event ignored", "pane", ev.Pane, "event", ev.Name)
 

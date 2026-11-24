@@ -271,7 +271,10 @@ settings file failure disables only Claude hooks. AIM reports either failure.
 **From payload to state.** `harness.Claude.ParseEvent` reduces a payload to a
 `harness.Event`, and `App.onHook` (`internal/ui/agents.go`) applies it. The
 event-to-state table is in `internal/harness/claude.go`, pinned by recorded
-payloads in `internal/harness/testdata`. Two rules cover what hooks miss:
+payloads in `internal/harness/testdata`. A Codex hook from a session other than
+the pane's is ignored, and so is a `SessionEnd` of another session for any
+agent; other Claude hooks apply whatever their session. Two rules cover what
+hooks miss:
 
 - No hook fires when a permission prompt is dismissed with `esc`. So a working
   pane silent for 3 s becomes idle, and a key that answers a dialog makes a

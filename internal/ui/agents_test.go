@@ -793,3 +793,58 @@ func TestStatusUsageChangedIsWallClock(t *testing.T) {
 		t.Errorf("Changed = %q, want set and without a monotonic reading", got.String())
 	}
 }
+
+func TestHookFromAnotherSession(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name      string
+		harness   string
+		end       bool
+		wantState core.AgentState
+	}{
+		{"claude prompt from s2 applies", "claude-code", false, core.AgentWorking},
+		{"claude end of s2 is ignored", "claude-code", true, core.AgentIdle},
+		{"codex prompt from s2 is ignored", "codex", false, core.AgentIdle},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var (
+				a   *App
+				id  core.PaneID
+				pid int
+			)
+
+			if tc.harness == "codex" {
+				var st *starts
+
+				a, st, _ = kindApp(t)
+				st.proc(0).setFg("codex")
+
+				id, pid = "p1", 42
+				start := startEvent(t.TempDir())
+				start.Harness, start.OwnerPID = "codex", pid
+
+				for _, msg := range collect(hook(a, start)) {
+					a.Update(msg)
+				}
+			} else {
+				a, _, _ = agentApp(t)
+				id = "p2"
+
+				hook(a, harness.Event{Pane: id, Name: "SessionStart", Session: "s1", Start: true, State: core.AgentIdle})
+			}
+
+			if m := a.store.State().Panes[id]; m.Session != "s1" || m.State != core.AgentIdle {
+				t.Fatalf("setup: session %q state %v, want s1 idle", m.Session, m.State)
+			}
+
+			hook(a, harness.Event{Pane: id, Name: "Event", Session: "s2", State: core.AgentWorking, End: tc.end, Harness: tc.harness, OwnerPID: pid})
+
+			if m := a.store.State().Panes[id]; m.State != tc.wantState || m.Session != "s1" {
+				t.Errorf("state %v session %q, want %v s1", m.State, m.Session, tc.wantState)
+			}
+		})
+	}
+}
