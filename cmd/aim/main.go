@@ -90,7 +90,7 @@ func newRootCmd() *cobra.Command {
 	cmd.Flags().StringVar(&recordDir, "record", "", "write each pane's terminal output to a recording in this directory")
 	// Diagnostics for bench inputs and VT fixtures, not a user feature.
 	_ = cmd.Flags().MarkHidden("record")
-	cmd.AddCommand(newHookCmd(os.Getenv), newStatuslineCmd(os.Getenv), newShowCmd(os.Getenv))
+	cmd.AddCommand(newHookCmd(os.Getenv), newStatuslineCmd(os.Getenv), newCodexStatuslineCmd(os.Getenv), newShowCmd(os.Getenv))
 
 	return cmd
 }
