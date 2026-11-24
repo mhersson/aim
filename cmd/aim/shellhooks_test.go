@@ -349,15 +349,24 @@ fi
 { for a in "$@"; do printf '%s\0' "$a"; done; printf '\0'; } > "$OUT_DIR/real"
 `))
 
+	provider, ok := codexStatusArgs(r.copy)
+	if !ok {
+		t.Fatalf("no provider arguments for %q", r.copy)
+	}
+
+	owned := func(prefix []string, rest ...string) []string {
+		return slices.Concat(prefix, provider, rest)
+	}
+
 	pane := r.start(t, term.ShellCommand(os.Getenv, r.ig, r.home, env))
 	for _, tc := range []struct {
 		command string
 		args    []string
 		owned   bool
 	}{
-		{"codex --no-daemon hello", []string{"-c", "hooks={}", "--no-daemon", "hello"}, true},
-		{"codex resume id", []string{"--no-daemon", "-c", "hooks={}", "resume", "id"}, true},
-		{"codex -m exec 'my prompt'", []string{"--no-daemon", "-c", "hooks={}", "-m", "exec", "my prompt"}, true},
+		{"codex --no-daemon hello", owned([]string{"-c", "hooks={}"}, "--no-daemon", "hello"), true},
+		{"codex resume id", owned([]string{"--no-daemon", "-c", "hooks={}"}, "resume", "id"), true},
+		{"codex -m exec 'my prompt'", owned([]string{"--no-daemon", "-c", "hooks={}"}, "-m", "exec", "my prompt"), true},
 		{"codex exec hello", []string{"exec", "hello"}, false},
 		{"AIM_CODEX_OWNER=1 codex nested", []string{"nested"}, false},
 		{"codex --remote unix://remote", []string{"--remote", "unix://remote"}, false},
@@ -441,7 +450,7 @@ fi
 	// A launched agent still gets its private hooks with the shell integration disabled.
 	r.start(t, term.AgentCommand(os.Getenv, term.Integration{}, r.home, []string{r.copy, "exec-owned-codex", "resume", "explicit"}, env))
 
-	if got, want := r.realArgs(t), []string{"--no-daemon", "-c", "hooks={}", "resume", "explicit"}; !slices.Equal(got, want) {
+	if got, want := r.realArgs(t), owned([]string{"--no-daemon", "-c", "hooks={}"}, "resume", "explicit"); !slices.Equal(got, want) {
 		t.Fatalf("explicit argv %q, want %q", got, want)
 	}
 

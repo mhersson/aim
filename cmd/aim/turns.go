@@ -532,8 +532,21 @@ func runTurnGate(ctx context.Context, in <-chan harness.Event, out chan<- harnes
 				continue
 			}
 
-			if owner == nil || (owner.tty != "" && !opts.ownerLeads(owner.tty, owner.pid)) {
+			if owner == nil || (owner.tty != "" && !opts.ownerLeads(owner.tty, owner.pid)) || (ev.Status && ev.OwnerPID != owner.pid) {
 				release(ev)
+
+				continue
+			}
+
+			// A status binds no session and starts no snapshot, so it skips the prompt admission.
+			if ev.Status {
+				select {
+				case out <- ev:
+				case <-ctx.Done():
+					release(ev)
+
+					return
+				}
 
 				continue
 			}

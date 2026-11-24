@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/sys/unix"
 
@@ -116,6 +118,12 @@ func planShim(name string, args, environ []string, self os.FileInfo, own func(pa
 				prefix = prefix[1:]
 			}
 
+			if bin, _ := getenv("AIM_BIN"); bin != "" {
+				if status, ok := codexStatusArgs(bin); ok {
+					prefix = append(prefix, status...)
+				}
+			}
+
 			args = append(prefix, args...)
 			env = append(env, "AIM_CODEX_OWNER="+strconv.Itoa(os.Getpid()))
 		}
@@ -126,6 +134,22 @@ func planShim(name string, args, environ []string, self os.FileInfo, own func(pa
 	argv := append([]string{name}, args...)
 
 	return shimPlan{owner: owner, path: found, argv: argv, env: env}, true
+}
+
+// codexStatusArgs returns the -c overrides that start AIM's status line
+// provider. It refuses a path a TOML basic string cannot carry unchanged.
+func codexStatusArgs(bin string) ([]string, bool) {
+	if bin == "" || !utf8.ValidString(bin) || strings.ContainsFunc(bin, unicode.IsControl) {
+		return nil, false
+	}
+
+	quoted := strings.ReplaceAll(strings.ReplaceAll(bin, `\`, `\\`), `"`, `\"`)
+
+	return []string{
+		"-c", "features.tui_extensions_statusline=true",
+		"-c", `mcp_servers.aim={command="` + quoted + `",args=["codex-statusline"],env_vars=["AIM_SOCK","AIM_PANE","AIM_CODEX_OWNER","AIM_TTY"]}`,
+		"-c", `tui.status_line_provider={server="aim",tool="statusline"}`,
+	}, true
 }
 
 // shimArgs returns args with this instance's settings in front when all the

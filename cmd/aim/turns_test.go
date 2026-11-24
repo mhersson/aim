@@ -2786,3 +2786,69 @@ func TestGateCodexFinishedTurn(t *testing.T) {
 		})
 	}
 }
+
+// A Codex status is forwarded only from the pane's foreground owner, and binds nothing.
+func TestGateCodexStatusAdmission(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name          string
+		leads         bool
+		pane          core.PaneID
+		pid           int
+		wantForwarded bool
+	}{
+		{"owner", true, "p", 42, true},
+		{"other pid", true, "p", 43, false},
+		{"pane without owner", true, "q", 42, false},
+		{"owner not leading", false, "p", 42, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			w := &recordingWriter{}
+			r := startOptionsGate(t, w, noPlaces, dirSeq, newFakeOwner(tc.leads, true).options())
+
+			r.in <- harness.Event{Pane: "p", Harness: "codex", Name: harness.CodexOwnerStart, OwnerPID: 42, OwnerTTY: "/dev/ttys999"}
+
+			status := harness.Event{Pane: tc.pane, Harness: "codex", Name: "statusline", Status: true, OwnerPID: tc.pid, Session: gateSession, Start: true, TurnStart: true, Cwd: "/a"}
+
+			r.in <- status
+
+			// An unbound session's first prompt gets Start from admit; a bound one would not.
+			prompt := harness.Event{Pane: "p", Harness: "codex", Name: "UserPromptSubmit", OwnerPID: 42, Session: gateSession, TurnStart: true, TurnID: "one", Cwd: "/a"}
+
+			r.in <- prompt
+
+			drain(t, r)
+
+			var got []harness.Event
+			for len(r.out) > 0 {
+				got = append(got, <-r.out)
+			}
+
+			if forwarded := slices.ContainsFunc(got, func(ev harness.Event) bool { return ev.Status }); forwarded != tc.wantForwarded {
+				t.Fatalf("status forwarded = %v, want %v (%+v)", forwarded, tc.wantForwarded, got)
+			}
+
+			// A prompt from an owner that does not lead is dropped, whatever the status did.
+			if !tc.leads {
+				if len(w.starts()) != 0 {
+					t.Fatalf("snapshots written %+v", w.starts())
+				}
+
+				return
+			}
+
+			last := got[len(got)-1]
+			if last.Name != prompt.Name || !last.Start {
+				t.Fatalf("prompt after the status %+v, want an unbound session's first prompt with Start set", last)
+			}
+
+			// Only the prompt starts a snapshot.
+			if len(w.starts()) != 1 {
+				t.Fatalf("snapshots written %+v", w.starts())
+			}
+		})
+	}
+}

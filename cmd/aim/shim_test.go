@@ -534,3 +534,89 @@ func TestShimLeavesTheTerminalAlone(t *testing.T) {
 		t.Errorf("state through the wrapper differs from a direct run:\nwrapped:\n%s\ndirect:\n%s", wrapped, direct)
 	}
 }
+
+func TestCodexStatusArgs(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		bin         string
+		ok          bool
+		wantCommand string
+	}{
+		{"/s/aim", true, `command="/s/aim"`},
+		{`/a "b"\c/aim`, true, `command="/a \"b\"\\c/aim"`},
+		{"/a\x01/aim", false, ""},
+		{"/a\xff/aim", false, ""},
+		{"", false, ""},
+	} {
+		args, ok := codexStatusArgs(tc.bin)
+		if ok != tc.ok {
+			t.Fatalf("codexStatusArgs(%q) ok = %v, want %v", tc.bin, ok, tc.ok)
+		}
+
+		if !ok {
+			continue
+		}
+
+		if len(args) != 6 || args[0] != "-c" || args[2] != "-c" || args[4] != "-c" {
+			t.Fatalf("args %q", args)
+		}
+
+		if !strings.Contains(args[3], tc.wantCommand) {
+			t.Errorf("mcp_servers argument %q lacks %q", args[3], tc.wantCommand)
+		}
+	}
+}
+
+// planShim adds the provider for an owned interactive launch only.
+func TestPlanShimCodexStatusLine(t *testing.T) {
+	t.Parallel()
+
+	fs := newShimFS(t)
+
+	realDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(realDir, "codex"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Symlink(fs.selfPath, filepath.Join(fs.w, "codex")); err != nil {
+		t.Fatal(err)
+	}
+
+	const bin = "/s/aim"
+
+	env := func(extra ...string) []string {
+		return append([]string{
+			"PATH=" + fs.w + string(os.PathListSeparator) + realDir,
+			"AIM_SOCK=" + fs.sockPath, "AIM_PANE=p", "AIM_TTY=/dev/pts/7", "AIM_CODEX_HOOKS={}",
+		}, extra...)
+	}
+	own := func(tty string) bool { return tty == "/dev/pts/7" }
+
+	provider := []string{
+		"-c", "features.tui_extensions_statusline=true",
+		"-c", `mcp_servers.aim={command="/s/aim",args=["codex-statusline"],env_vars=["AIM_SOCK","AIM_PANE","AIM_CODEX_OWNER","AIM_TTY"]}`,
+		"-c", `tui.status_line_provider={server="aim",tool="statusline"}`,
+	}
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		env  []string
+		want []string
+	}{
+		{"owned interactive", []string{"hello"}, env("AIM_BIN=" + bin), append(append([]string{"codex", "--no-daemon", "-c", "hooks={}"}, provider...), "hello")},
+		{"user passed no-daemon", []string{"--no-daemon", "hello"}, env("AIM_BIN=" + bin), append(append([]string{"codex", "-c", "hooks={}"}, provider...), "--no-daemon", "hello")},
+		{"exec", []string{"exec", "x"}, env("AIM_BIN=" + bin), []string{"codex", "exec", "x"}},
+		{"AIM_BIN unset", []string{"hello"}, env(), []string{"codex", "--no-daemon", "-c", "hooks={}", "hello"}},
+	} {
+		plan, ok := planShim("codex", tc.args, tc.env, fs.self, own)
+		if !ok {
+			t.Fatalf("%s: no plan", tc.name)
+		}
+
+		if !slices.Equal(plan.argv, tc.want) {
+			t.Errorf("%s: argv %q, want %q", tc.name, plan.argv, tc.want)
+		}
+	}
+}
