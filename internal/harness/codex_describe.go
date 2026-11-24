@@ -65,9 +65,10 @@ func (c Codex) Describe(ctx context.Context, req DescribeRequest) (string, error
 	}
 
 	args := []string{
-		"--no-daemon", "exec", "--ephemeral", "--sandbox", "read-only", "--disable", "shell_tool",
-		"--disable", "apps", "--disable", "plugins", "--disable", "computer_use", "--disable", "browser_use",
-		"-c", `web_search="disabled"`, "-c", "agents.enabled=false", "--disable", "multi_agent_v2", "-c", `approval_policy="never"`,
+		"--no-daemon", "exec", "--ephemeral", "--sandbox", "read-only",
+		"-c", "features.shell_tool=false", "-c", "features.apps=false", "-c", "features.plugins=false",
+		"-c", "features.computer_use=false", "-c", "features.browser_use=false",
+		"-c", `web_search="disabled"`, "-c", "agents.enabled=false", "-c", "features.multi_agent_v2=false", "-c", `approval_policy="never"`,
 		"-c", "mcp_servers={" + strings.Join(disabled, ",") + "}", "--color", "never", "--output-last-message", bodyPath, "-",
 	}
 

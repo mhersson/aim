@@ -302,10 +302,22 @@ echo progress
 		t.Fatal(err)
 	}
 
-	for _, flag := range []string{"--ephemeral", "read-only", `web_search="disabled"`, `mcp_servers={"side.\"effects"={enabled=false}}`, "apps", "plugins", "approval_policy=\"never\""} {
+	for _, flag := range []string{"--ephemeral", "read-only", `web_search="disabled"`, `mcp_servers={"side.\"effects"={enabled=false}}`, "approval_policy=\"never\""} {
 		if !slices.Contains(strings.Split(string(args), "\n"), flag) {
 			t.Errorf("missing argv entry %q", flag)
 		}
+	}
+
+	argv := strings.Split(string(args), "\n")
+	for _, feature := range []string{"shell_tool", "apps", "plugins", "computer_use", "browser_use", "multi_agent_v2"} {
+		i := slices.Index(argv, "features."+feature+"=false")
+		if i < 1 || argv[i-1] != "-c" {
+			t.Errorf("missing -c features.%s=false in argv %q", feature, args)
+		}
+	}
+
+	if slices.Contains(argv, "--disable") {
+		t.Errorf("--disable in argv %q", args)
 	}
 
 	if !strings.Contains(string(args), runDir+string(os.PathSeparator)) || slices.Contains(strings.Split(string(args), "\n"), "hooks") {
