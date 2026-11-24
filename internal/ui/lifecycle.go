@@ -604,7 +604,7 @@ func (a *App) onCwd(msg paneCwdMsg) tea.Cmd {
 	}
 
 	if msg.fg != "" && p.ownerPID != 0 && (msg.fg != "codex" || msg.pid != p.ownerPID) {
-		if _, replacing := harness.ByProgram(msg.fg); !replacing && msg.liveOwner == p.ownerPID {
+		if msg.liveOwner == p.ownerPID && msg.fg != "codex" {
 			p.suspended = &suspendedJob{pid: p.ownerPID, agent: m, hooksSeen: p.hooksSeen, launchDue: p.launchDue}
 			p.ownerPID, p.hooksSeen = 0, false
 		} else {
@@ -622,7 +622,7 @@ func (a *App) onCwd(msg paneCwdMsg) tea.Cmd {
 	if job != nil && msg.fg != "" {
 		if msg.fg == "codex" && msg.pid == job.pid {
 			p.suspended = nil
-		} else if _, replacing := harness.ByProgram(msg.fg); replacing || msg.liveOwner != job.pid {
+		} else if msg.liveOwner != job.pid || msg.fg == "codex" {
 			a.retireCodex(p)
 
 			job = nil

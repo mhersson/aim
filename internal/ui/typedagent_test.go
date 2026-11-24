@@ -326,6 +326,51 @@ func TestForegroundSameCodexJob(t *testing.T) {
 	}
 }
 
+func TestSuspendedCodexSurvivesClaude(t *testing.T) {
+	t.Parallel()
+	a, st, _ := kindApp(t)
+	st.proc(0).setFg("codex")
+
+	p := a.panes["p1"]
+	ev := startEvent("/launch")
+
+	ev.Harness, ev.OwnerPID = "codex", 42
+	for _, msg := range collect(hook(a, ev)) {
+		a.Update(msg)
+	}
+
+	probe := func(fg string, pid int) {
+		a.onCwd(paneCwdMsg{p: p, id: p.id, fg: fg, pid: pid, liveOwner: 42})
+	}
+
+	probe("zsh", 7)
+	probe("claude", 9)
+
+	if p.suspended == nil || a.store.State().Panes[p.id].Kind != core.KindAgent {
+		t.Fatalf("claude in front: suspended=%v pane=%+v", p.suspended, a.store.State().Panes[p.id])
+	}
+
+	probe("zsh", 7)
+
+	if p.suspended == nil || a.store.State().Panes[p.id].Kind != core.KindShell {
+		t.Fatalf("shell after claude: suspended=%v pane=%+v", p.suspended, a.store.State().Panes[p.id])
+	}
+
+	a.onCwd(paneCwdMsg{p: p, id: p.id, fg: "codex", pid: 42})
+
+	m := a.store.State().Panes[p.id]
+	if m.Harness != "codex" || m.Session != ev.Session || !p.hooksSeen {
+		t.Fatalf("foregrounded job: %+v hooksSeen=%v", m, p.hooksSeen)
+	}
+
+	ev.Start, ev.State = false, core.AgentWorking
+	hook(a, ev)
+
+	if a.store.State().Panes[p.id].State != core.AgentWorking {
+		t.Fatal("Codex hook from the restored owner did not apply")
+	}
+}
+
 func TestCodexResumeSavedWithoutPrompt(t *testing.T) {
 	t.Parallel()
 
