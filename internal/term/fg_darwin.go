@@ -25,6 +25,7 @@ func (p *Process) ForegroundProcess() (string, int, error) {
 	}
 
 	name, err := kinfoComm(pgrp)
+
 	return name, pgrp, err
 }
 
@@ -48,5 +49,6 @@ func matchesForeground(pid int, tty unix.Stat_t) bool {
 	if err != nil {
 		return false
 	}
+
 	return kp.Eproc.Tdev == tty.Rdev && int(kp.Eproc.Tpgid) == pid
 }

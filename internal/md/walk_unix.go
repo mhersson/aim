@@ -19,5 +19,5 @@ func deviceOf(path string) (uint64, bool) {
 		return 0, false
 	}
 
-	return uint64(sys.Dev), true //nolint:unconvert // int32 on darwin
+	return uint64(sys.Dev), true //nolint:unconvert,gosec // Dev is an int32 bit pattern on darwin
 }
