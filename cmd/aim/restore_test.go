@@ -348,6 +348,13 @@ func (b *lockedBuffer) contains(s string) bool {
 	return strings.Contains(b.buf.String(), s)
 }
 
+func (b *lockedBuffer) count(s string) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return strings.Count(b.buf.String(), s)
+}
+
 func (b *lockedBuffer) len() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -366,7 +373,7 @@ func testEnv(t *testing.T) (env core.Env, cfg string) {
 	t.Setenv("XDG_STATE_HOME", shortDir(t))
 	t.Setenv("SHELL", "/bin/sh")
 
-	// run launches in the cwd; inside a repository choosing the agent would also require choosing a worktree.
+	// run launches in the cwd; outside a repository leader n opens the agent chooser, not the worktree list.
 	t.Chdir(t.TempDir())
 
 	env, err := core.DefaultEnv()
@@ -595,10 +602,18 @@ func TestRunRestoresTheSession(t *testing.T) {
 	// First run: a shell, two agents and a split shell.
 	first := startSession(t, env, cfg, false)
 
+	// The chooser opens on the repository check's answer, so enter waits for its Codex row.
+	newAgent := func() {
+		shown := first.out.count("Codex")
+		first.keys(t, "\x00n")
+		waitFor(t, func() bool { return first.out.count("Codex") > shown })
+		first.keys(t, "\r")
+	}
+
 	waitFor(t, panesAre(1))
-	first.keys(t, "\x00n\r")
+	newAgent()
 	waitFor(t, panesAre(2))
-	first.keys(t, "\x00n\r")
+	newAgent()
 	waitFor(t, panesAre(3))
 	first.keys(t, "\x00v")
 	waitFor(t, panesAre(4))

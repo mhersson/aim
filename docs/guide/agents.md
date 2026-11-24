@@ -20,19 +20,19 @@ In Claude Code one `esc` interrupts a turn. When an `esc` closes something of AI
 
 ## Start an agent
 
-To start an agent next to the focused pane, press `ctrl+space n`. Choose Claude Code or Codex with the arrow keys and press `enter`. The initial selection comes from `[agents] default` and starts at Claude Code. Press `esc` to cancel.
-
-- Outside a git repository, the selected agent starts, in the focused pane's working directory.
-- Inside one, the worktree list opens next (titled "New agent"). It lists the repository's worktrees, each with its branch, its path, how many agents already run there, and `locked` or `prunable` when git says so.
+To start an agent next to the focused pane, press `ctrl+space n`. Inside a git repository the worktree list opens at once, titled with the selected agent (`New agent · Claude Code`). The initial agent comes from `[agents] default` and starts at Claude Code. The list shows the repository's worktrees, each with its branch, its path, how many agents already run there, and `locked` or `prunable` when git says so.
 
 In the picker:
 
 | To | Press |
 | --- | --- |
-| Filter the list | type; it matches the branch and the path |
-| Move | `down`, `ctrl+n` or `tab`; `up`, `ctrl+p` or `shift+tab` (they wrap) |
+| Switch between Claude Code and Codex | `tab`, `shift+tab` |
+| Move | `j` `k`, `down` `up`, `ctrl+n` `ctrl+p` (they wrap) |
+| Filter the list | `/`, then type; it matches the branch and the path. `enter` or `esc` ends the filter and keeps it |
 | Start an agent in the selected worktree | `enter` |
 | Close the picker | `esc` |
+
+Outside a git repository, the agent chooser shows instead: pick Claude Code or Codex with the arrow keys or `tab` and press `enter` to start it in the focused pane's working directory, or `esc` to cancel.
 
 A `prunable` worktree has no directory any more; `enter` on it shows `that worktree is gone; git worktree prune removes it`.
 

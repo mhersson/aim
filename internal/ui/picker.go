@@ -69,21 +69,22 @@ type pickerMatch struct {
 
 // picker is the open worktree picker. It owns every key until it closes.
 type picker struct {
-	pane       core.PaneID
-	cwd, agent string
-	seq        int
-	tab        core.TabID
-	repo       git.Repo
-	trees      []pickerTree
-	main       string // the main checkout's path; "" when the list has none
-	home       string
+	cwd   string // where the chooser starts the agent
+	agent string
+	seq   int
+	tab   core.TabID
+	repo  git.Repo
+	trees []pickerTree
+	main  string // the main checkout's path; "" when the list has none
+	home  string
 
-	page    pickerPage
-	query   textinput.Model
-	matches []pickerMatch
-	sel     int // an index into matches, or len(matches) for the new worktree row
-	top     int
-	form    *worktreeForm // nil until the new-worktree page was first shown
+	page      pickerPage
+	query     textinput.Model
+	filtering bool // the list's query has the keyboard
+	matches   []pickerMatch
+	sel       int // an index into matches, or len(matches) for the new worktree row
+	top       int
+	form      *worktreeForm // nil until the new-worktree page was first shown
 }
 
 // worktreeForm is the new-worktree page.
@@ -141,15 +142,7 @@ func (a *App) newAgent() tea.Cmd {
 	cwd, tab, pane := a.focusedCwd(st), st.Tab().ID, st.Tab().Focus
 
 	a.picker.seq++
-	p := &picker{seq: a.picker.seq, tab: tab, pane: pane, cwd: cwd, page: pageAgent, agent: a.picker.agents.DefaultID()}
-	a.picker.open = p
-
-	return nil
-}
-
-func (a *App) checkAgentWorktrees(p *picker) tea.Cmd {
-	a.picker.open = nil
-	seq, tab, pane, cwd, agent := p.seq, p.tab, p.pane, p.cwd, p.agent
+	seq, agent := a.picker.seq, a.picker.agents.DefaultID()
 
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(a.ctx, pickerOpenTimeout)
@@ -164,9 +157,9 @@ func (a *App) checkAgentWorktrees(p *picker) tea.Cmd {
 	}
 }
 
-// onPickerOpen opens the picker, or the agent when there is nothing to pick. An
-// answer for an earlier request, another tab or pane, or under another modal is
-// dropped.
+// onPickerOpen opens the worktree list, the agent chooser outside a repository,
+// or the agent when git failed. An answer for an earlier request, another tab or
+// pane, or under another modal is dropped.
 func (a *App) onPickerOpen(msg pickerOpenMsg) tea.Cmd {
 	st := a.store.State()
 	if msg.seq != a.picker.seq || st.Tab().ID != msg.tab || st.Tab().Focus != msg.pane ||
@@ -191,15 +184,19 @@ func (a *App) onPickerOpen(msg pickerOpenMsg) tea.Cmd {
 		return nil
 	}
 
-	failed := msg.err != nil && !errors.Is(msg.err, git.ErrNotRepo)
-	if failed {
-		a.log.Warn("new agent: list worktrees", "cwd", msg.cwd, "err", msg.err)
+	if msg.err == nil || errors.Is(msg.err, git.ErrNotRepo) {
+		a.endLeader()
+		a.picker.open = &picker{page: pageAgent, agent: msg.agent, seq: msg.seq, tab: msg.tab, cwd: msg.cwd}
+
+		return nil
 	}
+
+	a.log.Warn("new agent: list worktrees", "cwd", msg.cwd, "err", msg.err)
 
 	cmd := a.openAgentIn(msg.agent, msg.cwd)
 
 	// The pane's own notice (it did not open, or fell back to the launch dir) says more.
-	if failed && a.notice == "" {
+	if a.notice == "" {
 		a.notice = "worktrees unavailable: " + gitReason(msg.err)
 	}
 
@@ -320,6 +317,10 @@ func (p *picker) edit(msg tea.Msg) {
 	}
 
 	if p.page == pageWorktrees {
+		if !p.filtering {
+			return
+		}
+
 		before := p.query.Value()
 
 		p.query, _ = p.query.Update(msg)
@@ -349,42 +350,64 @@ func (a *App) handlePickerKey(msg tea.KeyPressMsg) tea.Cmd {
 	a.notice = ""
 
 	p := a.picker.open
-	if p.page == pageAgent {
+	switch p.page {
+	case pageAgent:
 		switch msg.String() {
 		case "esc":
 			a.picker.open = nil
 		case "up", "down", "tab", "shift+tab", "ctrl+n", "ctrl+p":
-			if p.agent == "codex" {
-				p.agent = "claude-code"
-			} else {
-				p.agent = "codex"
-			}
+			p.toggleAgent()
 		case "enter":
-			return a.checkAgentWorktrees(p)
+			a.picker.open = nil
+
+			return a.openAgentIn(p.agent, p.cwd)
 		}
 
 		return nil
-	}
-
-	if p.page == pageNewWorktree {
+	case pageNewWorktree:
 		return a.pickerFormKey(p, msg)
 	}
 
 	return a.pickerListKey(p, msg)
 }
 
+func (p *picker) toggleAgent() {
+	if p.agent == "codex" {
+		p.agent = "claude-code"
+	} else {
+		p.agent = "codex"
+	}
+}
+
 func (a *App) pickerListKey(p *picker, msg tea.KeyPressMsg) tea.Cmd {
+	if p.filtering {
+		switch msg.String() {
+		case "down":
+			p.move(1)
+		case "up":
+			p.move(-1)
+		case "enter", "esc":
+			p.filtering = false
+		default:
+			p.edit(msg)
+		}
+
+		return nil
+	}
+
 	switch msg.String() {
 	case "esc":
 		a.picker.open = nil
-	case "down", "ctrl+n", "tab":
+	case "tab", "shift+tab":
+		p.toggleAgent()
+	case "j", "down", "ctrl+n":
 		p.move(1)
-	case "up", "ctrl+p", "shift+tab":
+	case "k", "up", "ctrl+p":
 		p.move(-1)
+	case "/":
+		p.filtering = true
 	case "enter":
 		return a.pickerChoose(p)
-	default:
-		p.edit(msg)
 	}
 
 	return nil

@@ -111,7 +111,7 @@ This needs Go 1.27.4 or newer. Check any install with `aim --version`.
 The keys here are the defaults, and every key can be remapped (see [the keys page](docs/guide/keys.md)).
 
 1. Run `aim` in a git repository.
-2. Press `ctrl+space n`. Choose Claude Code or Codex and press `enter`. Then choose a worktree or select `new worktree…` to create one.
+2. Press `ctrl+space n`. `tab` picks Claude Code or Codex, then choose a worktree or select `new worktree…` to create one.
 3. Give the agent a task.
 4. Press `ctrl+space a` for the agents rail, which shows who is working and who is blocked on you.
 5. Press `ctrl+space d` for the review drawer: `t` shows the agent's last turn, `b` the whole branch.

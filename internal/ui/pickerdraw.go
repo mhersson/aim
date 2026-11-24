@@ -17,6 +17,19 @@ import (
 	"github.com/mhersson/aim/internal/ui/theme"
 )
 
+// agentLabels names the harnesses the picker offers, in the chooser's order.
+var agentLabels = []struct{ id, label string }{{"claude-code", "Claude Code"}, {"codex", "Codex"}}
+
+func agentLabel(id string) string {
+	for _, l := range agentLabels {
+		if l.id == id {
+			return l.label
+		}
+	}
+
+	return id
+}
+
 // pickerBox is the box's left column, top row and width; ok is false when the
 // terminal is too small to draw it.
 func (a *App) pickerBox() (left, top, w int, ok bool) {
@@ -46,7 +59,7 @@ func (a *App) overlayPicker(f *frameLayers, base string, lk look) string {
 		fill := pt.On(pt.UI().Fg)
 		lines = []string{pt.Top(a.titled(iconAgent, "New agent"))}
 
-		for _, choice := range []struct{ id, label string }{{"claude-code", "Claude Code"}, {"codex", "Codex"}} {
+		for _, choice := range agentLabels {
 			row := fill
 			if choice.id == p.agent {
 				row = row.Background(pt.UI().Selection).Bold(true)
@@ -166,7 +179,7 @@ func (a *App) pickerListLines(p *picker, pt palette.Box) []string {
 
 	query, _ := fieldView(p.query, pt.Inner()-4, fill)
 	lines := []string{
-		pt.Top(a.titled(iconAgent, "New agent")),
+		pt.Top(a.titled(iconAgent, "New agent · "+agentLabel(p.agent))),
 		pt.Row(fill.Render(" ")+pt.On(ui.Accent).Render("❯ ")+query, fill),
 		pt.Divider(),
 	}
@@ -177,7 +190,7 @@ func (a *App) pickerListLines(p *picker, pt palette.Box) []string {
 
 	return append(lines,
 		pt.Divider(),
-		pt.Row(pt.Hints([][2]string{{"up/down", "move"}, {"enter", "open"}, {"esc", "close"}}), fill),
+		pt.Row(pt.Hints([][2]string{{"j/k", "move"}, {"/", "filter"}, {"tab", "agent"}, {"enter", "start"}}), fill),
 		pt.Bottom(" "+strconv.Itoa(p.sel+1)+" of "+strconv.Itoa(rows)+" "),
 	)
 }
