@@ -116,6 +116,12 @@ type Event struct {
 	// Status marks a status update from the agent's statusline, not a hook. It
 	// carries Session and the fields below, and leaves state, action and cwd alone.
 	Status bool `json:"status,omitempty"`
+	// ThreadName is the Codex thread's name, printable and cut like a session
+	// name; empty when it has none.
+	ThreadName string `json:"thread_name,omitempty"`
+	// RunState is Codex's agent state: starting, ready, working, waiting or
+	// thinking; empty when absent or unrecognised.
+	RunState string `json:"run_state,omitempty"`
 	// Model is the model's display name, printable and cut like an action; empty
 	// when the agent did not report one.
 	Model string `json:"model,omitempty"`
