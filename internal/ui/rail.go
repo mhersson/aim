@@ -168,6 +168,7 @@ func (a *App) railEntry(id core.PaneID) *railPane {
 func (a *App) railCards(st core.State) []railGroup {
 	tabs := a.tabInfos()
 	mixed := a.railMixed(st)
+	now := a.clock.Now()
 
 	var out []railGroup
 
@@ -185,7 +186,7 @@ func (a *App) railCards(st core.State) []railGroup {
 			c.harness = a.harnessOf(m).Program()
 		}
 
-		if p := a.panes[id]; m.Harness == "codex" && (p == nil || !p.hooksSeen) {
+		if p := a.panes[id]; p != nil && p.codex.checkHooks(now, p.hooksSeen) {
 			c.action = "check /hooks"
 		}
 

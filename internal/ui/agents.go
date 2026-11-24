@@ -55,6 +55,10 @@ func (a *App) applyHook(ev harness.Event, probe bool) tea.Cmd {
 		return a.onSent(ev)
 	}
 
+	if ev.Status && ev.Harness == "codex" {
+		return a.onCodexStatus(ev)
+	}
+
 	m, ok := a.store.State().Panes[ev.Pane]
 	p := a.panes[ev.Pane]
 	ownerMismatch := ev.Harness == "codex" && (p == nil || p.ownerPID == 0 || p.ownerPID != ev.OwnerPID)
@@ -77,6 +81,7 @@ func (a *App) applyHook(ev harness.Event, probe bool) tea.Cmd {
 
 	if p != nil && ev.Harness == "codex" {
 		p.hooksSeen = true
+		p.codex.hookAt = a.clock.Now()
 	}
 
 	if ev.Status {
@@ -279,7 +284,16 @@ func (a *App) onAgentTick() tea.Cmd {
 
 	for id, m := range a.store.State().Panes {
 		p, ok := a.panes[id]
-		if !ok || m.Harness == "codex" || m.State != core.AgentWorking {
+		if ok && m.Harness == "codex" {
+			if p.codex.quiet(m, now) {
+				// dispatch logs its own failures.
+				_ = a.changeAgentState(id, core.AgentIdle)
+			}
+
+			continue
+		}
+
+		if !ok || m.State != core.AgentWorking {
 			continue
 		}
 
@@ -297,9 +311,14 @@ func (a *App) onAgentTick() tea.Cmd {
 	return a.agentTickCmd()
 }
 
+// anyWorking also counts a blocked Codex whose status is ready: the quiet rule may idle it.
 func (a *App) anyWorking() bool {
-	for _, m := range a.store.State().Panes {
+	for id, m := range a.store.State().Panes {
 		if m.State == core.AgentWorking {
+			return true
+		}
+
+		if p := a.panes[id]; p != nil && m.Harness == "codex" && m.State == core.AgentBlocked && p.codex.last.RunState == "ready" && p.codex.threadOK(m) {
 			return true
 		}
 	}

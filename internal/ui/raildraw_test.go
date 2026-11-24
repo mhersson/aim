@@ -13,6 +13,7 @@ import (
 
 	"github.com/mhersson/aim/internal/core"
 	"github.com/mhersson/aim/internal/git"
+	"github.com/mhersson/aim/internal/harness"
 	"github.com/mhersson/aim/internal/ui/theme"
 )
 
@@ -323,6 +324,16 @@ func railCases() []railCase {
 			a := fixture(100, 30, nil)(t, th, icons)
 			a.rail.sel = "p6"
 			openIn(t, a, core.SetPaneKind{ID: "p6", Kind: core.KindAgent, Harness: "codex"})
+
+			c := contentRect(a.layoutRects()["p6"])
+			p := newPane("p6", newFakeProc(), max(c.W, 1), max(c.H, 1), a.clock)
+
+			t.Cleanup(func() { _ = p.close() })
+
+			// No rendered rows: the frame pads p6's body as it did before p6 had a pane.
+			p.rows = nil
+			p.codex = codexStatus{last: harness.Event{RunState: "working"}, since: t0.Add(-agentQuiet)}
+			a.panes["p6"] = p
 
 			return a
 		}},

@@ -319,7 +319,7 @@ func (a *App) closePane(id core.PaneID) tea.Cmd {
 func (a *App) retireCodex(p *pane) {
 	pid := p.trackedCodexPID()
 	p.suspended = nil
-	p.ownerPID, p.hooksSeen = 0, false
+	p.ownerPID, p.hooksSeen, p.codex = 0, false, codexStatus{}
 
 	if pid == 0 || a.hookSock == "" {
 		return
@@ -605,8 +605,8 @@ func (a *App) onCwd(msg paneCwdMsg) tea.Cmd {
 
 	if msg.fg != "" && p.ownerPID != 0 && (msg.fg != "codex" || msg.pid != p.ownerPID) {
 		if msg.liveOwner == p.ownerPID && msg.fg != "codex" {
-			p.suspended = &suspendedJob{pid: p.ownerPID, agent: m, hooksSeen: p.hooksSeen, launchDue: p.launchDue}
-			p.ownerPID, p.hooksSeen = 0, false
+			p.suspended = &suspendedJob{pid: p.ownerPID, agent: m, hooksSeen: p.hooksSeen, launchDue: p.launchDue, codex: p.codex}
+			p.ownerPID, p.hooksSeen, p.codex = 0, false, codexStatus{}
 		} else {
 			a.retireCodex(p)
 		}
@@ -636,7 +636,15 @@ func (a *App) onCwd(msg paneCwdMsg) tea.Cmd {
 	kind := a.applyKind(p, msg.fg)
 	if job != nil && msg.fg == "codex" && msg.pid == job.pid {
 		_ = a.dispatch(core.ResumePaneJob{ID: p.id, Agent: job.agent})
-		p.hooksSeen, p.launchDue = job.hooksSeen, job.launchDue
+		p.hooksSeen, p.launchDue, p.codex = job.hooksSeen, job.launchDue, job.codex
+	}
+
+	// Before the held hooks replay, so they own the state.
+	if ev := p.codexPending; ev.Status && p.ownerPID == ev.OwnerPID {
+		if m := a.store.State().Panes[msg.id]; m.Kind == core.KindAgent && m.Harness == "codex" {
+			p.codexPending = harness.Event{}
+			kind = tea.Batch(kind, a.applyCodexStatus(m, p, ev))
+		}
 	}
 
 	if p.heldProbe != 0 && msg.seq >= p.heldProbe {
@@ -710,7 +718,7 @@ func (a *App) applyKind(p *pane, fg string) tea.Cmd {
 
 	switch {
 	case (m.Kind == core.KindShell || m.Harness != h.ID()) && fg == h.Program():
-		p.hooksSeen = false
+		p.hooksSeen, p.codex = false, codexStatus{}
 		p.seen = true
 		p.launched = time.Time{}
 		p.launchDue = true

@@ -113,8 +113,8 @@ type Event struct {
 	// Show marks an aim show line, not a hook: it carries Pane, Name "show", Images and Caption.
 	Show bool `json:"show,omitempty"`
 
-	// Status marks a status update from the agent's statusline, not a hook. It
-	// carries Session and the fields below, and leaves state, action and cwd alone.
+	// Status marks a status update from the agent's statusline, not a hook. It carries
+	// Session and the fields below; only a Codex RunState sets state, through the UI's status rules.
 	Status bool `json:"status,omitempty"`
 	// ThreadName is the Codex thread's name, printable and cut like a session
 	// name; empty when it has none.

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/mhersson/aim/internal/core"
+	"github.com/mhersson/aim/internal/harness"
 	"github.com/mhersson/aim/internal/ui/theme"
 )
 
@@ -144,6 +145,17 @@ func TestRailCacheKeyCoversEveryInput(t *testing.T) {
 		{name: "stats", change: func(t *testing.T, a *App) { probe(a, "p2").stats.Added = 999 }, visible: true},
 		{name: "stats known", change: func(t *testing.T, a *App) { probe(a, "p1").statsKnown = false }, visible: true},
 		{name: "unseen mark", change: func(t *testing.T, a *App) { a.railEntry("p3").unseen = true }, visible: true},
+		{
+			name: "check /hooks",
+			prep: func(t *testing.T, a *App) {
+				openIn(t, a, core.SetPaneKind{ID: "p3", Kind: core.KindAgent, Harness: "codex"})
+				attachPanes(t, a, nil)
+			},
+			change: func(t *testing.T, a *App) {
+				a.panes["p3"].codex = codexStatus{last: harness.Event{RunState: "working"}, since: t0.Add(-agentQuiet)}
+			},
+			visible: true,
+		},
 		{
 			name: "session name",
 			prep: func(t *testing.T, a *App) {

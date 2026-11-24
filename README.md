@@ -73,7 +73,7 @@ Watch it as a [video (MP4)](https://github.com/user-attachments/assets/26f3b30c-
 - Linux or macOS (there is no Windows build).
 - A true-colour terminal. AIM is tested in Kitty and Ghostty; pictures need the Kitty graphics protocol.
 - A Nerd Font, or `icons = false` in the config.
-- Claude Code or Codex CLI, with the corresponding executable (`claude` or `codex`) on your login shell's PATH. AIM has been tested with Codex CLI 0.171.0.
+- Claude Code or Codex CLI, with the corresponding executable (`claude` or `codex`) on your login shell's PATH. AIM has been tested with Codex CLI 0.172.0.
 - On macOS with a second input source, the system takes `ctrl+space`, AIM's default leader key, for "Select the previous input source". Turn that shortcut off in System Settings, Keyboard, Keyboard Shortcuts, Input Sources, or set another leader, such as `leader_key = "ctrl+a"` under `[keys]` (see [the leader key](docs/guide/config.md#the-leader-key)).
 - git 2.36 or newer.
 - For pull requests and checks, a GitHub token, found the way `gh` finds one: `GH_TOKEN` or `GITHUB_TOKEN`, else the token `gh auth login` stored (see [what AIM needs](docs/guide/pull-requests.md#what-aim-needs)). Without one, everything but the GitHub features works.

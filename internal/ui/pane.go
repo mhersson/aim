@@ -57,6 +57,7 @@ type suspendedJob struct {
 	pid                  int
 	agent                core.Pane
 	hooksSeen, launchDue bool
+	codex                codexStatus
 }
 
 func (p *pane) trackedCodexPID() int {
@@ -84,6 +85,8 @@ type pane struct {
 	ownerPID               int
 	suspended              *suspendedJob
 	hooksSeen              bool
+	codex                  codexStatus
+	codexPending           harness.Event   // a status that arrived before the probe confirmed its owner; latest wins
 	holdArmed              bool            // a holdTick is outstanding
 	cwdAt                  time.Time       // start of the last cwd lookup
 	cwdBusy                bool            // a lookup is running

@@ -32,14 +32,14 @@ type railKey struct {
 // read from, the session name and the age as displayed (its unit and count, so
 // an age that renders the same does not rebuild).
 type railAgentKey struct {
-	hooksSeen bool
-	unseen    bool
-	probe     railProbe
-	prRepo    github.Repo
-	prOK      bool
-	name      railName
-	ageN      int
-	ageUnit   byte
+	checkHooks bool
+	unseen     bool
+	probe      railProbe
+	prRepo     github.Repo
+	prOK       bool
+	name       railName
+	ageN       int
+	ageUnit    byte
 }
 
 // railFitKey is the inputs of railFit. Without a search the cards' text does
@@ -111,7 +111,7 @@ func (a *App) railAgentKeys(dst []railAgentKey, ids []core.PaneID, now time.Time
 		}
 
 		if p := a.panes[id]; p != nil {
-			k.hooksSeen = p.hooksSeen
+			k.checkHooks = p.codex.checkHooks(now, p.hooksSeen)
 			if p.lastOut.After(active) {
 				active = p.lastOut
 			}

@@ -188,7 +188,7 @@ Linux reads the leader's comm and checks native Codex and Node or Bun launcher a
 argv[1]'s when argv[0] is `node` or `bun` and argv[1] is not an option, since an
 npm install's `claude` runs as `node <path>/claude` (`internal/term/procargs.go`).
 
-**Interactive Codex.** The per-instance shell directory also supplies a `codex` wrapper and shell function. Explicit launches run the same wrapper through the instance binary, including with shell integration disabled. The wrapper identifies a local TUI or resume, checks foreground ownership, registers the process group leader with the turn gate, and execs the real CLI with `--no-daemon` and the hook table. Codex runs hook commands in detached sessions. Before sending, a hook reads the registered leader's terminal device and foreground group from procfs on Linux or kinfo_proc on Darwin, matching them against `AIM_TTY` and its launch PID. The pane probe and asynchronous edit lookups carry the same PID. A held hook waits for a probe requested after it arrived, and an edit lookup checks the launch as well as the session before changing the followed worktree. A suspended job keeps its registration while the leader lives. A return to the same foreground PID restores its pane metadata. Exit or replacement retires that launch. New panes clear inherited ownership and hook settings. A foreground Codex without observed hooks shows `check /hooks` on the rail.
+**Interactive Codex.** The per-instance shell directory also supplies a `codex` wrapper and shell function. Explicit launches run the same wrapper through the instance binary, including with shell integration disabled. The wrapper identifies a local TUI or resume, checks foreground ownership, registers the process group leader with the turn gate, and execs the real CLI with `--no-daemon` and the hook table. Codex runs hook commands in detached sessions. Before sending, a hook reads the registered leader's terminal device and foreground group from procfs on Linux or kinfo_proc on Darwin, matching them against `AIM_TTY` and its launch PID. The pane probe and asynchronous edit lookups carry the same PID. A held hook waits for a probe requested after it arrived, and an edit lookup checks the launch as well as the session before changing the followed worktree. A suspended job keeps its registration while the leader lives. A return to the same foreground PID restores its pane metadata. Exit or replacement retires that launch. New panes clear inherited ownership and hook settings. A Codex whose status line has reported working or thinking for 3 s with no hook since its launch shows `check /hooks` on the rail, until a hook arrives.
 
 **Codex status line.** An owned interactive launch also gets three more `-c` overrides, built from `AIM_BIN`: they enable Codex's status line extension, register `aim codex-statusline` as the MCP server `aim`, and name its `statusline` tool as the status line provider. A path with a control character or invalid UTF-8 gets none of them, and an older Codex ignores unknown keys. The provider (`cmd/aim/codexstatus.go`) replies `null` to every `resources/read`, which blanks Codex's own footer, and the model sees the tool as `mcp__aim__statusline`. It sends a changed snapshot only, through one sender with a 500 ms budget, after the hook's foreground check. The turn gate admits a status only from the pane's registered owner while it leads the foreground. Status never binds a session, starts a snapshot or goes through the prompt admission.
 
@@ -280,10 +280,25 @@ hooks miss:
 
 - No hook fires when a permission prompt is dismissed with `esc`. So a working
   pane silent for 3 s becomes idle, and a key that answers a dialog makes a
-  blocked pane working. Hooks always win.
+  blocked pane working. Hooks always win. A Codex pane's form of the quiet rule
+  reads its status line: `ready` for 3 s with no hook idles a working or blocked
+  Codex pane, which covers a missed `Stop` or interrupt.
 - One `esc` interrupts a Claude turn, so after an `esc` that hands a pane the
   keyboard, further ones are held back briefly (`handleKey`,
   `internal/ui/input.go`; [Esc and Claude Code](guide/agents.md#esc-and-claude-code)).
+
+**Codex status in the UI.** `App.onCodexStatus` (`internal/ui/codexstatus.go`)
+takes a Codex status from the pane's owner whatever the pane's recorded session.
+Until the launch's first real hook, `ready` makes the pane idle and `working` or
+`thinking` make it working; other states change nothing. After a hook, hooks own
+the state but for the Codex quiet rule above. A status never makes a pane blocked and
+never ends a turn, so it sends no notice. The state rules use a status only when
+the pane has no recorded session or the status's thread is that session, so a
+subagent or an unprompted `/resume` target on screen never idles a working pane.
+A status that arrives before the probe has seen its Codex is kept, latest wins,
+and applied once the probe confirms the owner, before any held hooks replay. A
+status never sets `hooksSeen`. The pane's status memory follows a suspended job
+and resets with a new launch.
 
 **Images an agent sends.** An event with `Images` makes a batch in
 `App.onSent` (`internal/ui/sent.go`), from three sources: `SendUserFile`'s
