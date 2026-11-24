@@ -653,7 +653,9 @@ the followed place back, and one after a session change records nothing.
   come back from hooks, polls and probes; saving them would restore stale facts.
 - **Format.** Version 2, encoded only in `internal/store` (`state.go`,
   `layout.go`); core has no JSON tags. New fields are optional, so the version
-  stays 2. A file that does not decode is kept as `state.json.bad`.
+  stays 2. A file that does not decode is kept as `state.json.bad`. An agent
+  pane whose harness this build does not know decodes as a shell in its
+  directory and a start-up notice names it, so the rest of the file loads.
 - **Resume.** Each agent starts in its saved launch directory with its own
   harness and settings. Claude uses `--resume <id>` when its transcript still
   exists. Codex uses `resume <id>` and resolves the session itself. Agents

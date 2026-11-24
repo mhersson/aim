@@ -217,6 +217,8 @@ Each agent pane resumes its saved conversation with the same agent and launch di
 
 An agent without a usable session starts a fresh conversation and AIM shows a notice. A refused resume gets one fresh launch of the same agent. Claude Code without hook settings follows the foreground process and leaves a shell when Claude exits. If the executable is missing, the pane shows the shell's error and stays usable as a login shell. A pane whose directory is gone starts in the launch directory and the notice names both directories.
 
+An agent of a kind this AIM does not know comes back as a shell in its directory, and a notice names the kind. AIM releases from before Codex support discard a saved layout that holds a Codex pane and keep it as `state.json.bad`.
+
 To start with one shell instead, run `aim --fresh`. That shell is the first change, so the new layout replaces the saved one as soon as AIM starts.
 
 If the saved layout cannot be read, AIM keeps it as `state.json.bad` and starts fresh with `the saved layout could not be read; it was kept as state.json.bad`.

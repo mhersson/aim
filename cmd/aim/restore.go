@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/mhersson/aim/internal/core"
 	"github.com/mhersson/aim/internal/harness"
@@ -56,7 +59,32 @@ func loadState(statePath string, fresh bool, cfg core.Config) (core.State, []str
 		notices = append(notices, fmt.Sprintf("%d saved tab layouts could not be read; restored them with default layouts", rep.Defaulted))
 	}
 
+	if n := skippedNotice(rep.Skipped); n != "" {
+		notices = append(notices, n)
+	}
+
 	return st, notices
+}
+
+// skippedNotice names the harnesses of saved agents restored as shells, each
+// once; %q escapes control bytes. It is empty for none.
+func skippedNotice(ids []string) string {
+	var names []string
+
+	for _, id := range ids {
+		if q := strconv.Quote(id); !slices.Contains(names, q) {
+			names = append(names, q)
+		}
+	}
+
+	switch len(ids) {
+	case 0:
+		return ""
+	case 1:
+		return fmt.Sprintf("a saved agent of unknown kind %s was restored as a shell", names[0])
+	}
+
+	return fmt.Sprintf("%d saved agents of unknown kinds %s were restored as shells", len(ids), strings.Join(names, ", "))
 }
 
 // checkResume clears the session of every agent that cannot resume: one with

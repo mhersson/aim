@@ -244,6 +244,22 @@ func optLayout(l string) string {
 	return `,"layout":` + l
 }
 
+func TestDecodeUnknownHarnessIsShell(t *testing.T) {
+	t.Parallel()
+
+	panes := `"p1":{"kind":"agent","harness":"claude-code","cwd":"/a","session_id":"` + sessionA + `"},` +
+		`"p2":{"kind":"agent","harness":"gemini","cwd":"/w","session_id":"` + sessionB + `"},` +
+		`"p3":{"kind":"agent","harness":"Codex","cwd":"rel"}`
+	tabs := tabDoc("t1", "p1", `"p1","p2"`, twoLayout) + "," + tabDoc("t2", "p3", `"p3"`, `{"pane":"p3"}`)
+
+	st, rep, err := decodeDefault([]byte(doc("2", "0", tabs, panes)))
+	noErr(t, err)
+	eq(t, st.Panes["p2"], core.Pane{Kind: core.KindShell, Cwd: "/w"})
+	eq(t, st.Panes["p3"], core.Pane{Kind: core.KindShell})
+	eq(t, st.Panes["p1"].Session, core.SessionID(sessionA))
+	eq(t, rep.Skipped, []string{"Codex", "gemini"})
+}
+
 func TestDecodeValidation(t *testing.T) {
 	one := tabDoc("t1", "p1", `"p1","p2"`, twoLayout)
 
@@ -266,7 +282,6 @@ func TestDecodeValidation(t *testing.T) {
 		{"pane_ids names a missing pane", doc("2", "0", tabDoc("t1", "p1", `"p1","p2","p7"`, twoLayout), twoPanes)},
 		{"pane in no tab", doc("2", "0", tabDoc("t1", "p1", `"p1"`, `{"pane":"p1"}`), twoPanes)},
 		{"kind review", doc("2", "0", one, `"p1":{"kind":"review"},"p2":{"kind":"shell"}`)},
-		{"harness ID with wrong case", doc("2", "0", one, `"p1":{"kind":"agent","harness":"Codex"},"p2":{"kind":"shell"}`)},
 		{"agent without harness", doc("2", "0", one, `"p1":{"kind":"agent"},"p2":{"kind":"shell"}`)},
 		{"empty tab beside another", doc("2", "0", one+","+tabDoc("t2", "", ``, `null`), twoPanes)},
 		{"tab id shape", doc("2", "0", tabDoc("x1", "p1", `"p1","p2"`, twoLayout), twoPanes)},

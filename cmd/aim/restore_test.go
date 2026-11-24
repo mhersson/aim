@@ -170,6 +170,37 @@ func TestLoadState(t *testing.T) {
 		}
 	})
 
+	t.Run("agents of an unknown harness", func(t *testing.T) {
+		tests := []struct {
+			name string
+			ids  []string
+		}{
+			{"one", []string{"gemini"}},
+			{"two", []string{"gemini", "x"}},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				path := filepath.Join(t.TempDir(), "state.json")
+
+				var tabs, panes []string
+
+				for i, id := range tt.ids {
+					n := strconv.Itoa(i + 1)
+					tabs = append(tabs, `{"id":"t`+n+`","mode":"bsp","focused":"p`+n+`","pane_ids":["p`+n+`"],"layout":{"pane":"p`+n+`"}}`)
+					panes = append(panes, `"p`+n+`":{"kind":"agent","harness":`+strconv.Quote(id)+`,"cwd":"/w"}`)
+				}
+
+				writeFile(t, path, `{"version":2,"active":0,"tabs":[`+strings.Join(tabs, ",")+`],"panes":{`+strings.Join(panes, ",")+`}}`)
+
+				st, notices := loadState(path, false, testCfg)
+
+				if st.Panes["p1"].Kind != core.KindShell || !slices.Equal(notices, []string{skippedNotice(tt.ids)}) {
+					t.Errorf("state = %+v, notices = %q, want a shell and %q", st, notices, skippedNotice(tt.ids))
+				}
+			})
+		}
+	})
+
 	t.Run("tab layouts that could not be read", func(t *testing.T) {
 		tests := []struct {
 			name    string
@@ -195,6 +226,23 @@ func TestLoadState(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestSkippedNotice(t *testing.T) {
+	t.Parallel()
+
+	if got := skippedNotice(nil); got != "" {
+		t.Errorf("skippedNotice(nil) = %q, want none", got)
+	}
+
+	one, same, two := skippedNotice([]string{"a"}), skippedNotice([]string{"a", "a"}), skippedNotice([]string{"a", "b"})
+	if one == same || same == two || !strings.Contains(two, `"b"`) || strings.Count(same, `"a"`) != 1 {
+		t.Errorf("notices %q, %q, %q: want a singular form and a plural one naming each ID once", one, same, two)
+	}
+
+	if got := skippedNotice([]string{"x\x1b[31m"}); strings.Contains(got, "\x1b") {
+		t.Errorf("notice %q carries an escape byte", got)
+	}
 }
 
 func TestCheckResume(t *testing.T) {
