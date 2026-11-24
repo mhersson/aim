@@ -442,7 +442,18 @@ func TestLiveCodexHooks(t *testing.T) {
 
 	exe := filepath.Join(root, "record")
 
+	// Codex passes the provider only the variables in env_vars, so the
+	// recorder names the test binary itself.
 	recorder := `#!/bin/sh
+if [ "$1" = codex-statusline ]; then
+    exec '` + strings.ReplaceAll(bin, "'", `'\''`) + `' codex-statusline
+fi
+if [ "$1" = hook ] && [ "$3" = --note ]; then
+    input=$(mktemp)
+    cat > "$input"
+    curl --silent --show-error --max-time 30 --data-binary @"$input" ` + fixture.url + `/hook/"$AIM_PANE"/hook >/dev/null
+    exec "$AIM_PROBE" hook codex --note < "$input"
+fi
 if [ "$1" = hook ] && [ "$AIM_PANE" = first ] && mkdir "$TMPDIR/captured" 2>/dev/null; then
     cat > "$TMPDIR/captured/input"
     "$AIM_PROBE" hook codex < "$TMPDIR/captured/input" >/dev/null
@@ -460,7 +471,12 @@ exec curl --silent --show-error --max-time 30 --data-binary @- ` + fixture.url +
 
 	initialEnv := append(slices.Clone(env), "AIM_SOCK="+sock, "AIM_CODEX_HOOKS="+a.HookTable(false))
 	ui := launchLiveCodex(t, root, "first", launch, initialEnv)
+	hookEvents, statuses := splitTracked(t, tracked)
 	ui.skipHookReview(t)
+	logStatus(t, "before the first prompt", statuses.wait(t, "no ready status before the first prompt", func(ev harness.Event) bool {
+		return ev.Pane == "first" && ev.RunState == "ready" && strconv.Itoa(ev.OwnerPID) == ui.pid
+	}))
+	ui.noFooter(t)
 	ui.submit(t, "unreviewed-fixture")
 
 	unreviewed := fixture.next(t)
@@ -471,6 +487,11 @@ exec curl --silent --show-error --max-time 30 --data-binary @- ` + fixture.url +
 	unreviewed.Reply <- codexComplete
 
 	ui.wait(t, "Worked for")
+	ui.submit(t, "/rename status-name")
+	logStatus(t, "after /rename", statuses.wait(t, "no status with the new thread name", func(ev harness.Event) bool {
+		return ev.Pane == "first" && ev.ThreadName == "status-name" && strconv.Itoa(ev.OwnerPID) == ui.pid
+	}))
+	ui.noFooter(t)
 	ui.send(t, "/hooks")
 	ui.wait(t, "manage lifecycle hooks")
 	ui.send(t, "Enter")
@@ -489,11 +510,11 @@ exec curl --silent --show-error --max-time 30 --data-binary @- ` + fixture.url +
 
 	for _, want := range []string{harness.CodexOwnerStart, "UserPromptSubmit"} {
 		select {
-		case ev := <-tracked:
+		case ev := <-hookEvents:
 			if ev.Name != want || ev.Pane != "first" || strconv.Itoa(ev.OwnerPID) != ui.pid || (ev.Name != harness.CodexOwnerStart && string(ev.Session) != prompt.Session) {
 				t.Fatalf("production hook route %+v, foreground pid %s", ev, ui.pid)
 			}
-		default:
+		case <-time.After(5 * time.Second):
 			t.Fatalf("missing production %s", want)
 		}
 	}
@@ -520,6 +541,9 @@ exec curl --silent --show-error --max-time 30 --data-binary @- ` + fixture.url +
 	}
 
 	stopped.Reply <- ""
+	// Without the provider, Codex's own footer shows once a turn is done.
+	second.wait(t, codexFooter)
+	t.Logf("footer check: the pane without the provider shows %q, the provider's pane does not", codexFooter)
 
 	fixture.release(prompt, held)
 	d := fixture.model(t, "first", prompt)
@@ -629,6 +653,42 @@ exec curl --silent --show-error --max-time 30 --data-binary @- ` + fixture.url +
 	ui.stop(ctx, t)
 	cancel()
 
+	noted := launchLiveCodex(t, root, "noted", a.Launch(a.HookTable(true), ""), notedEnv(t, root, env))
+	noted.wait(t, "Review hooks")
+	noted.send(t, "2")
+	noted.wait(t, "› 2. Trust all")
+	noted.send(t, "Enter")
+	noted.wait(t, "Ask Codex")
+	noted.submit(t, "noted-fixture")
+
+	notedStart, notedPrompt, notedAck := fixture.firstPrompt(t, "noted", "noted-fixture")
+	if notedStart.Name != "SessionStart" || notedStart.Session != notedPrompt.Session {
+		t.Fatalf("noted start %+v, prompt %+v", notedStart, notedPrompt)
+	}
+
+	fixture.release(notedPrompt, notedAck)
+
+	notedModel := fixture.model(t, "noted", notedPrompt)
+	if !strings.Contains(string(notedModel.Body), showNote[:40]) {
+		t.Fatalf("the SessionStart note did not reach the model: %s", notedModel.Body)
+	}
+
+	notedModel.Reply <- codexComplete
+
+	notedStop := fixture.next(t)
+	if h := fixture.readHook(t, notedStop, "noted"); h.Name != "Stop" || h.Turn != notedPrompt.Turn {
+		t.Fatalf("noted completion: %+v", h)
+	}
+
+	notedStop.Reply <- ""
+
+	noted.wait(t, "Worked for")
+
+	// Codex reports a failing hook in the transcript as "Hook failed".
+	if screen, err := noted.tmux(t.Context(), "capture-pane", "-p"); err != nil || strings.Contains(screen, "Hook failed") {
+		t.Fatalf("SessionStart hook with the note: %v\n%s", err, screen)
+	}
+
 	resumed := launchLiveCodex(t, root, "resumed", a.Launch(a.HookTable(false), core.SessionID(prompt.Session)), env)
 	resumed.wait(t, "picked-unreviewed-fixture")
 	resumed.submit(t, "resume-fixture")
@@ -668,6 +728,122 @@ exec curl --silent --show-error --max-time 30 --data-binary @- ` + fixture.url +
 
 	resumed.wait(t, "Print fixture directory?")
 	resumed.send(t, "Escape")
+}
+
+const (
+	// codexFooter is the start of Codex's own footer for the fixture model.
+	codexFooter = "GPT-6.2-Sol default ·"
+	// codexHint ends the key hint Codex 0.172.0 keeps below its composer.
+	codexHint = "? for shortcuts"
+)
+
+// noFooter checks that only Codex's key hint shows below its composer, so the
+// provider's null tree left the footer blank.
+func (ui *codexTerminal) noFooter(t *testing.T) {
+	t.Helper()
+
+	screen, err := ui.tmux(t.Context(), "capture-pane", "-p")
+	lines := strings.Split(screen, "\n")
+
+	composer := -1
+
+	for i, l := range lines {
+		if strings.Contains(l, "› Ask Codex") {
+			composer = i
+		}
+	}
+
+	if err != nil || composer < 0 || strings.Contains(screen, codexFooter) {
+		t.Fatalf("Codex footer with the provider: %v\n%s", err, screen)
+	}
+
+	for _, l := range lines[composer+1:] {
+		if l = strings.TrimSpace(l); l != "" && !strings.HasSuffix(l, codexHint) {
+			t.Fatalf("footer line %q below the composer with the provider:\n%s", l, screen)
+		}
+	}
+}
+
+// notedEnv gives the note launch its own CODEX_HOME: trusting its changed
+// SessionStart hook would otherwise send later launches back to hook review.
+func notedEnv(t *testing.T, root string, env []string) []string {
+	t.Helper()
+
+	home := filepath.Join(root, "noted-home")
+	if err := os.Mkdir(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, f := range []string{"config.toml", "hooks.json"} {
+		writeFile(t, filepath.Join(home, f), readFile(t, filepath.Join(root, "CODEX_HOME", f)))
+	}
+
+	return append(slices.DeleteFunc(slices.Clone(env), func(kv string) bool { return strings.HasPrefix(kv, "CODEX_HOME=") }), "CODEX_HOME="+home)
+}
+
+func logStatus(t *testing.T, when string, ev harness.Event) {
+	t.Helper()
+	t.Logf("status %s: pane=%s owner=%d session=%s state=%s name=%q model=%q", when, ev.Pane, ev.OwnerPID, ev.Session, ev.RunState, ev.ThreadName, ev.Model)
+}
+
+// statusLog keeps every status event, so waiting for one never blocks the
+// socket's channel and loses a hook event behind it.
+type statusLog struct {
+	mu     sync.Mutex
+	events []harness.Event
+}
+
+func (l *statusLog) wait(t *testing.T, failure string, match func(harness.Event) bool) harness.Event {
+	t.Helper()
+
+	var found harness.Event
+
+	waitUntil(t, failure, func() bool {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+
+		i := slices.IndexFunc(l.events, match)
+		if i >= 0 {
+			found = l.events[i]
+		}
+
+		return i >= 0
+	})
+
+	return found
+}
+
+// splitTracked drains in until the test ends, keeping status events apart
+// from the hook events whose order the test checks.
+func splitTracked(t *testing.T, in <-chan harness.Event) (<-chan harness.Event, *statusLog) {
+	t.Helper()
+
+	hooks, statuses := make(chan harness.Event, 16), &statusLog{}
+
+	go func() {
+		for {
+			select {
+			case ev := <-in:
+				if ev.Status {
+					statuses.mu.Lock()
+					statuses.events = append(statuses.events, ev)
+					statuses.mu.Unlock()
+
+					continue
+				}
+
+				select {
+				case hooks <- ev:
+				case <-t.Context().Done():
+					return
+				}
+			case <-t.Context().Done():
+				return
+			}
+		}
+	}()
+
+	return hooks, statuses
 }
 
 func liveCommand(t *testing.T, dir string, env []string, program string, args ...string) string {
@@ -743,18 +919,14 @@ func TestLiveMixedAgentRestore(t *testing.T) {
 	}
 	open := func(codex bool) {
 		leader("n")
-		ui.wait(t, "Claude Code")
+		ui.wait(t, "New agent · Claude Code")
 
 		if codex {
-			ui.send(t, "Down")
-		}
-
-		ui.send(t, "Enter")
-		ui.wait(t, "new worktree")
-
-		if codex {
-			ui.send(t, "codex-tree")
+			ui.send(t, "Tab")
+			ui.wait(t, "New agent · Codex")
+			ui.send(t, "/", "codex-tree")
 			ui.wait(t, "1 of 2")
+			ui.send(t, "Enter")
 		}
 
 		ui.send(t, "Enter")

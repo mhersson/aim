@@ -213,7 +213,7 @@ AIM saves your layout as you work and restores it on the next start, in the same
 - whether the rail and each tab's review drawer were open;
 - each agent's latest plan.
 
-Each agent pane resumes its saved conversation with the same agent and launch directory. Claude Code needs its saved transcript. Codex looks up the session by ID and can keep running while it waits for you to trust its hooks. A shell starts fresh in its saved directory and clears its scrollback. The config decides the theme, and the agents' states come back as the hooks report them.
+Each agent pane resumes its saved conversation with the same agent and launch directory. Claude Code needs its saved transcript. Codex looks up the session by ID and can keep running while it waits for you to trust its hooks. A shell starts fresh in its saved directory and clears its scrollback. The config decides the theme, and the agents' states come back as their hooks and Codex's status line report them.
 
 An agent without a usable session starts a fresh conversation and AIM shows a notice. A refused resume gets one fresh launch of the same agent. Claude Code without hook settings follows the foreground process and leaves a shell when Claude exits. If the executable is missing, the pane shows the shell's error and stays usable as a login shell. A pane whose directory is gone starts in the launch directory and the notice names both directories.
 
