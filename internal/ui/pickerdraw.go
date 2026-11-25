@@ -85,7 +85,7 @@ func (a *App) overlayPicker(f *frameLayers, base string, lk look) string {
 func (a *App) pickerCursor() *tea.Cursor {
 	p := a.picker.open
 
-	if p.page == pageAgent {
+	if p.page == pageAgent || p.page == pageWorktrees && !p.filtering {
 		return nil
 	}
 

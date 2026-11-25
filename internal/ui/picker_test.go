@@ -1437,14 +1437,13 @@ func TestPickerCursor(t *testing.T) {
 
 	left, top := (width-maxOverlayWidth)/2, height/4
 
-	cur := a.View().Cursor
-	if cur == nil || cur.X != left+4 || cur.Y != top+1 {
-		t.Fatalf("list cursor = %+v, want the query's start (%d, %d)", cur, left+4, top+1)
+	if cur := a.View().Cursor; cur != nil {
+		t.Fatalf("list cursor = %+v, want none before the filter opens", cur)
 	}
 
 	typeText(a, "/ab")
 
-	if cur = a.View().Cursor; cur == nil || cur.X != left+6 {
+	if cur := a.View().Cursor; cur == nil || cur.X != left+6 || cur.Y != top+1 {
 		t.Errorf("list cursor after typing = %+v, want column %d", cur, left+6)
 	}
 
@@ -1456,7 +1455,8 @@ func TestPickerCursor(t *testing.T) {
 	// The border, a cell, the marker, the label and its gap come first.
 	const valueCol = 1 + 1 + 2 + 6 + 2
 
-	if cur = a.View().Cursor; cur == nil || cur.X != left+valueCol+4 || cur.Y != top+1 {
+	cur := a.View().Cursor
+	if cur == nil || cur.X != left+valueCol+4 || cur.Y != top+1 {
 		t.Fatalf("branch cursor = %+v, want (%d, %d)", cur, left+valueCol+4, top+1)
 	}
 

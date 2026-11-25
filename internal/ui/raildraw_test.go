@@ -13,7 +13,6 @@ import (
 
 	"github.com/mhersson/aim/internal/core"
 	"github.com/mhersson/aim/internal/git"
-	"github.com/mhersson/aim/internal/harness"
 	"github.com/mhersson/aim/internal/ui/theme"
 )
 
@@ -320,20 +319,10 @@ func railCases() []railCase {
 		{"body-3-rows", fixture(100, 5, nil)},
 		{"toast", fixture(100, 30, func(a *App) { a.notice = "layout: bsp" })},
 		{"toast-over-rail", fixture(64, 30, func(a *App) { a.notice = longNotice })},
-		{"no-hooks-selected", func(t *testing.T, th string, icons bool) *App {
+		{"no-hooks-selected", fixture(100, 30, func(a *App) { a.rail.sel = "p6" })},
+		{"mixed-harness", func(t *testing.T, th string, icons bool) *App {
 			a := fixture(100, 30, nil)(t, th, icons)
-			a.rail.sel = "p6"
 			openIn(t, a, core.SetPaneKind{ID: "p6", Kind: core.KindAgent, Harness: "codex"})
-
-			c := contentRect(a.layoutRects()["p6"])
-			p := newPane("p6", newFakeProc(), max(c.W, 1), max(c.H, 1), a.clock)
-
-			t.Cleanup(func() { _ = p.close() })
-
-			// No rendered rows: the frame pads p6's body as it did before p6 had a pane.
-			p.rows = nil
-			p.codex = codexStatus{last: harness.Event{RunState: "working"}, busyAt: t0.Add(-agentQuiet)}
-			a.panes["p6"] = p
 
 			return a
 		}},

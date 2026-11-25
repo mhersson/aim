@@ -1,28 +1,28 @@
  1 web   2 docs   3 scratch                                                              layout bsp 
 ────────────────────────────────────────────────────────────────────────────────────────────────────
-╭─ Agents 6 ───────── blocked 1 ⠋2 idle 2 ─╮╭─ claude ────────── idle ─╮╭─ codex ──────────────────╮
+╭─ Agents 6 ───────── blocked 1 ⠋2 idle 2 ─╮╭─ claude ────────── idle ─╮╭─ claude ─────────────────╮
 │ 2 docs ─────────────────────────────── 2 ││                          ││                          │
 │                                          ││                          ││                          │
 │ ⠋ multiplex                           1m ││                          ││                          │
 │   feat/agents-rail                       ││                          ││                          │
-│   claude Bash go test ./...              ││                          ││                          │
+│   Bash go test ./...                     ││                          ││                          │
 │   +340 -12  9 files                      ││                          ││                          │
 │                                          ││                          ││                          │
 │   docs                                1d ││                          ││                          │
 │   main                                   ││                          ││                          │
-│   claude waiting for a prompt            ││                          ││                          │
+│   waiting for a prompt                   ││                          ││                          │
 │   +0 -0  0 files                         ││                          ││                          │
 │                                          ││                          ││                          │
 │ 3 scratch ──────────────────────────── 2 ││                          ││                          │
 │                                          ││                          ││                          │
 │   infra                              12m ││                          ││                          │
 │   a1b2c3d                                ││                          ││                          │
-│   claude waiting for a prompt            ││                          ││                          │
+│   waiting for a prompt                   ││                          ││                          │
 │   +2 -0  1 file                          ││                          ││                          │
 │╭────────────────────────────────────────╮││                          ││                          │
 ││  scratch                               │││                          ││                          │
 ││                                        │││                          ││                          │
-││  codex check /hooks                    │││                          ││                          │
+││                                        │││                          ││                          │
 ││                                        │││                          ││                          │
 │╰────────────────────────────────────────╯││                          ││                          │
 │                                          ││                          ││                          │
