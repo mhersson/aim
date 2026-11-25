@@ -15,8 +15,8 @@ type Harness interface {
 	ID() string
 	// Program is the foreground process name of a running agent, e.g. "claude".
 	Program() string
-	// Launch returns the agent argv. An empty settings omits the hooks file; an
-	// empty resume starts a fresh session.
+	// Launch returns the agent argv. An empty settings omits the hooks; an empty
+	// resume starts a fresh session.
 	Launch(settings string, resume core.SessionID) []string
 	// ParseEvent reads one hook payload as received on stdin.
 	ParseEvent(payload []byte) (Event, error)

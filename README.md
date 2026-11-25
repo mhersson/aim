@@ -37,7 +37,7 @@ Watch it as a [video (MP4)](https://github.com/user-attachments/assets/26f3b30c-
 ## What AIM touches
 
 - **Network.** AIM sends no telemetry and needs no account of its own; its GitHub features use the token under [Requirements](#requirements). Apart from the pushes you confirm, which go to your branch's own remote, it talks only to [GitHub](docs/architecture.md#github): the API, pull request fetches and pictures from GitHub's hosts. Claude Code and Codex use their configured model providers and services.
-- **Agent state.** Type `codex` or `codex resume <id>` in a pane shell to track a local Codex session. Use `/hooks` in Codex to review its launch-scoped hooks. AIM learns what Claude does from [Claude Code's hooks](docs/architecture.md#claude-code-launch-hooks-and-the-socket), through a settings file it writes for each run and passes with `--settings`, never by reading the screen. It never edits `~/.claude` or your shell's startup files.
+- **Agent state.** AIM learns what each agent does from [its hooks](docs/architecture.md#agents-launch-hooks-and-the-socket), never by reading the screen: Claude Code's through a settings file it writes for each run and passes with `--settings`, Codex's through launch-scoped `-c` overrides that also make AIM its status line provider. It never edits `~/.claude`, your Codex config or your shell's startup files.
 
 ## Screenshots
 

@@ -32,6 +32,7 @@ type shimPlan struct {
 
 // The first executable after removing this instance's wrappers is resolved on
 // the pane's PATH, including relative entries after a shell changes directory.
+// With self nil (its file is unknown) the wrapper is told apart by AIM_SHELL_DIR/bin.
 func planShim(name string, args, environ []string, self os.FileInfo, own func(paneTTY string) bool) (shimPlan, bool) {
 	getenv := func(key string) (string, bool) {
 		for _, e := range slices.Backward(environ) {
@@ -183,8 +184,8 @@ func shimArgs(args []string, getenv func(string) (string, bool), own func(paneTT
 	return with
 }
 
-// runShim runs as claude: it execs the real claude and returns only when that
-// fails, with the exit status a shell gives.
+// runShim runs as claude or codex: it execs the real program and returns only
+// when that fails, with the exit status a shell gives.
 func runShim(name string, args []string, stderr io.Writer) int {
 	var self os.FileInfo
 

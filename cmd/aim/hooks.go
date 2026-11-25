@@ -26,7 +26,8 @@ import (
 // eventBuffer is how many hook events may wait for the update loop.
 const eventBuffer = 256
 
-// Settings is Claude's settings path. CodexSettings is its inline hook table.
+// Settings is Claude's settings path, CodexSettings Codex's inline hook table.
+// Settings and Sock are empty, and Notice says why, when the setup failed.
 type hookRuntime struct {
 	Settings, CodexSettings, Sock string
 	Bin                           string // the binary the hooks run; AIM_BIN in every pane with the socket

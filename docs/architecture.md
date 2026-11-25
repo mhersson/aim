@@ -103,7 +103,7 @@ so a click lands where the module is drawn. While the usage popover shows with
 no modal above it, it takes every press first: inside its box a press does
 nothing, and anywhere else it closes the popover and goes no further.
 
-## Claude Code: launch, hooks and the socket
+## Agents: launch, hooks and the socket
 
 **Agent selection.** The new agent command starts the repository lookup at once for the focused tab, pane and directory, with the configured default harness. The worktree list's `tab` switches the harness, and the agent chooser shows only outside a repository. The lookup and the picker keep that request's harness ID. Worktree creation answers are matched to the picker sequence before the pane starts.
 
@@ -186,16 +186,21 @@ Linux reads the leader's comm and checks native Codex and Node or Bun launcher a
 argv[1]'s when argv[0] is `node` or `bun` and argv[1] is not an option, since an
 npm install's `claude` runs as `node <path>/claude` (`internal/term/procargs.go`).
 
-**Interactive Codex.** The per-instance shell directory also supplies a `codex` wrapper and shell function. Explicit launches run the same wrapper through the instance binary, including with shell integration disabled. The wrapper identifies a local TUI or resume, checks foreground ownership, registers the process group leader with the turn gate, and execs the real CLI with `--no-daemon` and the hook table. Codex runs hook commands in detached sessions. Before sending, a hook reads the registered leader's terminal device and foreground group from procfs on Linux or kinfo_proc on Darwin, matching them against `AIM_TTY` and its launch PID. The pane probe and asynchronous edit lookups carry the same PID. A held hook waits for a probe requested after it arrived, and an edit lookup checks the launch as well as the session before changing the followed worktree. A suspended job keeps its registration while the leader lives. A return to the same foreground PID restores its pane metadata. Exit or replacement retires that launch. New panes clear inherited ownership and hook settings. A Codex with no hook since its launch shows `check /hooks` on the rail from 3 s after its status line first reports working or thinking, until a hook arrives.
+**Interactive Codex.** A `codex` wrapper in the shell directory catches a typed
+`codex`; AIM's launches run it as `"$AIM_BIN" exec-owned-codex`, even without
+shell integration. For a local TUI leading the pane's foreground, it registers
+its PID with the turn gate and execs the real CLI with `--no-daemon` and a
+launch-scoped `-c hooks=...` table that runs beside the user's hooks. Its
+handlers run the literal `"$AIM_BIN" hook codex`, the same in every instance,
+so Codex's trust holds. Hooks run in detached sessions, so one sends only while
+the registered PID leads `AIM_TTY`'s foreground (procfs on Linux, kinfo_proc on
+Darwin). Probes and edit lookups carry the launch PID, so a late answer from an
+earlier launch changes nothing. `fg` restores a suspended job's pane metadata
+and status.
 
 **Codex status line.** An owned interactive launch also gets three more `-c` overrides, built from `AIM_BIN`: they enable Codex's status line extension, register `aim codex-statusline` as the MCP server `aim`, and name its `statusline` tool as the status line provider. A path with a control character or invalid UTF-8 gets none of them, and an older Codex ignores unknown keys. The provider (`cmd/aim/codexstatus.go`) replies `null` to every `resources/read`, which blanks Codex's own footer, and the model sees the tool as `mcp__aim__statusline`. It sends a changed snapshot only, through one sender with a 500 ms budget, after the hook's foreground check. The turn gate admits a status only from the pane's registered owner while it leads the foreground. Status never binds a session, starts a snapshot or goes through the prompt admission.
 
-**Launch settings.** Codex takes its hook table through a launch-scoped
-`-c hooks=...` override. Its handlers call `"$AIM_BIN" hook codex`. The CLI
-reviews hook trust normally and runs its own hooks alongside these. AIM keeps
-the table available if writing the Claude settings file fails.
-
-AIM never edits `~/.claude`. Each instance writes
+**The settings file.** AIM never edits `~/.claude`. Each instance writes
 `<state dir>/run/<pid>-claude.json` (`setupHooks`, `cmd/aim/hooks.go`) with one
 handler per hook event in the exec form (`command` plus `args`), so no shell
 parses the binary's path. Claude Code merges settings levels, so the user's and
@@ -221,14 +226,16 @@ the copy covers both. When both fail, or the placed file cannot run (a
 with hooks.
 
 **The subcommands.** Claude runs `aim hook claude-code` per event and
-`aim statusline` for its status line (`cmd/aim/hook.go`, `statusline.go`). Each
-reads stdin, parses it with the harness, adds `AIM_PANE` and sends one JSON
-line to `AIM_SOCK`, within 2 s (1 s for the status line). Claude hook and status line commands always exit 0
-and print nothing, except the `SessionStart` note: when its handler carries
-`--note` and `AIM_BIN` is set, `aim hook` prints a fixed text about `aim show`,
-which Claude adds to the model's context, so the agent learns the command. The
-`[images] tell_agents` setting reaches the hook through the generated file
-because the hook cannot read AIM's config (`--config`).
+`aim statusline` for its status line, Codex `aim hook codex` (`cmd/aim/hook.go`,
+`statusline.go`). Each reads stdin, parses it with the harness, adds `AIM_PANE`
+and sends one JSON line to `AIM_SOCK`, within 2 s (1 s for the status line).
+Each always exits 0 and prints nothing but the `SessionStart` note and, after a
+Codex Stop, `{}`, the JSON Codex expects; a Codex `PermissionRequest` gets no
+decision. When its handler carries `--note` and `AIM_BIN` is set, `aim hook`
+prints a fixed text about `aim show`, which the agent adds to the model's
+context, so the agent learns the command. The `[images] tell_agents` setting
+reaches the hook through the generated settings because the hook cannot read
+AIM's config (`--config`).
 
 `aim show <file>... [--caption <text>]` (`cmd/aim/show.go`) is run by an agent
 or by hand and does report. It checks every file (a regular file, one of the
@@ -257,10 +264,8 @@ also turns off the shell tool, apps, plugins, computer use, browser use and
 multi-agent v2 with `-c features.<name>=false` overrides, and disables web
 search. A Codex without one of these features ignores its override, where
 `--disable` would exit. A failed inventory ends generation. User hooks retain
-their usual configuration. Both
-adapters strip AIM routing variables from the one-off environment. A Codex
-permission hook sends the event with no decision. Its Stop hook returns an
-empty JSON object.
+their usual configuration. Both adapters strip AIM routing variables from the
+one-off environment.
 
 **The socket.** `<state dir>/run/<pid>.sock` is 0600 in a 0700 directory
 (`internal/harness/socket.go`). A connection carries one line of at most
@@ -271,13 +276,11 @@ what one event carries (16 changed paths, 32 KiB) to stay inside the line. When
 the socket cannot be set up, both agents launch without AIM hooks. A Claude
 settings file failure disables only Claude hooks. AIM reports either failure.
 
-**From payload to state.** `harness.Claude.ParseEvent` reduces a payload to a
+**From payload to state.** Each harness's `ParseEvent` reduces a payload to a
 `harness.Event`, and `App.onHook` (`internal/ui/agents.go`) applies it. The
-event-to-state table is in `internal/harness/claude.go`, pinned by recorded
-payloads in `internal/harness/testdata`. A Codex hook from a session other than
-the pane's is ignored, and so is a `SessionEnd` of another session for any
-agent; other Claude hooks apply whatever their session. Two rules cover what
-hooks miss:
+event-to-state tables are in `internal/harness/claude.go` and
+`codex_events.go`, pinned by recorded payloads in `internal/harness/testdata/`
+and `testdata/codex/`. Two rules cover what hooks miss:
 
 - No hook fires when a permission prompt is dismissed with `esc`. So a working
   pane silent for 3 s becomes idle, and a key that answers a dialog makes a
@@ -290,23 +293,22 @@ hooks miss:
   keyboard, further ones are held back briefly (`handleKey`,
   `internal/ui/input.go`; [Esc and Claude Code](guide/agents.md#esc-and-claude-code)).
 
+A Codex hook from a session other than the pane's is ignored, and so is a
+`SessionEnd` of another session for any agent; other Claude hooks apply
+whatever their session.
+
 **Codex status in the UI.** `App.onCodexStatus` (`internal/ui/codexstatus.go`)
-takes a Codex status from the pane's owner whatever the pane's recorded session.
-Until the launch's first real hook, `ready` makes the pane idle and `working` or
-`thinking` make it working; other states change nothing. After a hook, hooks own
-the state but for the Codex quiet rule above. A status never makes a pane blocked and
-never ends a turn, so it sends no notice. The state rules use a status only when
-the pane has no recorded session or the status's thread is that session, so a
-subagent or an unprompted `/resume` target on screen never idles a working pane.
-A status that arrives before the probe has seen its Codex is kept, latest wins,
-and applied once the probe confirms the owner, before any held hooks replay. The
-pane's status memory follows a suspended job and resets with a new launch. The
-card's name, model and meter follow the thread on screen with no thread rule:
-the name is the status's thread name, never the name probe, which a Codex pane
-does not run. The status's model wins; a hook's model applies only until the
-launch's first status. A SessionStart re-applies the last status's model and meter, since the session
-switch may clear them and the provider resends only on change. An agent pane's
-border falls back to its harness's program name when the terminal sets no title.
+takes a status from the pane's owner; one ahead of the probe that confirms the
+owner waits (latest wins) and applies before held hooks replay. Until the
+launch's first real hook, `ready` idles the pane and `working` or `thinking`
+makes it working, unless the status's thread is not the pane's recorded session
+(a subagent or an unprompted `/resume` target). After it, hooks own the state,
+but for the quiet rule. A status never blocks a pane or ends a turn. With no
+hook since launch, the rail shows `check /hooks` from 3 s after the first
+`working` or `thinking`. The card's name, model and meter come from the latest
+status whatever its thread; a hook's model applies only before the launch's
+first status, and a SessionStart re-applies the status's model and meter. A
+border with no terminal title shows the agent's program.
 
 **Images an agent sends.** An event with `Images` makes a batch in
 `App.onSent` (`internal/ui/sent.go`), from three sources: `SendUserFile`'s
@@ -372,9 +374,11 @@ written. It lives in `cmd/aim` because it joins `internal/harness` and
 
 The gate accepts Codex hooks only for the pane's registered foreground leader.
 Launch and detach controls carry its PID: a new launch retires its predecessor,
-and a detach applies only to its matching PID. Other agents' events in the pane
-pass unless the registered Codex leads the foreground, so a suspended job keeps
-its registration through them.
+and a detach applies only to its matching PID. The UI sends the detach when the
+leader exits, is replaced or its pane closes (`retireCodex`); the gate drops a
+dead leader no other way. Other agents' events in the pane pass unless the
+registered Codex leads the foreground, so a suspended job keeps its
+registration through them.
 
 SessionStart binds the parent session, and so does the first trusted prompt when
 hook review skipped SessionStart. A SessionStart for a session the launch has

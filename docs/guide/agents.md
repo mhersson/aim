@@ -20,7 +20,7 @@ In Claude Code one `esc` interrupts a turn. When an `esc` closes something of AI
 
 ## Start an agent
 
-To start an agent next to the focused pane, press `ctrl+space n`. Inside a git repository the worktree list opens at once, titled with the selected agent (`New agent · Claude Code`). The initial agent comes from `[agents] default` and starts at Claude Code. The list shows the repository's worktrees, each with its branch, its path, how many agents already run there, and `locked` or `prunable` when git says so.
+To start an agent next to the focused pane, press `ctrl+space n`. Inside a git repository the worktree list opens at once, titled with the selected agent (`New agent · Claude Code`). The picker selects `[agents] default`, Claude Code unless set. The list shows the repository's worktrees, each with its branch, its path, how many agents already run there, and `locked` or `prunable` when git says so.
 
 In the picker:
 
@@ -50,15 +50,21 @@ The last row, `new worktree…` (`+ new worktree…` with `icons = false`), open
 ### Shells beside the agent
 
 - `ctrl+space s` opens a shell below the focused pane, `ctrl+space v` one to its right. Both start in the focused pane's working directory and take focus. That is where a BSP tab puts them; the other layouts place a new pane by their own rule, see [Layouts](layouts.md).
-- Run `claude`, `codex` or `codex resume <id>` in a pane shell to track the foreground agent. Suspending Codex returns the pane to its shell. Bringing the same job back with `fg` restores its session while the job still exists, even if another agent ran in the pane meanwhile. AIM tracks the conversation Codex reports through its hooks. Codex 0.171.0 can defer the `/resume` picker's hook until the next prompt. If you only read the selected conversation and quit, AIM may restore the previously reported one. Exiting the agent returns the pane to a shell. The rail lists agent panes only.
-- A local Codex session reports turns, edits and its working directory through its hooks. Background jobs, nested terminals, remote sessions and `codex exec` run without AIM tracking.
-- With Codex 0.172.0 or newer, AIM is Codex's status line provider in its panes, so a Codex shows idle from launch and working while it runs, before its hooks are trusted. Its card shows Codex's thread name as soon as the thread has one and follows `/rename`, and the model and context meter come from the status line. A hook's model shows only on a Codex without the status line. AIM replaces Codex's footer in its panes; a provider of your own still shows outside AIM. The model sees one extra tool, `mcp__aim__statusline`. Choosing a provider in `/statusline` inside AIM saves it to your Codex config.
-- If the rail says `check /hooks`, Codex's status line first reported a running turn at least 3 seconds ago and no hook has arrived since the launch. Open `/hooks` in Codex to inspect and trust its hooks. With Codex CLI 0.172.0, skipping trust lets the session continue. After you trust the hooks, AIM starts tracking on the next prompt.
+- Run `claude` or `codex` (see [Codex](#codex)) in a pane shell to track the foreground agent. Exiting the agent returns the pane to a shell. The rail lists agent panes only.
 - A `claude` you type in a shell AIM started is a full agent: hooks, states, turns, follow, context, model, usage and resume, in the directory it started in. AIM does this without touching your shell startup files: a wrapper first on the shell's PATH adds the hooks to your `claude`, and a `claude` function in the shell calls it.
 - It may not be one when typed by full path, through `npx` or `bunx`, inside a shell or `tmux` started in the pane, in a terminal inside an editor (such as an nvim terminal) or another program run in the pane, in a shell other than zsh, bash or fish, under macOS's `/bin/bash`, in zsh when `/etc/zshenv` sets `ZDOTDIR`, or with its own `--settings`. Such a `claude` still makes the pane an agent pane, but its card on the rail may show no state, as for an agent with no hooks.
 - To see it: the shell's PATH starts with an AIM directory, and `type claude` names a function.
 - `[shell] integration = false` in the config turns it off; every pane then starts as it did without it (see [Configuration](config.md)).
 - At most 64 panes fit: past that, the notice is `at most 64 panes`.
+
+### Codex
+
+AIM starts Codex, and a `codex` you type in a pane, with `--no-daemon`, its hooks and its status line provider as launch flags, and never edits your Codex config. It has been tested with Codex CLI 0.172.0.
+
+- At first launch Codex asks you to review AIM's hooks: trust them. Untrusted, the card still shows the state, the thread name, the model and the context, but AIM records no turns or edits and sends no notifications, and from 3 seconds after Codex first reports work until a hook arrives, the rail reads `check /hooks`. Trust them later in `/hooks` and AIM tracks from the next prompt.
+- AIM's provider blanks Codex's footer in its panes, and the model sees one extra tool, `mcp__aim__statusline`.
+- Choosing a status line provider in `/statusline` inside AIM is saved to your Codex config, which then names a server that exists only in AIM's panes. Choose providers outside AIM.
+- AIM tracks a local `codex` or `codex resume <id>` in the foreground. Suspending it returns the pane to its shell, and `fg` keeps its session. Background jobs, nested terminals, remote sessions and `codex exec` run untracked.
 
 ### Focus, resize, swap and zoom
 
@@ -213,11 +219,11 @@ AIM saves your layout as you work and restores it on the next start, in the same
 - whether the rail and each tab's review drawer were open;
 - each agent's latest plan.
 
-Each agent pane resumes its saved conversation with the same agent and launch directory. Claude Code needs its saved transcript. Codex looks up the session by ID and can keep running while it waits for you to trust its hooks. A shell starts fresh in its saved directory and clears its scrollback. The config decides the theme, and the agents' states come back as their hooks and Codex's status line report them.
+Each agent pane resumes its saved conversation with the same agent and launch directory. Claude Code needs its saved transcript; Codex looks up the session by ID. A shell starts fresh in its saved directory and clears its scrollback. The config decides the theme, and the agents' states come back as their hooks and Codex's status line report them.
 
-An agent without a usable session starts a fresh conversation and AIM shows a notice. A refused resume gets one fresh launch of the same agent. Claude Code without hook settings follows the foreground process and leaves a shell when Claude exits. If the executable is missing, the pane shows the shell's error and stays usable as a login shell. A pane whose directory is gone starts in the launch directory and the notice names both directories.
+An agent without a usable session starts a fresh conversation and AIM shows a notice. A refused resume gets one fresh launch of the same agent. If the executable is missing, the pane shows the shell's error and stays usable as a login shell. A pane whose directory is gone starts in the launch directory and the notice names both directories.
 
-An agent of a kind this AIM does not know comes back as a shell in its directory, and a notice names the kind. AIM releases from before Codex support discard a saved layout that holds a Codex pane and keep it as `state.json.bad`.
+An agent of a kind this AIM does not know comes back as a shell in its directory, and a notice names the kind.
 
 To start with one shell instead, run `aim --fresh`. That shell is the first change, so the new layout replaces the saved one as soon as AIM starts.
 

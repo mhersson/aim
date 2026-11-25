@@ -19,7 +19,7 @@ import (
 // cwdProbeEvery bounds how often a pane's working directory is looked up.
 const cwdProbeEvery = 500 * time.Millisecond
 
-// agentGrace is how long a launched agent may take to show Claude in the
+// agentGrace is how long a launched agent may take to show its program in the
 // foreground before the kind rule can demote it.
 const agentGrace = 10 * time.Second
 

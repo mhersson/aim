@@ -45,7 +45,7 @@ type Options struct {
 	NoOSC52, NoNativeClipboard bool
 	// Harness launches and recognises agents; nil means harness.Claude{}.
 	Harness harness.Harness
-	// HookSettings is the Claude settings file. CodexSettings is its CLI hook table.
+	// HookSettings is the Claude settings file. CodexSettings is Codex's CLI hook table.
 	HookSettings  string
 	CodexSettings string
 	// HookSock is AIM_SOCK for every pane; empty sets none.

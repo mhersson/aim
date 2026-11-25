@@ -390,7 +390,6 @@ func (p *codexPrompts) submit(ev *harness.Event) (bool, <-chan struct{}) {
 }
 
 // admit binds the first trusted parent prompt when hook review skipped SessionStart.
-// A duplicate submit shares the first submit's acknowledgement, including its deadline.
 func (l *codexLaunch) admit(ev *harness.Event) (allow bool, wait <-chan struct{}) {
 	if ev.OwnerPID != l.pid || ev.Subagent || !sessionIDRE.MatchString(string(ev.Session)) {
 		return false, nil
