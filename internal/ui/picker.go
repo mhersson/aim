@@ -382,9 +382,9 @@ func (p *picker) toggleAgent() {
 func (a *App) pickerListKey(p *picker, msg tea.KeyPressMsg) tea.Cmd {
 	if p.filtering {
 		switch msg.String() {
-		case "down":
+		case "down", "ctrl+n":
 			p.move(1)
-		case "up":
+		case "up", "ctrl+p":
 			p.move(-1)
 		case "enter", "esc":
 			p.filtering = false

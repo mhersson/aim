@@ -28,7 +28,7 @@ In the picker:
 | --- | --- |
 | Switch between Claude Code and Codex | `tab`, `shift+tab` |
 | Move | `j` `k`, `down` `up`, `ctrl+n` `ctrl+p` (they wrap) |
-| Filter the list | `/`, then type; it matches the branch and the path. `enter` or `esc` ends the filter and keeps it |
+| Filter the list | `/`, then type; it matches the branch and the path. `enter` or `esc` ends the filter and keeps it; `down` `up` and `ctrl+n` `ctrl+p` still move while you type |
 | Start an agent in the selected worktree | `enter` |
 | Close the picker | `esc` |
 
