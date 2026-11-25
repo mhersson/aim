@@ -283,8 +283,8 @@ hooks miss:
   blocked pane working. Claude's keys are `enter`, `esc` and the digits; Codex's
   are `enter` and `esc`, plus `y` and `p` when a `PermissionRequest` blocked it.
   Hooks always win. A Codex pane's form of the quiet rule
-  reads its status line: `ready` for 3 s with no hook idles a working or blocked
-  Codex pane, which covers a missed `Stop` or interrupt.
+  reads its status line: `ready` for 3 s since the latest hook idles a working or
+  blocked Codex pane, which covers a missed `Stop` or interrupt.
 - One `esc` interrupts a Claude turn, so after an `esc` that hands a pane the
   keyboard, further ones are held back briefly (`handleKey`,
   `internal/ui/input.go`; [Esc and Claude Code](guide/agents.md#esc-and-claude-code)).

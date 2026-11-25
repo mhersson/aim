@@ -104,6 +104,7 @@ func TestCodexStatusQuietRule(t *testing.T) {
 		{"ready under agentQuiet", core.AgentWorking, "s1", 0, agentQuiet - spinEvery, core.AgentWorking},
 		{"ready for agentQuiet idles a working pane", core.AgentWorking, "s1", 0, agentQuiet, core.AgentIdle},
 		{"a hook since keeps it working", core.AgentWorking, "s1", agentQuiet / 2, agentQuiet, core.AgentWorking},
+		{"a hook newer than ready outlives an older ready", core.AgentWorking, "s1", spinEvery, spinEvery + agentQuiet, core.AgentWorking},
 		{"ready for agentQuiet idles a blocked pane", core.AgentBlocked, "s1", 0, agentQuiet, core.AgentIdle},
 		{"another thread's ready keeps it working", core.AgentWorking, "s2", 0, agentQuiet, core.AgentWorking},
 	}

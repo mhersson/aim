@@ -55,12 +55,12 @@ func (c *codexStatus) checkHooks(now time.Time, hooksSeen bool) bool {
 	return !hooksSeen && (c.longBusy || codexBusy(c.last.RunState) && now.Sub(c.since) >= agentQuiet)
 }
 
-// quiet is the Codex form of the quiet rule: ready for agentQuiet with no hook
-// idles a working or blocked pane, covering a missed Stop or Interrupt.
+// quiet is the Codex form of the quiet rule: a ready that began no earlier than the latest
+// hook and lasted agentQuiet idles a working or blocked pane, covering a missed Stop or Interrupt.
 func (c *codexStatus) quiet(m core.Pane, now time.Time) bool {
 	return (m.State == core.AgentWorking || m.State == core.AgentBlocked) &&
 		c.last.RunState == "ready" && c.threadOK(m) &&
-		now.Sub(c.since) >= agentQuiet && now.Sub(c.hookAt) >= agentQuiet
+		!c.since.Before(c.hookAt) && now.Sub(c.since) >= agentQuiet
 }
 
 // onCodexStatus applies a Codex status from the pane's owner, or keeps it until
