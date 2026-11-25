@@ -183,7 +183,7 @@ an exited one a shell. Hooks never change the kind. Up to 16 events for a shell
 pane are held while a probe they start runs (`holdHook`). They are applied once
 a probe makes the pane an agent, so a typed `claude`'s `SessionStart` is not
 lost to the 500 ms throttle, and they are dropped when that probe does not. A
-launched agent has 10 s (`agentGrace`) to show `claude` first.
+launched agent has 10 s (`agentGrace`) to show its program first.
 Linux reads the leader's comm and checks native Codex and Node or Bun launcher arguments in procfs. On macOS it is argv[0]'s base name, or
 argv[1]'s when argv[0] is `node` or `bun` and argv[1] is not an option, since an
 npm install's `claude` runs as `node <path>/claude` (`internal/term/procargs.go`).
