@@ -374,25 +374,24 @@ written. It lives in `cmd/aim` because it joins `internal/harness` and
 `Snapped`, which the drawer waits on before it reloads the turn.
 
 The gate accepts Codex hooks only for the pane's registered foreground leader.
-Launch and detach controls carry its PID. A new launch retires its predecessor,
+Launch and detach controls carry its PID: a new launch retires its predecessor,
 and a detach applies only to its matching PID. Other agents' events in the pane
 pass unless the registered Codex leads the foreground, so a suspended job keeps
-its registration through them. The first such event after the leader has exited
-drops the registration. Retiring a launch clears the pane's current turn only
-when one of its sessions opened it, so another agent's turn stays.
-SessionStart binds the parent session. A first trusted prompt also binds it if
-hook review skipped SessionStart.
-A parent SessionStart with source `resume` immediately rebinds a previously visited session, even without a following prompt. Codex 0.171.0 can defer that hook until the operator submits a prompt in the selected thread, leaving a read-only visit invisible to AIM. The gate drops child events and events for earlier turns.
-Each distinct prompt turn ID gets one numbered start. Duplicate submits share
-its acknowledgement. Stop and Interrupt retire the active turn, so a delayed
-tool event cannot change pane state. Each session keeps its accepted turn IDs for the life of the launch. The gate releases each acknowledgement channel when its snapshot completes or reaches its deadline.
+its registration through them.
+
+SessionStart binds the parent session, and so does the first trusted prompt when
+hook review skipped SessionStart. A SessionStart for a session the launch has
+seen rebinds it, though Codex can defer a `/resume` target's hook until its
+next prompt. The gate drops child events and events for earlier turns. Each
+distinct prompt turn ID gets one numbered start, and duplicate submits share its
+acknowledgement. Stop and Interrupt close the active turn, so a delayed tool
+event cannot change pane state.
 
 A Codex patch shares one deadline and one acknowledgement across all its paths.
-A patch keeps at most 16 paths, one per directory, as Claude's Bash does.
-The gate resolves distinct worktrees and claims each start before answering.
-A failed lookup makes new worktrees for the rest
-of the turn receive missing-snapshot markers. Once the baselines settle, marker
-writes can continue after the patch acknowledgement.
+A patch keeps at most 16 paths, one per directory, as Claude's Bash does. The
+gate resolves distinct worktrees and claims each start before answering. A
+failed lookup makes new worktrees for the rest of the turn receive
+missing-snapshot markers.
 
 **Budgets.** A snapshot has 1.4 s from when the server read its line
 (`turnBudget`); the server holds the answer at most 1.5 s, and the hook command

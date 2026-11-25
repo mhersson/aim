@@ -383,8 +383,6 @@ func TestCodexResumeSavedWithoutPrompt(t *testing.T) {
 
 	ev.Harness, ev.OwnerPID = "codex", 42
 	for _, session := range []core.SessionID{restoreSession, restoreCodexSession, restoreSession} {
-		ev.Resume = session == restoreSession && ev.Session == restoreCodexSession
-
 		ev.Session = session
 		for _, msg := range collect(hook(a, ev)) {
 			a.Update(msg)

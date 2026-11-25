@@ -79,7 +79,7 @@ func noPlaces(context.Context, string) (git.Place, error) { return git.Place{}, 
 func startPlacesGate(t *testing.T, w turnWriter, places placeFunc, seq seqFunc) *gateRig {
 	t.Helper()
 
-	return startOptionsGate(t, w, places, seq, gateOptions{})
+	return startOptionsGate(t, w, places, seq, gateOptions{ownerLeads: func(string, int) bool { return true }})
 }
 
 func startOptionsGate(t *testing.T, w turnWriter, places placeFunc, seq seqFunc, opts gateOptions) *gateRig {
@@ -2392,7 +2392,7 @@ func TestGateCodexOwnership(t *testing.T) {
 	t.Parallel()
 
 	w := &recordingWriter{}
-	r := startOptionsGate(t, w, noPlaces, dirSeq, newFakeOwner(true, true).options())
+	r := startOptionsGate(t, w, noPlaces, dirSeq, newFakeOwner(true).options())
 
 	owner := harness.Event{Pane: "p", Harness: "codex", Name: harness.CodexOwnerStart, OwnerPID: 42, OwnerTTY: "/dev/ttys999"}
 	r.in <- owner
@@ -2425,8 +2425,6 @@ func TestGateCodexOwnership(t *testing.T) {
 
 	switchSession.Session = "aaaaaaaa-2222-4333-8444-555555555555"
 	r.in <- switchSession
-
-	r.in <- session
 
 	foreign := prompt
 
@@ -2499,7 +2497,6 @@ func TestCodexReturnToSession(t *testing.T) {
 		{a, "SessionStart", "startup", "", "", true, true},
 		{a, "UserPromptSubmit", "", first, "", true, false},
 		{b, "SessionStart", "startup", "", "", true, true},
-		{a, "SessionStart", "startup", "", "", false, false},
 		{a, "SessionStart", "resume", "", "child", false, false},
 		{a, "SessionStart", "resume", "", "", true, true},
 		{a, "Stop", "", first, "", false, false},
@@ -2529,51 +2526,18 @@ func TestCodexReturnToSession(t *testing.T) {
 	}
 }
 
-func TestClaudeAfterUnobservedCodexExit(t *testing.T) {
-	t.Parallel()
+// fakeOwner answers the gate's probe of a registered Codex leader.
+type fakeOwner struct{ leads atomic.Bool }
 
-	r := startWriterGate(t, &recordingWriter{}, dirSeq)
-	r.in <- harness.Event{Pane: "p", Harness: "codex", Name: harness.CodexOwnerStart, OwnerPID: 42, OwnerTTY: filepath.Join(t.TempDir(), "closed-pty")}
-
-	start := harness.Event{Pane: "p", Harness: "claude-code", Name: "SessionStart", Start: true, Session: gateSession}
-	r.in <- start
-
-	drain(t, r)
-
-	select {
-	case got := <-r.out:
-		if got.Harness != start.Harness || got.Session != start.Session || !got.Start {
-			t.Fatalf("unexpected event %+v", got)
-		}
-	default:
-		t.Fatal("lost Claude start following a short Codex launch")
-	}
-}
-
-// fakeOwner answers the gate's probes of a registered Codex leader.
-type fakeOwner struct{ leads, alive atomic.Bool }
-
-func newFakeOwner(leads, alive bool) *fakeOwner {
+func newFakeOwner(leads bool) *fakeOwner {
 	f := &fakeOwner{}
 	f.leads.Store(leads)
-	f.alive.Store(alive)
 
 	return f
 }
 
 func (f *fakeOwner) options() gateOptions {
-	return gateOptions{
-		ownerLeads: func(string, int) bool { return f.leads.Load() },
-		ownerAlive: func(int) bool { return f.alive.Load() },
-	}
-}
-
-// startOwnerGate runs a gate whose registered Codex leads the foreground and
-// is alive as given.
-func startOwnerGate(t *testing.T, leads, alive bool) *gateRig {
-	t.Helper()
-
-	return startOptionsGate(t, &recordingWriter{}, noPlaces, dirSeq, newFakeOwner(leads, alive).options())
+	return gateOptions{ownerLeads: func(string, int) bool { return f.leads.Load() }}
 }
 
 // Claude events pass beside a Codex registration unless that Codex leads the foreground.
@@ -2582,17 +2546,16 @@ func TestGateClaudeBesideCodexRegistration(t *testing.T) {
 
 	for _, tc := range []struct {
 		name          string
-		leads, alive  bool
+		leads         bool
 		wantForwarded bool
 	}{
-		{"codex in front", true, true, false},
-		{"codex suspended", false, true, true},
-		{"codex gone", false, false, true},
+		{"codex in front", true, false},
+		{"codex suspended", false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			r := startOwnerGate(t, tc.leads, tc.alive)
+			r := startOptionsGate(t, &recordingWriter{}, noPlaces, dirSeq, newFakeOwner(tc.leads).options())
 			r.in <- harness.Event{Pane: "p", Harness: "codex", Name: harness.CodexOwnerStart, OwnerPID: 42, OwnerTTY: "/dev/ttys999"}
 
 			prompt := harness.Event{Pane: "p", Harness: "claude-code", Name: "UserPromptSubmit", Session: gateSession, TurnStart: true, Cwd: "/a"}
@@ -2611,7 +2574,7 @@ func TestGateClaudeBesideCodexRegistration(t *testing.T) {
 func TestGateSuspendedCodexSurvivesClaude(t *testing.T) {
 	t.Parallel()
 
-	codex := newFakeOwner(false, true)
+	codex := newFakeOwner(false)
 
 	r := startOptionsGate(t, &recordingWriter{}, noPlaces, dirSeq, codex.options())
 	r.in <- harness.Event{Pane: "p", Harness: "codex", Name: harness.CodexOwnerStart, OwnerPID: 42, OwnerTTY: "/dev/ttys999"}
@@ -2634,47 +2597,6 @@ func TestGateSuspendedCodexSurvivesClaude(t *testing.T) {
 		}
 	default:
 		t.Fatal("the resumed Codex's prompt was dropped")
-	}
-}
-
-// A Codex owner start or end does not discard another agent's current turn.
-func TestGateCodexOwnerKeepsClaudeTurn(t *testing.T) {
-	t.Parallel()
-
-	w := &recordingWriter{}
-	r := startOptionsGate(t, w, (&countingPlaces{}).place, dirSeq, newFakeOwner(false, true).options())
-
-	prompt, released := turnEvent("UserPromptSubmit", gateSession, "/a")
-
-	prompt.Pane, prompt.Harness = "p", "claude-code"
-	r.in <- prompt
-
-	within(t, released, time.Second, "turn release")
-
-	owner := harness.Event{Pane: "p", Harness: "codex", Name: harness.CodexOwnerStart, OwnerPID: 42, OwnerTTY: "/dev/ttys999"}
-	end := owner
-	end.Name = harness.CodexOwnerEnd
-
-	for _, step := range []struct {
-		control harness.Event
-		path    string
-	}{{owner, "/b/f.go"}, {end, "/c/f.go"}} {
-		r.in <- step.control
-
-		edit, answered := editEvent(gateSession, step.path, nil, nil)
-
-		edit.Pane, edit.Harness = "p", "claude-code"
-		r.in <- edit
-
-		within(t, answered, time.Second, "Done of the edit")
-	}
-
-	drain(t, r)
-
-	for _, root := range []string{"root/b", "root/c"} {
-		if got := callsIn(w.starts(), root); len(got) != 1 {
-			t.Errorf("starts in %s = %+v, want the edit's before-picture", root, got)
-		}
 	}
 }
 
@@ -2859,7 +2781,7 @@ func TestGateCodexStatusAdmission(t *testing.T) {
 			t.Parallel()
 
 			w := &recordingWriter{}
-			r := startOptionsGate(t, w, noPlaces, dirSeq, newFakeOwner(tc.leads, true).options())
+			r := startOptionsGate(t, w, noPlaces, dirSeq, newFakeOwner(tc.leads).options())
 
 			r.in <- harness.Event{Pane: "p", Harness: "codex", Name: harness.CodexOwnerStart, OwnerPID: 42, OwnerTTY: "/dev/ttys999"}
 
