@@ -87,13 +87,6 @@ func TestRailCacheKeyCoversEveryInput(t *testing.T) {
 		{name: "stored top", change: func(t *testing.T, a *App) { a.rail.top = 3 }, visible: true},
 		{name: "spinner frame", change: func(t *testing.T, a *App) { a.spin++ }, visible: true},
 		{name: "pulse phase", change: func(t *testing.T, a *App) { a.rail.pulseDim = true }, visible: true},
-		{
-			name: "harness mix",
-			change: func(t *testing.T, a *App) {
-				openIn(t, a, core.SetPaneKind{ID: "p3", Kind: core.KindAgent, Harness: "codex"})
-			},
-			visible: true,
-		},
 		{name: "state", change: func(t *testing.T, a *App) { openIn(t, a, core.SetAgentState{ID: "p2", State: core.AgentIdle}) }, visible: true},
 		{name: "action", change: func(t *testing.T, a *App) { openIn(t, a, core.SetAgentAction{ID: "p2", Action: "Read go.mod"}) }, visible: true},
 		{
@@ -152,7 +145,7 @@ func TestRailCacheKeyCoversEveryInput(t *testing.T) {
 				attachPanes(t, a, nil)
 			},
 			change: func(t *testing.T, a *App) {
-				a.panes["p3"].codex = codexStatus{last: harness.Event{RunState: "working"}, since: t0.Add(-agentQuiet)}
+				a.panes["p3"].codex = codexStatus{last: harness.Event{RunState: "working"}, busyAt: t0.Add(-agentQuiet)}
 			},
 			visible: true,
 		},

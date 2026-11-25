@@ -450,7 +450,7 @@ func newBenchApp(cfg benchConfig, clk clock) (*App, []core.PaneID, error) {
 
 	ids := []core.PaneID{app.store.State().Tab().Focus}
 	open := func(split core.Split) {
-		app.openPane(core.KindShell, split)
+		app.openPane(split)
 		ids = append(ids, app.store.State().Tab().Focus)
 	}
 

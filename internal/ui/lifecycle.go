@@ -67,11 +67,11 @@ func contentSize(r core.Rect) (cols, rows int) {
 	return max(c.W, 1), max(c.H, 1)
 }
 
-// openPane starts a pane of kind next to the focused one, in its working
+// openPane starts a shell pane next to the focused one, in its working
 // directory, and focuses it. Nothing changes when the process does not start.
-func (a *App) openPane(kind core.PaneKind, split core.Split) tea.Cmd {
+func (a *App) openPane(split core.Split) tea.Cmd {
 	st := a.store.State()
-	cmd, _ := a.openPaneAt(kind, split, st.Tab().Focus, a.focusedCwd(st), nil)
+	cmd, _ := a.openPaneAt(split, st.Tab().Focus, a.focusedCwd(st), nil)
 
 	return cmd
 }
@@ -102,17 +102,12 @@ type paneRun struct {
 	once    bool // the pane ends with the program, with no shell after it
 }
 
-// openPaneAt starts a pane of kind in cwd next to anchor, a pane of the active
-// tab, and focuses it. A shell pane with run set starts that command line in
-// place of the plain shell and, unless run.once is set, keeps a shell after it.
+// openPaneAt starts a shell pane in cwd next to anchor, a pane of the active
+// tab, and focuses it. With run set it starts that command line in place of
+// the plain shell and, unless run.once is set, keeps a shell after it.
 // It reports whether the pane opened; when it did not, nothing changed.
-func (a *App) openPaneAt(kind core.PaneKind, split core.Split, anchor core.PaneID, cwd string, run *paneRun) (tea.Cmd, bool) {
-	act := core.OpenPane{Kind: kind, Cwd: cwd, Split: split, Beside: anchor}
-	if kind == core.KindAgent {
-		act.Harness = a.harness.ID()
-	}
-
-	return a.startOpenPane(act, run)
+func (a *App) openPaneAt(split core.Split, anchor core.PaneID, cwd string, run *paneRun) (tea.Cmd, bool) {
+	return a.startOpenPane(core.OpenPane{Kind: core.KindShell, Cwd: cwd, Split: split, Beside: anchor}, run)
 }
 
 func (a *App) startOpenPane(act core.OpenPane, run *paneRun) (tea.Cmd, bool) {
@@ -319,7 +314,7 @@ func (a *App) closePane(id core.PaneID) tea.Cmd {
 func (a *App) retireCodex(p *pane) {
 	pid := p.trackedCodexPID()
 	p.suspended = nil
-	p.ownerPID, p.hooksSeen, p.codex = 0, false, codexStatus{}
+	p.ownerPID, p.codex = 0, codexStatus{}
 
 	if pid == 0 || a.hookSock == "" {
 		return
@@ -605,8 +600,8 @@ func (a *App) onCwd(msg paneCwdMsg) tea.Cmd {
 
 	if msg.fg != "" && p.ownerPID != 0 && (msg.fg != "codex" || msg.pid != p.ownerPID) {
 		if msg.liveOwner == p.ownerPID && msg.fg != "codex" {
-			p.suspended = &suspendedJob{pid: p.ownerPID, agent: m, hooksSeen: p.hooksSeen, launchDue: p.launchDue, codex: p.codex}
-			p.ownerPID, p.hooksSeen, p.codex = 0, false, codexStatus{}
+			p.suspended = &suspendedJob{pid: p.ownerPID, agent: m, launchDue: p.launchDue, codex: p.codex}
+			p.ownerPID, p.codex = 0, codexStatus{}
 		} else {
 			a.retireCodex(p)
 		}
@@ -636,7 +631,8 @@ func (a *App) onCwd(msg paneCwdMsg) tea.Cmd {
 	kind := a.applyKind(p, msg.fg)
 	if job != nil && msg.fg == "codex" && msg.pid == job.pid {
 		_ = a.dispatch(core.ResumePaneJob{ID: p.id, Agent: job.agent})
-		p.hooksSeen, p.launchDue, p.codex = job.hooksSeen, job.launchDue, job.codex
+		p.launchDue, p.codex = job.launchDue, job.codex
+		kind = tea.Batch(kind, a.agentTickCmd())
 	}
 
 	// Before the held hooks replay, so they own the state.
@@ -718,7 +714,7 @@ func (a *App) applyKind(p *pane, fg string) tea.Cmd {
 
 	switch {
 	case (m.Kind == core.KindShell || m.Harness != h.ID()) && fg == h.Program():
-		p.hooksSeen, p.codex = false, codexStatus{}
+		p.codex = codexStatus{}
 		p.seen = true
 		p.launched = time.Time{}
 		p.launchDue = true

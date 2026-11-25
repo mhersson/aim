@@ -257,7 +257,7 @@ func (a *App) onLinkEdit(msg linkEditMsg) tea.Cmd {
 
 	run := &paneRun{program: reviewEditor(a.getenv), args: []string{"+1", msg.path}}
 
-	cmd, opened := a.openPaneAt(core.KindShell, core.SplitVertical, anchor, msg.root, run)
+	cmd, opened := a.openPaneAt(core.SplitVertical, anchor, msg.root, run)
 	if opened && tab.Review != nil {
 		a.closeDrawer(false)
 	}

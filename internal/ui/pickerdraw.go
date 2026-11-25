@@ -18,10 +18,12 @@ import (
 )
 
 // agentLabels names the harnesses the picker offers, in the chooser's order.
-var agentLabels = []struct{ id, label string }{{"claude-code", "Claude Code"}, {"codex", "Codex"}}
+func agentLabels() []struct{ id, label string } {
+	return []struct{ id, label string }{{"claude-code", "Claude Code"}, {"codex", "Codex"}}
+}
 
 func agentLabel(id string) string {
-	for _, l := range agentLabels {
+	for _, l := range agentLabels() {
 		if l.id == id {
 			return l.label
 		}
@@ -59,7 +61,7 @@ func (a *App) overlayPicker(f *frameLayers, base string, lk look) string {
 		fill := pt.On(pt.UI().Fg)
 		lines = []string{pt.Top(a.titled(iconAgent, "New agent"))}
 
-		for _, choice := range agentLabels {
+		for _, choice := range agentLabels() {
 			row := fill
 			if choice.id == p.agent {
 				row = row.Background(pt.UI().Selection).Bold(true)

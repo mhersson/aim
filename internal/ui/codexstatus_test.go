@@ -65,7 +65,7 @@ func TestCodexStatusState(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			a, p, _ := codexApp(t)
+			a, _, _ := codexApp(t)
 			a.Update(tea.BlurMsg{})
 			openIn(t, a, core.SetAgentState{ID: "p1", State: tt.from})
 
@@ -73,18 +73,10 @@ func TestCodexStatusState(t *testing.T) {
 				openIn(t, a, core.SetAgentSession{ID: "p1", Session: tt.recorded})
 			}
 
-			sent := raws(hook(a, codexStatusEv(tt.run, tt.thread)))
+			hook(a, codexStatusEv(tt.run, tt.thread))
 
 			if got := agentState(a, "p1"); got != tt.want {
 				t.Errorf("state = %v, want %v", got, tt.want)
-			}
-
-			if len(sent) != 0 {
-				t.Errorf("status sent notices %q", sent)
-			}
-
-			if p.hooksSeen {
-				t.Error("a status set hooksSeen")
 			}
 		})
 	}
@@ -268,7 +260,12 @@ func TestCodexStatusSurvivesSuspend(t *testing.T) {
 	hook(a, codexStatusEv("working", "s1"))
 
 	a.onCwd(paneCwdMsg{p: p, id: p.id, fg: "zsh", pid: 7, liveOwner: 42})
+	a.Update(agentTickMsg{}) // with nothing working, the status's tick ends
 	a.onCwd(paneCwdMsg{p: p, id: p.id, fg: "codex", pid: 42})
+
+	if !a.agentTicking {
+		t.Error("the resumed working job has no agent tick")
+	}
 
 	clk.Set(t0.Add(agentQuiet))
 

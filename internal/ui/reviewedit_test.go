@@ -444,7 +444,7 @@ func TestEditLine(t *testing.T) {
 func TestEditSendsNoFocusReportsToTheDrawersPane(t *testing.T) {
 	t.Parallel()
 	r, _ := fakeKeysRig(t)
-	r.run(r.openPane(core.KindShell, core.SplitVertical))
+	r.run(r.openPane(core.SplitVertical))
 
 	procs := map[core.PaneID]*fakeProc{}
 

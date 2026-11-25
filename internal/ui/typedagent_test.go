@@ -33,7 +33,7 @@ func TestHeldHooksWaitForTheProbe(t *testing.T) {
 		}
 
 		m := a.store.State().Panes["p1"]
-		if m.Harness != "codex" || m.Session != start.Session || m.Cwd != launch || !a.panes["p1"].hooksSeen {
+		if m.Harness != "codex" || m.Session != start.Session || m.Cwd != launch || a.panes["p1"].codex.hookAt.IsZero() {
 			t.Fatalf("typed Codex = %+v", m)
 		}
 
@@ -321,7 +321,7 @@ func TestForegroundSameCodexJob(t *testing.T) {
 	a.onCwd(paneCwdMsg{p: p, id: p.id, fg: "codex", pid: 42})
 
 	m := a.store.State().Panes[p.id]
-	if m.Kind != core.KindAgent || m.Session != ev.Session || m.Cwd != "/launch" || m.AgentCwd != "/agent" || !p.hooksSeen {
+	if m.Kind != core.KindAgent || m.Session != ev.Session || m.Cwd != "/launch" || m.AgentCwd != "/agent" || p.codex.hookAt.IsZero() {
 		t.Fatalf("foregrounded job: %+v", m)
 	}
 }
@@ -359,15 +359,8 @@ func TestSuspendedCodexSurvivesClaude(t *testing.T) {
 	a.onCwd(paneCwdMsg{p: p, id: p.id, fg: "codex", pid: 42})
 
 	m := a.store.State().Panes[p.id]
-	if m.Harness != "codex" || m.Session != ev.Session || !p.hooksSeen {
-		t.Fatalf("foregrounded job: %+v hooksSeen=%v", m, p.hooksSeen)
-	}
-
-	ev.Start, ev.State = false, core.AgentWorking
-	hook(a, ev)
-
-	if a.store.State().Panes[p.id].State != core.AgentWorking {
-		t.Fatal("Codex hook from the restored owner did not apply")
+	if m.Harness != "codex" || m.Session != ev.Session || p.codex.hookAt.IsZero() {
+		t.Fatalf("foregrounded job: %+v hookAt=%v", m, p.codex.hookAt)
 	}
 }
 

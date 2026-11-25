@@ -884,8 +884,8 @@ func TestPaneLimitNotice(t *testing.T) {
 	panes, starts := len(r.a.store.State().Panes), r.st.count()
 
 	for name, open := range map[string]func() tea.Cmd{
-		"split":    func() tea.Cmd { return r.a.openPane(core.KindShell, core.SplitVertical) },
-		"agent":    func() tea.Cmd { return r.a.openPane(core.KindAgent, core.SplitVertical) },
+		"split":    func() tea.Cmd { return r.a.openPane(core.SplitVertical) },
+		"agent":    func() tea.Cmd { return r.a.openAgentIn(r.a.harness.ID(), r.a.cwd) },
 		"new tab":  r.a.newTab,
 		"leader n": func() tea.Cmd { return press(r.a, keyLeader, keyRune('n')) },
 	} {

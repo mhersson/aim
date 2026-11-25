@@ -389,7 +389,7 @@ func TestAgentLaunch(t *testing.T) {
 			return func() tea.Msg { return nil }
 		}
 
-		if a.openPane(core.KindAgent, core.SplitVertical) == nil {
+		if a.openAgentIn(a.harness.ID(), a.cwd) == nil {
 			t.Fatal("no command")
 		}
 

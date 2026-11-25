@@ -332,7 +332,7 @@ func railCases() []railCase {
 
 			// No rendered rows: the frame pads p6's body as it did before p6 had a pane.
 			p.rows = nil
-			p.codex = codexStatus{last: harness.Event{RunState: "working"}, since: t0.Add(-agentQuiet)}
+			p.codex = codexStatus{last: harness.Event{RunState: "working"}, busyAt: t0.Add(-agentQuiet)}
 			a.panes["p6"] = p
 
 			return a

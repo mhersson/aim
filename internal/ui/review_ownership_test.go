@@ -14,7 +14,7 @@ func sideBySide(t *testing.T) (*drawerRig, *reviewView) {
 	t.Helper()
 
 	r, _ := fakeKeysRig(t)
-	r.run(r.openPane(core.KindAgent, core.SplitVertical))
+	r.run(r.openAgentIn(r.harness.ID(), r.cwd))
 	openIn(t, r.App, core.FocusPane{ID: "p1"})
 
 	v := r.opened(t)

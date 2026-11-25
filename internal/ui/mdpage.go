@@ -455,7 +455,7 @@ func pageCommand(id string) bool {
 func (a *App) openEditor(tab core.Tab, v *reviewView, path string, line int) tea.Cmd {
 	run := &paneRun{program: reviewEditor(a.getenv), args: []string{"+" + strconv.Itoa(line), path}}
 
-	cmd, opened := a.openPaneAt(core.KindShell, core.SplitVertical, tab.Review.Pane, v.root, run)
+	cmd, opened := a.openPaneAt(core.SplitVertical, tab.Review.Pane, v.root, run)
 	if opened {
 		a.closeDrawer(false)
 	}

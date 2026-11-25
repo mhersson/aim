@@ -188,7 +188,7 @@ Linux reads the leader's comm and checks native Codex and Node or Bun launcher a
 argv[1]'s when argv[0] is `node` or `bun` and argv[1] is not an option, since an
 npm install's `claude` runs as `node <path>/claude` (`internal/term/procargs.go`).
 
-**Interactive Codex.** The per-instance shell directory also supplies a `codex` wrapper and shell function. Explicit launches run the same wrapper through the instance binary, including with shell integration disabled. The wrapper identifies a local TUI or resume, checks foreground ownership, registers the process group leader with the turn gate, and execs the real CLI with `--no-daemon` and the hook table. Codex runs hook commands in detached sessions. Before sending, a hook reads the registered leader's terminal device and foreground group from procfs on Linux or kinfo_proc on Darwin, matching them against `AIM_TTY` and its launch PID. The pane probe and asynchronous edit lookups carry the same PID. A held hook waits for a probe requested after it arrived, and an edit lookup checks the launch as well as the session before changing the followed worktree. A suspended job keeps its registration while the leader lives. A return to the same foreground PID restores its pane metadata. Exit or replacement retires that launch. New panes clear inherited ownership and hook settings. A Codex whose status line has reported working or thinking for 3 s with no hook since its launch shows `check /hooks` on the rail, until a hook arrives.
+**Interactive Codex.** The per-instance shell directory also supplies a `codex` wrapper and shell function. Explicit launches run the same wrapper through the instance binary, including with shell integration disabled. The wrapper identifies a local TUI or resume, checks foreground ownership, registers the process group leader with the turn gate, and execs the real CLI with `--no-daemon` and the hook table. Codex runs hook commands in detached sessions. Before sending, a hook reads the registered leader's terminal device and foreground group from procfs on Linux or kinfo_proc on Darwin, matching them against `AIM_TTY` and its launch PID. The pane probe and asynchronous edit lookups carry the same PID. A held hook waits for a probe requested after it arrived, and an edit lookup checks the launch as well as the session before changing the followed worktree. A suspended job keeps its registration while the leader lives. A return to the same foreground PID restores its pane metadata. Exit or replacement retires that launch. New panes clear inherited ownership and hook settings. A Codex with no hook since its launch shows `check /hooks` on the rail from 3 s after its status line first reports working or thinking, until a hook arrives.
 
 **Codex status line.** An owned interactive launch also gets three more `-c` overrides, built from `AIM_BIN`: they enable Codex's status line extension, register `aim codex-statusline` as the MCP server `aim`, and name its `statusline` tool as the status line provider. A path with a control character or invalid UTF-8 gets none of them, and an older Codex ignores unknown keys. The provider (`cmd/aim/codexstatus.go`) replies `null` to every `resources/read`, which blanks Codex's own footer, and the model sees the tool as `mcp__aim__statusline`. It sends a changed snapshot only, through one sender with a 500 ms budget, after the hook's foreground check. The turn gate admits a status only from the pane's registered owner while it leads the foreground. Status never binds a session, starts a snapshot or goes through the prompt admission.
 
@@ -301,13 +301,12 @@ never ends a turn, so it sends no notice. The state rules use a status only when
 the pane has no recorded session or the status's thread is that session, so a
 subagent or an unprompted `/resume` target on screen never idles a working pane.
 A status that arrives before the probe has seen its Codex is kept, latest wins,
-and applied once the probe confirms the owner, before any held hooks replay. A
-status never sets `hooksSeen`. The pane's status memory follows a suspended job
-and resets with a new launch. The card's name, model and meter follow the thread
-on screen with no thread rule: the name is the status's thread name, never the
-name probe, which a Codex pane does not run. The status's model wins; a hook's
-model applies only until the launch's first status and keeps the meter. A
-SessionStart re-applies the last status's model and meter, since the session
+and applied once the probe confirms the owner, before any held hooks replay. The
+pane's status memory follows a suspended job and resets with a new launch. The
+card's name, model and meter follow the thread on screen with no thread rule:
+the name is the status's thread name, never the name probe, which a Codex pane
+does not run. The status's model wins; a hook's model applies only until the
+launch's first status. A SessionStart re-applies the last status's model and meter, since the session
 switch may clear them and the provider resends only on change. An agent pane's
 border falls back to its harness's program name when the terminal sets no title.
 

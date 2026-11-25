@@ -72,7 +72,7 @@ func (a *App) applyHook(ev harness.Event, probe bool) tea.Cmd {
 	// end, so a late end of the old session cannot wipe the new one.
 	otherSession := !ev.Start && m.Session != "" && ev.Session != "" && ev.Session != m.Session
 
-	staleSession := otherSession && (ev.Harness == "codex" && (!ev.Subagent || ev.End) || ev.End)
+	staleSession := otherSession && (ev.End || ev.Harness == "codex")
 	if !ok || m.Kind != core.KindAgent || wrongHarness || ownerMismatch || staleSession {
 		a.log.Debug("hook event ignored", "pane", ev.Pane, "event", ev.Name)
 
@@ -80,7 +80,6 @@ func (a *App) applyHook(ev harness.Event, probe bool) tea.Cmd {
 	}
 
 	if p != nil && ev.Harness == "codex" {
-		p.hooksSeen = true
 		p.codex.hookAt = a.clock.Now()
 	}
 
@@ -137,12 +136,10 @@ func (a *App) applyHook(ev harness.Event, probe bool) tea.Cmd {
 		_ = a.changeAgentState(ev.Pane, core.AgentUnknown)
 	}
 
-	// The status line's model wins; a hook's keeps the meter.
+	// The status line's model wins.
 	if ev.Harness == "codex" && ev.Model != "" && p != nil && p.codex.last.Session == "" {
-		cur := a.store.State().Panes[ev.Pane]
-
-		act := core.SetAgentStatus{ID: ev.Pane, Session: ev.Session, Model: ev.Model, Context: float64(cur.Context), ContextKnown: cur.ContextKnown}
-		if !act.Matches(cur) {
+		act := core.SetAgentStatus{ID: ev.Pane, Session: ev.Session, Model: ev.Model}
+		if !act.Matches(a.store.State().Panes[ev.Pane]) {
 			_ = a.dispatch(act)
 		}
 	}
@@ -326,14 +323,10 @@ func (a *App) onAgentTick() tea.Cmd {
 	return a.agentTickCmd()
 }
 
-// anyWorking also counts a blocked Codex whose status is ready: the quiet rule may idle it.
+// anyWorking also counts a blocked Codex the quiet rule may idle.
 func (a *App) anyWorking() bool {
 	for id, m := range a.store.State().Panes {
-		if m.State == core.AgentWorking {
-			return true
-		}
-
-		if p := a.panes[id]; p != nil && m.Harness == "codex" && m.State == core.AgentBlocked && p.codex.last.RunState == "ready" && p.codex.threadOK(m) {
+		if p := a.panes[id]; m.State == core.AgentWorking || p != nil && m.Harness == "codex" && p.codex.mayIdle(m) {
 			return true
 		}
 	}

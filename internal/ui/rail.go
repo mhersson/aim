@@ -186,7 +186,7 @@ func (a *App) railCards(st core.State) []railGroup {
 			c.harness = a.harnessOf(m).Program()
 		}
 
-		if p := a.panes[id]; p != nil && p.codex.checkHooks(now, p.hooksSeen) {
+		if p := a.panes[id]; p != nil && p.codex.checkHooks(now) {
 			c.action = "check /hooks"
 		}
 
@@ -270,7 +270,7 @@ func cardLabels(m core.Pane, rp *railPane, codexName string) (project, name stri
 		}
 
 		// A name belongs to the transcript it was read from, not to the pane.
-		if m.Harness != "codex" && m.Transcript != "" && rp.name.transcript == m.Transcript {
+		if m.Transcript != "" && rp.name.transcript == m.Transcript {
 			name = rp.name.text
 		}
 	}

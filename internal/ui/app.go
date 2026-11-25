@@ -661,7 +661,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(a.store.State().Panes) > 0 {
 				cmds = append(cmds, a.startRestored())
 			} else if a.store.State().Tab().Empty() {
-				cmds = append(cmds, a.openPane(core.KindShell, core.SplitVertical))
+				cmds = append(cmds, a.openPane(core.SplitVertical))
 			}
 		}
 

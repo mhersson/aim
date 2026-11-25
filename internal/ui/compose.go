@@ -1053,7 +1053,7 @@ func (a *App) onBodyWritten(msg bodyWrittenMsg) tea.Cmd {
 	id := st.NewPaneID()
 	run := &paneRun{program: reviewEditor(a.getenv), args: []string{msg.file}, once: true}
 
-	cmd, opened := a.openPaneAt(core.KindShell, core.SplitVertical, anchor, v.t.root, run)
+	cmd, opened := a.openPaneAt(core.SplitVertical, anchor, v.t.root, run)
 	if !opened {
 		fail(cmp.Or(a.notice, statusEditorNoPane))
 

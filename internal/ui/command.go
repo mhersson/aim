@@ -105,12 +105,12 @@ func commands(themes theme.Set) []command {
 		id:    "pane.split.down",
 		icon:  iconSplitDown,
 		title: "Split: shell below",
-		run:   func(a *App) tea.Cmd { return a.openPane(core.KindShell, core.SplitHorizontal) },
+		run:   func(a *App) tea.Cmd { return a.openPane(core.SplitHorizontal) },
 	}, {
 		id:    "pane.split.right",
 		icon:  iconPanes,
 		title: "Split: shell right",
-		run:   func(a *App) tea.Cmd { return a.openPane(core.KindShell, core.SplitVertical) },
+		run:   func(a *App) tea.Cmd { return a.openPane(core.SplitVertical) },
 	}}
 	for _, d := range dirs {
 		cmds = append(cmds, command{

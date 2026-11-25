@@ -112,7 +112,7 @@ func (a *App) railAgentKeys(dst []railAgentKey, ids []core.PaneID, now time.Time
 		}
 
 		if p := a.panes[id]; p != nil {
-			k.checkHooks, k.codexName = p.codex.checkHooks(now, p.hooksSeen), p.codex.last.ThreadName
+			k.checkHooks, k.codexName = p.codex.checkHooks(now), p.codex.last.ThreadName
 			if p.lastOut.After(active) {
 				active = p.lastOut
 			}
