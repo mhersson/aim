@@ -16,8 +16,8 @@ var codexThreadIDRE = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-f
 // Every usage field is optional, so the percentage is a pointer.
 type codexStatusPayload struct {
 	Thread struct {
-		ID    string  `json:"id"`
-		Name  *string `json:"name"`
+		ID    string `json:"id"`
+		Name  string `json:"name"`
 		Agent struct {
 			State string `json:"state"`
 		} `json:"agent"`
@@ -56,9 +56,7 @@ func (Codex) ParseStatus(snapshot []byte) (Event, error) {
 		Window:      t.Usage.Context.Size,
 		InputTokens: t.Usage.Context.Used,
 	}
-	if t.Name != nil {
-		ev.ThreadName = strings.TrimSpace(capRunes(printable(*t.Name), maxNameRunes))
-	}
+	ev.ThreadName = strings.TrimSpace(capRunes(printable(t.Name), maxNameRunes))
 
 	switch t.Agent.State {
 	case "starting", "ready", "working", "waiting", "thinking":

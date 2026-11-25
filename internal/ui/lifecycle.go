@@ -198,10 +198,6 @@ func (a *App) startPaneRunning(id core.PaneID, m core.Pane, cols, rows int, run 
 			env = append(env, "AIM_CODEX_HOOKS="+a.codexSettings)
 		}
 
-		if a.hookSettings == "" {
-			env = append(env, "AIM_CLAUDE_HOOKS=off")
-		}
-
 		if a.hookBin != "" {
 			env = append(env, "AIM_BIN="+a.hookBin)
 		}

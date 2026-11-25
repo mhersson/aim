@@ -441,7 +441,6 @@ func TestShimOnAPty(t *testing.T) {
 	}{
 		{"nested plain shell on the pane's tty", "bash --norc --noprofile -i\nclaude n", func(s string) []string { return []string{"--settings", s, "n"} }, "", ""},
 		{"nested pty", nested, func(string) []string { return []string{"x"} }, "", map[bool]string{true: "script is not installed"}[scriptErr != nil]},
-		{"settings setup failed but an old file remains", "AIM_CLAUDE_HOOKS=off claude old", func(string) []string { return []string{"old"} }, "", ""},
 		{"settings path is a directory", `mv "${AIM_SOCK%.sock}-claude.json" "$HOME/old"; mkdir "${AIM_SOCK%.sock}-claude.json"; claude dir`, func(string) []string { return []string{"dir"} }, "", ""},
 		{"leader", "claude a 'b c'", func(s string) []string { return []string{"--settings", s, "a", "b c"} }, "", ""},
 		{"not the leader of a pipeline", "echo hi | claude -p", func(string) []string { return []string{"-p"} }, "", ""},
@@ -498,7 +497,7 @@ func TestShimKeepsTheProbeName(t *testing.T) {
 	deadline := time.Now().Add(hangGuard)
 
 	for {
-		got, err := r.p.Foreground()
+		got, _, err := r.p.ForegroundProcess()
 		if err == nil && got == "claude" {
 			return
 		}
@@ -547,7 +546,6 @@ func TestCodexStatusArgs(t *testing.T) {
 		{`/a "b"\c/aim`, true, `command="/a \"b\"\\c/aim"`},
 		{"/a\x01/aim", false, ""},
 		{"/a\xff/aim", false, ""},
-		{"", false, ""},
 	} {
 		args, ok := codexStatusArgs(tc.bin)
 		if ok != tc.ok {

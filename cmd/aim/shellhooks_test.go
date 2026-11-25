@@ -417,7 +417,7 @@ fi
 	var suspended harness.Event
 	select {
 	case suspended = <-events:
-	case <-time.After(5 * time.Second):
+	case <-time.After(hangGuard):
 		t.Fatal("suspended job did not register")
 	}
 

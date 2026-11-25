@@ -28,7 +28,7 @@ func (p *Process) ForegroundProcess() (string, int, error) {
 	if name == "codex" || name == "node" || name == "bun" {
 		if cmd, err := os.ReadFile(dir + "/cmdline"); err == nil {
 			argv := bytes.Split(bytes.TrimSuffix(cmd, []byte{0}), []byte{0})
-			if n, ok := foregroundName(argv); ok && (n == "codex" || n == "codex-cli" || n == "claude") {
+			if n, ok := foregroundName(argv); ok {
 				name = n
 			}
 		}

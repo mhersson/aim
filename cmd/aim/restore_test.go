@@ -235,9 +235,9 @@ func TestSkippedNotice(t *testing.T) {
 		t.Errorf("skippedNotice(nil) = %q, want none", got)
 	}
 
-	one, same, two := skippedNotice([]string{"a"}), skippedNotice([]string{"a", "a"}), skippedNotice([]string{"a", "b"})
-	if one == same || same == two || !strings.Contains(two, `"b"`) || strings.Count(same, `"a"`) != 1 {
-		t.Errorf("notices %q, %q, %q: want a singular form and a plural one naming each ID once", one, same, two)
+	got := skippedNotice([]string{"a", "a", "b"})
+	if !strings.Contains(got, "3") || strings.Count(got, `"a"`) != 1 || strings.Count(got, `"b"`) != 1 {
+		t.Errorf("notice %q: want the count 3 and each ID once", got)
 	}
 
 	if got := skippedNotice([]string{"x\x1b[31m"}); strings.Contains(got, "\x1b") {

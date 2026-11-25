@@ -127,7 +127,7 @@ nothing, and anywhere else it closes the popover and goes no further.
   `[shell] integration = false`, or when the files were not written, every pane
   gets today's argv and environment.
 - Every pane gets `TERM=xterm-256color` and `COLORTERM=truecolor` and loses an
-  inherited `TMUX`, `TMUX_PANE`, `AIM_PANE`, `AIM_SOCK`, `AIM_CLAUDE_HOOKS`, `AIM_BIN`, `AIM_TTY`,
+  inherited `TMUX`, `TMUX_PANE`, `AIM_PANE`, `AIM_SOCK`, `AIM_BIN`, `AIM_TTY`,
   `AIM_CODEX_OWNER`, `AIM_CODEX_HOOKS`, `AIM_SHELL_DIR`, `AIM_ZDOTDIR` and `AIM_ENV` (`term.PaneEnv`). `term.Start`
   opens the pty itself and sets `AIM_TTY` to the slave's path.
 - Every pane that gets `AIM_SOCK` also gets `AIM_BIN`, the binary the hooks run
@@ -160,9 +160,7 @@ instance's settings file from two pieces, both from
   PATH without those entries, so Claude and its tools never meet the wrapper.
 - **It fails open.** An error inside it execs the real `claude` unchanged. With
   no other `claude` it prints `claude: command not found` and exits 127; a
-  failed exec prints `claude: <error>` and exits 126. If settings setup fails while the socket stays available,
-  AIM sets `AIM_CLAUDE_HOOKS=off` in its panes so a stale settings file
-  cannot enable the wrapper. When AIM's binary is gone,
+  failed exec prints `claude: <error>` and exits 126. When AIM's binary is gone,
   the shells skip the dangling PATH entry and the scripts' function falls back
   to `command claude`.
 - **Per shell.** zsh reads AIM's `.zshenv` as `$ZDOTDIR/.zshenv`, puts the user's

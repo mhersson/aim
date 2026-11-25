@@ -84,9 +84,3 @@ func baseName(path string) (string, bool) {
 
 	return name, name != "." && name != "/"
 }
-
-func (p *Process) Foreground() (string, error) {
-	name, _, err := p.ForegroundProcess()
-
-	return name, err
-}

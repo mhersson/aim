@@ -69,22 +69,17 @@ func loadState(statePath string, fresh bool, cfg core.Config) (core.State, []str
 // skippedNotice names the harnesses of saved agents restored as shells, each
 // once; %q escapes control bytes. It is empty for none.
 func skippedNotice(ids []string) string {
+	if len(ids) == 0 {
+		return ""
+	}
+
 	var names []string
 
-	for _, id := range ids {
-		if q := strconv.Quote(id); !slices.Contains(names, q) {
-			names = append(names, q)
-		}
+	for _, id := range slices.Compact(slices.Clone(ids)) {
+		names = append(names, strconv.Quote(id))
 	}
 
-	switch len(ids) {
-	case 0:
-		return ""
-	case 1:
-		return fmt.Sprintf("a saved agent of unknown kind %s was restored as a shell", names[0])
-	}
-
-	return fmt.Sprintf("%d saved agents of unknown kinds %s were restored as shells", len(ids), strings.Join(names, ", "))
+	return fmt.Sprintf("%d saved agents of unknown kind restored as shells: %s", len(ids), strings.Join(names, ", "))
 }
 
 // checkResume clears the session of every agent that cannot resume: one with

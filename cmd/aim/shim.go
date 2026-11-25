@@ -139,7 +139,7 @@ func planShim(name string, args, environ []string, self os.FileInfo, own func(pa
 // codexStatusArgs returns the -c overrides that start AIM's status line
 // provider. It refuses a path a TOML basic string cannot carry unchanged.
 func codexStatusArgs(bin string) ([]string, bool) {
-	if bin == "" || !utf8.ValidString(bin) || strings.ContainsFunc(bin, unicode.IsControl) {
+	if !utf8.ValidString(bin) || strings.ContainsFunc(bin, unicode.IsControl) {
 		return nil, false
 	}
 
@@ -155,10 +155,6 @@ func codexStatusArgs(bin string) ([]string, bool) {
 // shimArgs returns args with this instance's settings in front when all the
 // conditions hold; the cheap checks come first and the terminal probe last.
 func shimArgs(args []string, getenv func(string) (string, bool), own func(paneTTY string) bool) []string {
-	if v, _ := getenv("AIM_CLAUDE_HOOKS"); v == "off" {
-		return args
-	}
-
 	sock, _ := getenv("AIM_SOCK")
 
 	settings, ok := settingsForSock(sock)

@@ -21,7 +21,6 @@ import (
 	"unicode"
 
 	"github.com/mhersson/aim/internal/core"
-	"github.com/mhersson/aim/internal/harness"
 )
 
 // Version is the file format Encode writes and Decode reads without fallback.
@@ -512,7 +511,7 @@ func decodePane(jp paneJSON) (core.Pane, error) {
 			return core.Pane{}, errors.New("agent without a harness")
 		}
 
-		if _, ok := harness.ByID(jp.Harness); !ok {
+		if !slices.Contains(core.AgentIDs(), jp.Harness) {
 			return p, errUnknownHarness
 		}
 
