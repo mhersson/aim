@@ -79,7 +79,7 @@ func skippedNotice(ids []string) string {
 		names = append(names, strconv.Quote(id))
 	}
 
-	return fmt.Sprintf("%d saved agents of unknown kind restored as shells: %s", len(ids), strings.Join(names, ", "))
+	return fmt.Sprintf("saved agents of unknown kind restored as shells: %s", strings.Join(names, ", "))
 }
 
 // checkResume clears the session of every agent that cannot resume: one with
