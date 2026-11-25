@@ -95,8 +95,6 @@ type Event struct {
 	// Before holds the socket reply until the baseline for Edit or BeforePaths is ready.
 	Before      bool     `json:"before,omitempty"`
 	BeforePaths []string `json:"before_paths,omitempty"`
-	// PathsIncomplete means a patch may touch additional worktrees.
-	PathsIncomplete bool `json:"paths_incomplete,omitempty"`
 	// Subagent marks an event a subagent sent, not the agent's own session.
 	Subagent bool `json:"subagent,omitempty"`
 	// Changed holds bounded absolute paths reported by a completed tool.

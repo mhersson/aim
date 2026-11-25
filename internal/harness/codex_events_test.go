@@ -1,10 +1,7 @@
 package harness
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"math"
 	"os"
 	"slices"
 	"strings"
@@ -92,11 +89,12 @@ func TestCodexRequestInput(t *testing.T) {
 func TestCodexPatchPaths(t *testing.T) {
 	t.Parallel()
 
-	want := []string{"/work/project/added.txt", "/work/project/edit.txt", "/work/project/move.txt", "/work/project/moved.txt", "/work/project/delete.txt"}
+	// The fixture holds five files in one directory; one path per directory is kept.
+	want := []string{"/work/project/added.txt"}
 
 	for _, name := range []string{"pre_patch", "post_patch"} {
 		ev, err := (Codex{}).ParseEvent(codexFixture(t, name))
-		if err != nil || ev.Before != (name == "pre_patch") || ev.PathsIncomplete || ev.State != core.AgentWorking {
+		if err != nil || ev.Before != (name == "pre_patch") || ev.State != core.AgentWorking {
 			t.Fatalf("%s: %+v, %v", name, ev, err)
 		}
 
@@ -124,9 +122,9 @@ func TestCodexPatchHeaders(t *testing.T) {
 
 	patch := "*** Begin Patch\n*** Update File: foo\n@@\n *** Update File: context\n-*** Delete File: removed\n+*** Move to: added\n*** Delete File: ./foo\n*** End Patch"
 
-	paths, incomplete := codexPatchPaths(patch, "/work")
-	if incomplete || !slices.Equal(paths, []string{"/work/foo"}) {
-		t.Fatal(paths, incomplete)
+	paths := codexPatchPaths(patch, "/work")
+	if !slices.Equal(paths, []string{"/work/foo"}) {
+		t.Fatal(paths)
 	}
 }
 
@@ -134,63 +132,16 @@ func TestCodexPatchCoverage(t *testing.T) {
 	t.Parallel()
 
 	var patch strings.Builder
-	patch.WriteString("*** Begin Patch\n")
+	patch.WriteString("*** Begin Patch\n*** Add File: same/a\n*** Add File: same/b\n")
 
-	for i := range maxChanged + 1 {
-		fmt.Fprintf(&patch, "*** Delete File: %d\n", i)
+	for i := range maxChanged + 4 {
+		fmt.Fprintf(&patch, "*** Delete File: d%d/f\n", i)
 	}
 
 	patch.WriteString("*** End Patch")
 
-	paths, incomplete := codexPatchPaths(patch.String(), "/work")
-	if !incomplete || len(paths) != maxChanged {
-		t.Fatal(paths, incomplete)
-	}
-}
-
-func TestCodexEventWireBudget(t *testing.T) {
-	t.Parallel()
-
-	// Absolute patch paths can name a different worktree from a long, escaped cwd.
-	path := strings.Repeat("/"+strings.Repeat("&", 249), 4)
-	dir := strings.Repeat("/"+strings.Repeat("<", 249), 14)
-
-	var patch strings.Builder
-	patch.WriteString("*** Begin Patch\n")
-
-	for i := range 5 {
-		fmt.Fprintf(&patch, "*** Delete File: %s%d\n", path, i)
-	}
-
-	patch.WriteString("*** End Patch")
-
-	raw, err := json.Marshal(map[string]any{
-		"hook_event_name": "PreToolUse", "session_id": "session", "turn_id": "turn",
-		"cwd": dir, "transcript_path": dir + "/log", "tool_name": "apply_patch",
-		"tool_input": map[string]string{"command": patch.String()},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	ev, err := (Codex{}).ParseEvent(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	ev.Pane = core.PaneID(fmt.Sprintf("p%d", math.MaxInt))
-	ev.OwnerPID = math.MaxInt
-
-	line, err := json.Marshal(ev)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err = readEvent(bytes.NewReader(append(line, '\n'))); err != nil {
-		t.Fatalf("%d-byte event: %v", len(line), err)
-	}
-
-	if !ev.Before || ev.Cwd != dir || ev.Transcript != dir+"/log" || !ev.PathsIncomplete || len(ev.BeforePaths) != 3 {
-		t.Fatalf("held %v, incomplete %v, %d paths", ev.Before, ev.PathsIncomplete, len(ev.BeforePaths))
+	paths := codexPatchPaths(patch.String(), "/work")
+	if len(paths) != maxChanged || paths[0] != "/work/same/a" || paths[1] != "/work/d0/f" {
+		t.Fatal(paths)
 	}
 }

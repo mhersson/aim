@@ -388,8 +388,9 @@ its acknowledgement. Stop and Interrupt retire the active turn, so a delayed
 tool event cannot change pane state. Each session keeps its accepted turn IDs for the life of the launch. The gate releases each acknowledgement channel when its snapshot completes or reaches its deadline.
 
 A Codex patch shares one deadline and one acknowledgement across all its paths.
+A patch keeps at most 16 paths, one per directory, as Claude's Bash does.
 The gate resolves distinct worktrees and claims each start before answering.
-An incomplete path list or a failed lookup makes new worktrees for the rest
+A failed lookup makes new worktrees for the rest
 of the turn receive missing-snapshot markers. Once the baselines settle, marker
 writes can continue after the patch acknowledgement.
 

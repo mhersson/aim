@@ -590,7 +590,7 @@ func runTurnGate(ctx context.Context, in <-chan harness.Event, out chan<- harnes
 			deadline = arrived.Add(turnBudget)
 		}
 
-		if cur, ok := current[ev.Pane]; ok && (ev.Before || len(ev.Changed) > 0 || ev.PathsIncomplete) && (ev.Subagent || strings.EqualFold(string(ev.Session), cur.session)) {
+		if cur, ok := current[ev.Pane]; ok && (ev.Before || len(ev.Changed) > 0) && (ev.Subagent || strings.EqualFold(string(ev.Session), cur.session)) {
 			if ev.Before {
 				wg.Go(func() { g.edit(ctx, deadline, cur, ev) })
 			} else {
@@ -975,7 +975,7 @@ func (g *gate) edit(parent context.Context, deadline time.Time, cur paneCurrent,
 
 	seen := make(map[string]bool)
 
-	unsure := ev.PathsIncomplete || len(answers) != len(paths)
+	unsure := len(answers) != len(paths)
 	for _, a := range answers {
 		if a.unsure {
 			unsure = true
@@ -1093,10 +1093,6 @@ func (g *gate) changed(parent context.Context, cur paneCurrent, ev harness.Event
 	case <-cur.tail:
 	case <-parent.Done():
 		return
-	}
-
-	if ev.PathsIncomplete {
-		cur.uncertain.Store(true)
 	}
 
 	for _, a := range answers {

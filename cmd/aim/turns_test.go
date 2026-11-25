@@ -2681,45 +2681,97 @@ func TestGateCodexOwnerKeepsClaudeTurn(t *testing.T) {
 func TestCodexPatchSnapshotMissing(t *testing.T) {
 	t.Parallel()
 
-	for _, tc := range []struct {
-		name      string
-		truncated bool
-	}{{"expired", false}, {"truncated", true}} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	w := &recordingWriter{}
 
-			w := &recordingWriter{}
+	r := startPlacesGate(t, w, (&countingPlaces{}).place, dirSeq)
+	r.in <- harness.Event{Pane: "p", Harness: "codex", Name: harness.CodexOwnerStart, OwnerPID: 42}
 
-			r := startPlacesGate(t, w, (&countingPlaces{}).place, dirSeq)
-			r.in <- harness.Event{Pane: "p", Harness: "codex", Name: harness.CodexOwnerStart, OwnerPID: 42}
+	ev, ack := turnEvent("UserPromptSubmit", gateSession, "/a")
 
-			ev, ack := turnEvent("UserPromptSubmit", gateSession, "/a")
+	ev.Pane, ev.Harness, ev.TurnID, ev.OwnerPID = "p", "codex", "one", 42
+	r.in <- ev
 
-			ev.Pane, ev.Harness, ev.TurnID, ev.OwnerPID = "p", "codex", "one", 42
-			r.in <- ev
+	within(t, ack, time.Second, "prompt")
 
-			within(t, ack, time.Second, "prompt")
+	edit, done := editEvent(gateSession, "", nil, nil)
+	edit.Pane, edit.Harness, edit.TurnID, edit.OwnerPID = ev.Pane, ev.Harness, ev.TurnID, ev.OwnerPID
+	edit.BeforePaths = []string{"/b/first", "/b/second", "/c/third"}
 
-			edit, done := editEvent(gateSession, "", nil, nil)
-			edit.Pane, edit.Harness, edit.TurnID, edit.OwnerPID = ev.Pane, ev.Harness, ev.TurnID, ev.OwnerPID
-			edit.BeforePaths = []string{"/b/first", "/b/second", "/c/third"}
+	edit.Deadline = time.Now().Add(-time.Second)
+	r.in <- edit
 
-			edit.PathsIncomplete = tc.truncated
-			if !tc.truncated {
-				edit.Deadline = time.Now().Add(-time.Second)
-			}
+	within(t, done, time.Second, "patch ACK")
+	drain(t, r)
 
-			r.in <- edit
+	for _, root := range []string{"root/b", "root/c"} {
+		if calls := callsIn(w.all(), root); len(calls) != 1 || !calls[0].mark {
+			t.Fatalf("calls in %s = %+v", root, calls)
+		}
+	}
+}
 
-			within(t, done, time.Second, "patch ACK")
-			drain(t, r)
+func TestCodexLargePatchKeepsTurnCertain(t *testing.T) {
+	t.Parallel()
 
-			for _, root := range []string{"root/b", "root/c"} {
-				if calls := callsIn(w.all(), root); len(calls) != 1 || !calls[0].mark {
-					t.Fatalf("calls in %s = %+v", root, calls)
-				}
-			}
-		})
+	var patch strings.Builder
+	patch.WriteString("*** Begin Patch\n")
+
+	for i := range 20 {
+		fmt.Fprintf(&patch, "*** Delete File: /d%d/f\n", i)
+	}
+
+	patch.WriteString("*** End Patch")
+
+	raw, err := json.Marshal(map[string]any{
+		"hook_event_name": "PreToolUse", "session_id": gateSession, "turn_id": "one", "cwd": "/a",
+		"tool_name": "apply_patch", "tool_input": map[string]string{"command": patch.String()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	w := &recordingWriter{}
+
+	r := startPlacesGate(t, w, (&countingPlaces{}).place, dirSeq)
+	r.in <- harness.Event{Pane: "p", Harness: "codex", Name: harness.CodexOwnerStart, OwnerPID: 42}
+
+	prompt, ack := turnEvent("UserPromptSubmit", gateSession, "/a")
+
+	prompt.Pane, prompt.Harness, prompt.TurnID, prompt.OwnerPID = "p", "codex", "one", 42
+	r.in <- prompt
+
+	within(t, ack, time.Second, "prompt")
+
+	patchEv, err := (harness.Codex{}).ParseEvent(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	released := make(chan struct{})
+
+	patchEv.Pane, patchEv.Harness, patchEv.OwnerPID = "p", "codex", 42
+
+	patchEv.Done = sync.OnceFunc(func() { close(released) })
+	r.in <- patchEv
+
+	within(t, released, time.Second, "patch ACK")
+
+	later, done := editEvent(gateSession, "/d20/f", nil, nil)
+
+	later.Pane, later.Harness, later.TurnID, later.OwnerPID = "p", "codex", "one", 42
+	r.in <- later
+
+	within(t, done, time.Second, "later edit ACK")
+	drain(t, r)
+
+	for i := range 16 {
+		if calls := callsIn(w.all(), fmt.Sprintf("root/d%d", i)); len(calls) != 1 || calls[0].mark {
+			t.Fatalf("calls in root/d%d = %+v", i, calls)
+		}
+	}
+
+	if calls := callsIn(w.all(), "root/d20"); len(calls) != 1 || calls[0].mark {
+		t.Fatalf("later edit calls = %+v", calls)
 	}
 }
 
