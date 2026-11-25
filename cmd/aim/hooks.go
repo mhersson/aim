@@ -403,7 +403,7 @@ func settingsForSock(sock string) (string, bool) {
 // runFilePid extracts the pid from "<pid>.sock", "<pid>-claude.json",
 // "<pid>-aim" and "<pid>-aim-<anything>" (the binary and its temporary copy),
 // "<pid>-index-<anything>" (a snapshot's temporary index or its lock) and the
-// integration dir "<pid>-shell". PR generation uses "<pid>-describe-<suffix>".
+// integration dir "<pid>-shell".
 func runFilePid(name string) (int, bool) {
 	digits, ok := strings.CutSuffix(name, ".sock")
 	if !ok {
@@ -420,10 +420,6 @@ func runFilePid(name string) (int, bool) {
 
 	if !ok {
 		digits, _, ok = strings.Cut(name, "-index-")
-	}
-
-	if !ok {
-		digits, _, ok = strings.Cut(name, "-describe-")
 	}
 
 	if !ok {

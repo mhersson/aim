@@ -217,8 +217,6 @@ func TestStartHooksSweepsDeadInstances(t *testing.T) {
 		strconv.Itoa(dead) + "-aim":             false,
 		strconv.Itoa(dead) + "-aim-0123":        false,
 		strconv.Itoa(live) + "-aim":             true,
-		strconv.Itoa(dead) + "-describe-0123":   false,
-		strconv.Itoa(live) + "-describe-0123":   true,
 		strconv.Itoa(dead) + "-aimed":           true,
 	}
 	for name := range files {

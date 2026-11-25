@@ -251,12 +251,15 @@ in a new session, with no controlling terminal, and `describeTimeout`
 (`internal/ui/compose.go`) kills its process group.
 
 Codex takes the branch summary in a fresh `codex exec --ephemeral` in the
-worktree with a read-only sandbox. AIM lists configured MCP servers in the
-worktree and disables each by name for this command. The CLI reads its
-configuration again at launch, so this assumes the server list stays stable
-between inventory and launch. AIM also turns off apps, plugins, computer use, browser use and multi-agent v2 with `-c features.<name>=false` overrides, and disables web search. A Codex without one of these features ignores its override, where `--disable` would exit.
-A failed inventory ends generation. User hooks retain their usual configuration. The compose box reads the final-message file from a private
-temporary directory under the instance run directory, removed when the process ends. Both
+worktree with a read-only sandbox, and the body is the run's stdout (progress
+goes to stderr). AIM lists configured MCP servers in the worktree and disables
+each by name for this command. The CLI reads its configuration again at launch,
+so this assumes the server list stays stable between inventory and launch. AIM
+also turns off the shell tool, apps, plugins, computer use, browser use and
+multi-agent v2 with `-c features.<name>=false` overrides, and disables web
+search. A Codex without one of these features ignores its override, where
+`--disable` would exit. A failed inventory ends generation. User hooks retain
+their usual configuration. Both
 adapters strip AIM routing variables from the one-off environment. A Codex
 permission hook sends the event with no decision. Its Stop hook returns an
 empty JSON object.

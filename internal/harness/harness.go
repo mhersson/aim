@@ -35,7 +35,6 @@ type DescribeRequest struct {
 	// launch directory, else the worktree.
 	Session core.SessionID
 	Dir     string
-	RunDir  string // AIM instance run directory for temporary final-message files
 
 	Branch, Base string
 	Commits      []Commit // oldest first

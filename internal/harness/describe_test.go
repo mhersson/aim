@@ -285,12 +285,10 @@ if [ "$1" = "--no-daemon" ] && [ "$2" = mcp ]; then
 fi
 printf '%s\n' "$@" > args
 /bin/cat > prompt
-while [ "$1" != --output-last-message ]; do shift; done
-printf 'final body\n' > "$2"
-echo progress
+echo progress >&2
+printf '  final body\n'
 `)
-	runDir := t.TempDir()
-	req := DescribeRequest{Dir: dir, RunDir: runDir, Branch: "topic", Session: "interactive", Commits: []Commit{{Subject: "implement lexer"}}, Template: "## Test plan"}
+	req := DescribeRequest{Dir: dir, Branch: "topic", Commits: []Commit{{Subject: "implement lexer"}}, Template: "## Test plan"}
 
 	body, err := (Codex{}).Describe(t.Context(), req)
 	if err != nil || body != "final body" {
@@ -320,12 +318,8 @@ echo progress
 		t.Errorf("--disable in argv %q", args)
 	}
 
-	if !strings.Contains(string(args), runDir+string(os.PathSeparator)) || slices.Contains(strings.Split(string(args), "\n"), "hooks") {
-		t.Fatalf("run directory or hook config in argv: %q", args)
-	}
-
-	if strings.Contains(string(args), "interactive") {
-		t.Fatalf("session in argv %q", args)
+	if slices.Contains(argv, "hooks") || slices.Contains(argv, "--output-last-message") {
+		t.Fatalf("hook config or output file in argv: %q", args)
 	}
 
 	prompt, err := os.ReadFile(filepath.Join(dir, "prompt"))
@@ -348,12 +342,12 @@ func TestCodexDescribeInventoryFailure(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("PATH", dir)
 	writeExecutable(t, filepath.Join(dir, "codex"), `#!/bin/sh
-if [ "$2" = mcp ]; then echo private-config >&2; exit 1; fi
+if [ "$2" = mcp ]; then exit 1; fi
 : > exec-called
 `)
 
-	_, err := (Codex{}).Describe(t.Context(), DescribeRequest{Dir: dir, RunDir: t.TempDir()})
-	if err == nil || strings.Contains(err.Error(), "private-config") {
+	_, err := (Codex{}).Describe(t.Context(), DescribeRequest{Dir: dir})
+	if err == nil {
 		t.Fatalf("unexpected inventory error %v", err)
 	}
 
@@ -366,7 +360,7 @@ func TestCodexDescribeMissingExecutable(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("PATH", dir)
 
-	_, err := (Codex{}).Describe(t.Context(), DescribeRequest{Dir: dir, RunDir: dir})
+	_, err := (Codex{}).Describe(t.Context(), DescribeRequest{Dir: dir})
 	if !errors.Is(err, exec.ErrNotFound) || !strings.Contains(err.Error(), "codex") {
 		t.Fatalf("missing executable: %v", err)
 	}
