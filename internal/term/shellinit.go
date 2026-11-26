@@ -111,8 +111,10 @@ func WriteIntegration(dir, wrapper string) (err error) {
 		}
 	}
 
-	if err := os.Symlink(wrapper, filepath.Join(dir, "bin", "claude")); err != nil {
-		return fmt.Errorf("link wrapper: %w", err)
+	for _, name := range []string{"claude", "codex"} {
+		if err := os.Symlink(wrapper, filepath.Join(dir, "bin", name)); err != nil {
+			return fmt.Errorf("link %s wrapper: %w", name, err)
+		}
 	}
 
 	return nil

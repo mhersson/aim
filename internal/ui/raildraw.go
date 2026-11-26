@@ -481,7 +481,12 @@ func (a *App) railCardLine(ui theme.UI, c railCard, hits []railHit, n, cw int) [
 			fg, bold = ui.Blocked, true
 		}
 
-		return append([]railRun{indent}, hiRuns(c.action, hitsOf(hits, railFieldAction), fg, ui.Match, bold)...)
+		lead := []railRun{indent}
+		if c.harness != "" {
+			lead = append(lead, railRun{text: c.harness + " ", fg: ui.Muted})
+		}
+
+		return append(lead, hiRuns(c.action, hitsOf(hits, railFieldAction), fg, ui.Match, bold)...)
 	}
 
 	if !c.statsKnown {

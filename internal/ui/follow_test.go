@@ -415,7 +415,7 @@ func TestTabNameAndSplitsKeepOwnDirectory(t *testing.T) {
 	}
 
 	next := r.store.State().NewPaneID()
-	r.openPane(core.KindShell, core.SplitVertical)
+	r.openPane(core.SplitVertical)
 
 	if m, ok := r.store.State().Panes[next]; !ok || m.Cwd != r.dirA {
 		t.Errorf("new pane = %+v, want a shell in %q", m, r.dirA)

@@ -18,26 +18,26 @@ type editState struct {
 	resolve func(context.Context, string) (git.Place, error) // the shared PlaceCache's Place; tests replace it
 }
 
-// editPlaceMsg answers noteEdit: the place of path, or why it has none. The
-// pane's session is the one when the hook arrived, so an answer that comes after
-// a session change records nothing.
+// A Codex launch can resume the same session before a previous edit resolves.
+// Both identities belong to the hook that requested the lookup.
 type editPlaceMsg struct {
-	pane    core.PaneID
-	session core.SessionID
-	path    string
-	seq     uint64
-	at      time.Time
-	place   git.Place
-	err     error
+	pane     core.PaneID
+	ownerPID int
+	session  core.SessionID
+	path     string
+	seq      uint64
+	at       time.Time
+	place    git.Place
+	err      error
 }
 
 // noteEdit records the worktree the file an agent just edited belongs to. The
 // order is the one the hooks arrive in, whenever git answers. A path resolves
 // off the update loop, under the probe limit.
-func (a *App) noteEdit(m core.Pane, id core.PaneID, path string) tea.Cmd {
+func (a *App) noteEdit(m core.Pane, id core.PaneID, ownerPID int, path string) tea.Cmd {
 	a.edits.seq++
 
-	msg := editPlaceMsg{pane: id, session: m.Session, path: path, seq: a.edits.seq, at: a.clock.Now()}
+	msg := editPlaceMsg{pane: id, ownerPID: ownerPID, session: m.Session, path: path, seq: a.edits.seq, at: a.clock.Now()}
 
 	ctx, sem, budget, resolve := a.ctx, a.probeSem, a.probeBudget, a.edits.resolve
 
@@ -59,17 +59,18 @@ func (a *App) noteEdit(m core.Pane, id core.PaneID, path string) tea.Cmd {
 // editPlacesMsg answers noteChanged: the places of the files a Bash command
 // changed that resolved, each with the number of the path that found it.
 type editPlacesMsg struct {
-	pane    core.PaneID
-	session core.SessionID
-	at      time.Time
-	places  []git.Place
-	seqs    []uint64
+	pane     core.PaneID
+	ownerPID int
+	session  core.SessionID
+	at       time.Time
+	places   []git.Place
+	seqs     []uint64
 }
 
 // noteChanged records the worktrees the files a Bash command changed belong to.
 // Each path gets its number now, in the list's order, and the list resolves off
 // the update loop under one probe slot, so a command costs one slot.
-func (a *App) noteChanged(m core.Pane, id core.PaneID, paths []string) tea.Cmd {
+func (a *App) noteChanged(m core.Pane, id core.PaneID, ownerPID int, paths []string) tea.Cmd {
 	seqs := make([]uint64, len(paths))
 	for i := range seqs {
 		a.edits.seq++
@@ -80,7 +81,7 @@ func (a *App) noteChanged(m core.Pane, id core.PaneID, paths []string) tea.Cmd {
 	ctx, sem, budget, resolve, log := a.ctx, a.probeSem, a.probeBudget, a.edits.resolve, a.log
 
 	return func() tea.Msg {
-		msg := editPlacesMsg{pane: id, session: m.Session, at: at}
+		msg := editPlacesMsg{pane: id, ownerPID: ownerPID, session: m.Session, at: at}
 
 		ctx, done, err := admit(ctx, sem, budget)
 		if err != nil {
@@ -121,6 +122,21 @@ func logEditError(log *slog.Logger, pane core.PaneID, err error) {
 	}
 }
 
+func (a *App) editLaunchCurrent(id core.PaneID, ownerPID int) bool {
+	m, ok := a.store.State().Panes[id]
+	if !ok || m.Kind != core.KindAgent {
+		return false
+	}
+
+	if m.Harness != "codex" {
+		return ownerPID == 0
+	}
+
+	p := a.panes[id]
+
+	return p != nil && ownerPID > 0 && p.ownerPID == ownerPID
+}
+
 // onEditPlace hands a resolved place to the core. An edit that
 // does not count, or fails to resolve, changes nothing and raises no notice.
 func (a *App) onEditPlace(msg editPlaceMsg) {
@@ -130,7 +146,7 @@ func (a *App) onEditPlace(msg editPlaceMsg) {
 		return
 	}
 
-	if m, ok := a.store.State().Panes[msg.pane]; !ok || m.Kind != core.KindAgent {
+	if !a.editLaunchCurrent(msg.pane, msg.ownerPID) {
 		return
 	}
 
@@ -140,7 +156,7 @@ func (a *App) onEditPlace(msg editPlaceMsg) {
 // onEditPlaces hands the places a Bash command's files resolved to the core,
 // the last one the list reaches being the followed one.
 func (a *App) onEditPlaces(msg editPlacesMsg) {
-	if m, ok := a.store.State().Panes[msg.pane]; !ok || m.Kind != core.KindAgent {
+	if !a.editLaunchCurrent(msg.pane, msg.ownerPID) {
 		return
 	}
 

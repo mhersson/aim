@@ -31,22 +31,47 @@ func procargsName(b []byte) (string, bool) {
 		return "", false
 	}
 
-	arg0, rest, ok := bytes.Cut(bytes.TrimLeft(b[end:], "\x00"), []byte{0})
+	argv := bytes.Split(bytes.TrimLeft(b[end:], "\x00"), []byte{0})
+	if len(argv) <= int(argc) {
+		// A partial buffer may still identify argv[0].
+		argv = argv[:len(argv)-1]
+	} else {
+		argv = argv[:argc]
+	}
+
+	return foregroundName(argv)
+}
+
+func foregroundName(argv [][]byte) (string, bool) {
+	if len(argv) == 0 {
+		return "", false
+	}
+
+	name, ok := baseName(strings.TrimPrefix(string(argv[0]), "-"))
 	if !ok {
 		return "", false
 	}
 
-	name, ok := baseName(strings.TrimPrefix(string(arg0), "-"))
-	if !ok {
-		return "", false
-	}
-
-	if (name == "node" || name == "bun") && argc > 1 {
-		arg1, _, ok := bytes.Cut(rest, []byte{0})
-		if ok && !bytes.HasPrefix(arg1, []byte("-")) {
-			if script, ok := baseName(string(arg1)); ok {
-				return script, true
+	if (name == "node" || name == "bun") && len(argv) > 1 && !bytes.HasPrefix(argv[1], []byte("-")) {
+		script := string(argv[1])
+		if n, valid := baseName(script); valid {
+			name = n
+			if strings.HasSuffix(script, "/node_modules/@openai/codex/bin/codex.js") {
+				name = "codex"
 			}
+
+			argv = argv[1:]
+		}
+	}
+
+	if name == "codex" {
+		args := make([]string, 0, len(argv)-1)
+		for _, arg := range argv[1:] {
+			args = append(args, string(arg))
+		}
+
+		if local, _ := CodexOptions(args); !local {
+			return "codex-cli", true
 		}
 	}
 

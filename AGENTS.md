@@ -1,7 +1,7 @@
 # AIM
 
-AIM (Agents In-flight Multiplexer) is a Go TUI that hosts coding agents (Claude
-Code in v1) in live terminal panes, with live diffs, PR review, CI status, push,
+AIM (Agents In-flight Multiplexer) is a Go TUI that hosts coding agents (Claude Code
+and Codex) in live terminal panes, with live diffs, PR review, CI status, push,
 open PR and merge beside them. Terminal emulation comes from `tuios.dev/vt`;
 everything above it is ours.
 
@@ -62,7 +62,7 @@ make release-dry  # the GoReleaser dry run: archives, checksums, binaries, chang
 | `internal/core`    | State store, actions, config, tab layouts (`internal/core/tiling` holds the ported tuios layouts) |
 | `internal/ui`      | Compositor, frames and chrome, widgets, keymap, themes, syntax highlighting, image placement |
 | `internal/term`    | PTY plus the `VT` interface; `tuios.dev/vt` adapter               |
-| `internal/harness` | `Harness` interface; Claude Code adapter                          |
+| `internal/harness` | `Harness` interface; Claude Code and Codex adapters               |
 | `internal/git`     | Worktrees, turn snapshots, watcher, diff engine                   |
 | `internal/github`  | Auth via `go-gh`, GraphQL and REST client, poller, PR actions     |
 | `internal/md`      | Markdown to styled cells plus image references; the folder walk   |
@@ -206,8 +206,9 @@ a push.
 
 ## Safety rules
 
-- Never modify the user's `~/.claude` settings. Agents get hooks only through a
-  generated `--settings` file (see `docs/architecture.md`).
+- Never modify the user's `~/.claude` settings or Codex config. Claude gets
+  hooks only through a generated `--settings` file, Codex only through
+  launch-scoped `-c` overrides (see `docs/architecture.md`).
 - Never modify the user's shell startup files. A shell AIM starts gets its
   integration only through its argv and environment (see
   `docs/architecture.md`).

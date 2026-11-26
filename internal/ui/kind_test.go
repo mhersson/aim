@@ -333,7 +333,7 @@ func TestAgentLaunch(t *testing.T) {
 	t.Run("resume reaches the argv", func(t *testing.T) {
 		a, st, _ := kindApp(t, gitOf(newFakeGit(t)))
 
-		if _, _, err := a.startPane("p9", core.KindAgent, testCwd, 80, 24, "abc-123"); err != nil {
+		if _, _, err := a.startPane("p9", core.Pane{Kind: core.KindAgent, Cwd: testCwd, Session: "abc-123"}, 80, 24); err != nil {
 			t.Fatal(err)
 		}
 
@@ -348,7 +348,7 @@ func TestAgentLaunch(t *testing.T) {
 
 		id := a.store.State().NewPaneID()
 
-		if _, _, err := a.startPane(id, core.KindAgent, testCwd, 80, 24, "abc-123"); err != nil {
+		if _, _, err := a.startPane(id, core.Pane{Kind: core.KindAgent, Cwd: testCwd, Session: "abc-123"}, 80, 24); err != nil {
 			t.Fatal(err)
 		}
 
@@ -385,7 +385,7 @@ func TestAgentLaunch(t *testing.T) {
 			return func() tea.Msg { return nil }
 		}
 
-		if a.openPane(core.KindAgent, core.SplitVertical) == nil {
+		if a.openAgentIn(a.harness.ID(), a.cwd) == nil {
 			t.Fatal("no command")
 		}
 

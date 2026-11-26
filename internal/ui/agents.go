@@ -47,25 +47,50 @@ func (a *App) waitEvent() tea.Cmd {
 // onHook applies a hook or status event. An event for a pane that is not open is
 // ignored, and one for a shell pane is held until the probe answers (holdHook).
 func (a *App) onHook(ev harness.Event) tea.Cmd {
+	return a.applyHook(ev, true)
+}
+
+func (a *App) applyHook(ev harness.Event, probe bool) tea.Cmd {
 	if ev.Show {
 		return a.onSent(ev)
 	}
 
+	if ev.Status && ev.Harness == "codex" {
+		return a.onCodexStatus(ev)
+	}
+
 	m, ok := a.store.State().Panes[ev.Pane]
-	if ok && m.Kind != core.KindAgent {
+	p := a.panes[ev.Pane]
+	ownerMismatch := ev.Harness == "codex" && (p == nil || p.ownerPID == 0 || p.ownerPID != ev.OwnerPID)
+
+	wrongHarness := ev.Harness != "" && ev.Harness != m.Harness
+	if probe && ok && (m.Kind != core.KindAgent || ((ev.Start || (p != nil && p.heldProbe != 0)) && (ownerMismatch || wrongHarness))) {
 		return a.holdHook(ev)
 	}
 
-	if !ok {
+	// Only Codex drops other-session hooks; any harness drops another session's
+	// end, so a late end of the old session cannot wipe the new one.
+	otherSession := !ev.Start && m.Session != "" && ev.Session != "" && ev.Session != m.Session
+
+	staleSession := otherSession && (ev.End || ev.Harness == "codex")
+	if !ok || m.Kind != core.KindAgent || wrongHarness || ownerMismatch || staleSession {
 		a.log.Debug("hook event ignored", "pane", ev.Pane, "event", ev.Name)
 
 		return nil
+	}
+
+	if p != nil && ev.Harness == "codex" {
+		p.codex.hookAt = a.clock.Now()
 	}
 
 	if ev.Status {
 		a.onStatus(m, ev)
 
 		return nil
+	}
+
+	if p != nil && ev.Harness == "codex" && ev.State != core.AgentUnknown {
+		p.codex.permission = ev.State == core.AgentBlocked && ev.Name == "PermissionRequest"
 	}
 
 	// A relative cwd would resolve against AIM's directory, so it counts as none.
@@ -101,9 +126,22 @@ func (a *App) onHook(ev harness.Event) tea.Cmd {
 		_ = a.dispatch(core.SetAgentSession{
 			ID: ev.Pane, Session: ev.Session, Transcript: ev.Transcript, NewConversation: ev.NewConversation,
 		})
+
+		// The switch may clear the model and meter, and the provider resends only on change.
+		if p != nil && ev.Harness == "codex" {
+			a.codexModel(ev.Pane, p)
+		}
 	case ev.End:
 		_ = a.dispatch(core.SetAgentSession{ID: ev.Pane})
 		_ = a.changeAgentState(ev.Pane, core.AgentUnknown)
+	}
+
+	// The status line's model wins.
+	if ev.Harness == "codex" && ev.Model != "" && p != nil && p.codex.last.Session == "" {
+		act := core.SetAgentStatus{ID: ev.Pane, Session: ev.Session, Model: ev.Model}
+		if !act.Matches(a.store.State().Panes[ev.Pane]) {
+			_ = a.dispatch(act)
+		}
 	}
 
 	if ev.ActionSet {
@@ -112,11 +150,11 @@ func (a *App) onHook(ev harness.Event) tea.Cmd {
 
 	var edit, changed tea.Cmd
 	if ev.Edit != "" {
-		edit = a.noteEdit(m, ev.Pane, ev.Edit)
+		edit = a.noteEdit(m, ev.Pane, ev.OwnerPID, ev.Edit)
 	}
 
 	if len(ev.Changed) > 0 {
-		changed = a.noteChanged(m, ev.Pane, ev.Changed)
+		changed = a.noteChanged(m, ev.Pane, ev.OwnerPID, ev.Changed)
 	}
 
 	plans := a.notePlans(m, ev.Pane, ev)
@@ -163,11 +201,9 @@ func (a *App) holdHook(ev harness.Event) tea.Cmd {
 
 	p.held = append(p.held, ev)
 
-	if p.heldProbe {
+	if p.heldProbe != 0 {
 		return nil
 	}
-
-	p.heldProbe = true
 
 	return probe(p, true, true)
 }
@@ -179,7 +215,7 @@ func (a *App) replayHeld(p *pane) tea.Cmd {
 
 	cmds := make([]tea.Cmd, 0, len(held))
 	for _, ev := range held {
-		cmds = append(cmds, a.onHook(ev))
+		cmds = append(cmds, a.applyHook(ev, false))
 	}
 
 	return tea.Batch(cmds...)
@@ -260,6 +296,15 @@ func (a *App) onAgentTick() tea.Cmd {
 
 	for id, m := range a.store.State().Panes {
 		p, ok := a.panes[id]
+		if ok && m.Harness == "codex" {
+			if p.codex.quiet(m, now) {
+				// dispatch logs its own failures.
+				_ = a.changeAgentState(id, core.AgentIdle)
+			}
+
+			continue
+		}
+
 		if !ok || m.State != core.AgentWorking {
 			continue
 		}
@@ -278,9 +323,10 @@ func (a *App) onAgentTick() tea.Cmd {
 	return a.agentTickCmd()
 }
 
+// anyWorking also counts a blocked Codex the quiet rule may idle.
 func (a *App) anyWorking() bool {
-	for _, m := range a.store.State().Panes {
-		if m.State == core.AgentWorking {
+	for id, m := range a.store.State().Panes {
+		if p := a.panes[id]; m.State == core.AgentWorking || p != nil && m.Harness == "codex" && p.codex.mayIdle(m) {
 			return true
 		}
 	}
@@ -299,7 +345,12 @@ func anyBlocked(st core.State) bool {
 }
 
 // dialogKey reports whether key answers a permission or question dialog.
-func dialogKey(key string) bool {
+// Codex has no digit keys; y and p answer only its permission prompt.
+func dialogKey(key string, codex, permission bool) bool {
+	if codex {
+		return key == "enter" || key == "esc" || permission && (key == "y" || key == "p")
+	}
+
 	switch key {
 	case "enter", "esc", "1", "2", "3", "4", "5", "6", "7", "8", "9":
 		return true
@@ -311,7 +362,8 @@ func dialogKey(key string) bool {
 // answerDialog makes a blocked agent work again when a key answers its dialog;
 // no hook fires for a denied permission or an interrupt.
 func (a *App) answerDialog(p *pane, key string) {
-	if !dialogKey(key) || a.store.State().Panes[p.id].State != core.AgentBlocked {
+	m := a.store.State().Panes[p.id]
+	if m.State != core.AgentBlocked || !dialogKey(key, m.Harness == "codex", p.codex.permission) {
 		return
 	}
 

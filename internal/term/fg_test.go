@@ -18,7 +18,7 @@ func waitForeground(t *testing.T, p *Process, want string) {
 	deadline := time.Now().Add(testDeadline)
 
 	for {
-		got, err := p.Foreground()
+		got, _, err := p.ForegroundProcess()
 		if err == nil && got == want {
 			return
 		}

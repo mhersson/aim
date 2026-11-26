@@ -189,7 +189,7 @@ func TestZshIntegration(t *testing.T) {
 		plain.typeLine(t, dump("plain"))
 
 		// A plain shell defines no function, so its list is one empty line; drop empty lines on both sides.
-		with := slices.DeleteFunc(strings.Split(r.await(t, "with"), "\n"), func(l string) bool { return l == "claude" || l == "" })
+		with := slices.DeleteFunc(strings.Split(r.await(t, "with"), "\n"), func(l string) bool { return l == "claude" || l == "codex" || l == "" })
 		without := slices.DeleteFunc(strings.Split(r.await(t, "plain"), "\n"), func(l string) bool { return l == "" })
 
 		if !slices.Equal(with, without) {

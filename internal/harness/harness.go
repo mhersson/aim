@@ -15,12 +15,9 @@ type Harness interface {
 	ID() string
 	// Program is the foreground process name of a running agent, e.g. "claude".
 	Program() string
-	// Launch returns the agent argv. An empty settings omits the hooks file; an
-	// empty resume starts a fresh session.
+	// Launch returns the agent argv. An empty settings omits the hooks; an empty
+	// resume starts a fresh session.
 	Launch(settings string, resume core.SessionID) []string
-	// Settings returns the hooks file whose handlers run `exe hook <ID()>`.
-	// With note, the session-start handler also gets --note.
-	Settings(exe string, note bool) ([]byte, error)
 	// ParseEvent reads one hook payload as received on stdin.
 	ParseEvent(payload []byte) (Event, error)
 	// CustomName reads the name the user gave the session from its transcript
@@ -57,8 +54,19 @@ type RateWindow struct {
 	ResetsAt int64   `json:"resets_at"`
 }
 
+// Launch controls are consumed by the snapshot gate before hooks reach the UI.
+const (
+	CodexOwnerStart = "codex-owner-start"
+	CodexOwnerEnd   = "codex-owner-end"
+)
+
 // Event is one hook, statusline or aim show payload reduced to what the app needs.
 type Event struct {
+	Harness  string `json:"harness,omitempty"`
+	TurnID   string `json:"turn_id,omitempty"`
+	OwnerTTY string `json:"owner_tty,omitempty"` // only the exec wrapper registers a tty
+	// OwnerPID identifies the foreground launch, independently of its session.
+	OwnerPID   int             `json:"owner_pid,omitempty"`
 	Pane       core.PaneID     `json:"pane"`
 	Name       string          `json:"name"` // the harness's hook event name, or "statusline", for logs
 	Session    core.SessionID  `json:"session,omitempty"`
@@ -83,14 +91,12 @@ type Event struct {
 	// Plan is the cleaned absolute path of the plan file an ExitPlanMode
 	// PreToolUse names; empty for every other event. The text is not carried.
 	Plan string `json:"plan,omitempty"`
-	// Before marks a PreToolUse whose Edit names a file its tool has not
-	// changed yet; the server holds its answer like a turn start's.
-	Before bool `json:"before,omitempty"`
+	// Before holds the socket reply until the baseline for Edit or BeforePaths is ready.
+	Before      bool     `json:"before,omitempty"`
+	BeforePaths []string `json:"before_paths,omitempty"`
 	// Subagent marks an event a subagent sent, not the agent's own session.
 	Subagent bool `json:"subagent,omitempty"`
-	// Changed holds the cleaned absolute paths of the files a finished Bash
-	// command changed, as Claude Code lists them: one per directory, at most 16
-	// and 32 KiB once encoded.
+	// Changed holds bounded absolute paths reported by a completed tool.
 	Changed []string `json:"changed,omitempty"`
 
 	// Images are the cleaned absolute image paths sent to the user, in order,
@@ -103,9 +109,15 @@ type Event struct {
 	// Show marks an aim show line, not a hook: it carries Pane, Name "show", Images and Caption.
 	Show bool `json:"show,omitempty"`
 
-	// Status marks a status update from the agent's statusline, not a hook. It
-	// carries Session and the fields below, and leaves state, action and cwd alone.
+	// Status marks a status update from the agent's statusline, not a hook. It carries
+	// Session and the fields below; only a Codex RunState sets state, through the UI's status rules.
 	Status bool `json:"status,omitempty"`
+	// ThreadName is the Codex thread's name, printable and cut like a session
+	// name; empty when it has none.
+	ThreadName string `json:"thread_name,omitempty"`
+	// RunState is Codex's agent state: starting, ready, working, waiting or
+	// thinking; empty when absent or unrecognised.
+	RunState string `json:"run_state,omitempty"`
 	// Model is the model's display name, printable and cut like an action; empty
 	// when the agent did not report one.
 	Model string `json:"model,omitempty"`
@@ -142,9 +154,23 @@ type Event struct {
 
 // ByID returns the harness saved under id.
 func ByID(id string) (Harness, bool) {
-	if id == (Claude{}).ID() {
+	switch id {
+	case (Claude{}).ID():
 		return Claude{}, true
+	case (Codex{}).ID():
+		return Codex{}, true
+	default:
+		return nil, false
 	}
+}
 
-	return nil, false
+func ByProgram(program string) (Harness, bool) {
+	switch program {
+	case (Claude{}).Program():
+		return Claude{}, true
+	case (Codex{}).Program():
+		return Codex{}, true
+	default:
+		return nil, false
+	}
 }

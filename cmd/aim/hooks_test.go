@@ -365,12 +365,8 @@ func TestStartHooksWritesTheShellIntegration(t *testing.T) {
 			t.Fatalf("runtime = %+v, want hooks off", h)
 		}
 
-		if h.Shell != (term.Integration{}) || exists(filepath.Join(runDir, strconv.Itoa(os.Getpid())+"-shell")) {
-			t.Error("the integration dir was written for a failed setup")
-		}
-
-		if exists(filepath.Join(runDir, strconv.Itoa(os.Getpid())+"-aim")) {
-			t.Error("a failed setup left the instance's binary behind")
+		if h.CodexSettings == "" || !exists(h.Sock) || h.Shell == (term.Integration{}) {
+			t.Error("Codex hooks or shell unavailable after Claude settings failure")
 		}
 	})
 }

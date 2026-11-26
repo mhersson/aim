@@ -165,7 +165,7 @@ func TestRunOneOff(t *testing.T) {
 
 			env := []string{"PATH=" + strings.Join(tt.path, string(filepath.ListSeparator))}
 
-			out, err := runOneOff(context.Background(), env, tt.self, work, []string{"--print", ""}, "the prompt")
+			out, err := runOneOff(context.Background(), "claude", env, tt.self, work, []string{"--print", ""}, "the prompt")
 
 			switch {
 			case tt.notFind:
@@ -193,7 +193,7 @@ func TestRunOneOffKeepsTheOutputOfACleanExit(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "pid")
 	dir := fakeClaude(t, "echo body\n/bin/sleep 300 &\necho $! > '"+pidFile+"'\n")
 
-	out, err := runOneOff(context.Background(), []string{"PATH=" + dir}, nil, t.TempDir(), nil, "")
+	out, err := runOneOff(context.Background(), "claude", []string{"PATH=" + dir}, nil, t.TempDir(), nil, "")
 	if err != nil || out != "body\n" {
 		t.Errorf("out = %q, err = %v, want the output and no error", out, err)
 	}
@@ -231,7 +231,7 @@ func TestRunOneOffKillsTheGroup(t *testing.T) {
 	done := make(chan error, 1)
 
 	go func() {
-		_, err := runOneOff(ctx, []string{"PATH=" + dir}, nil, t.TempDir(), nil, "")
+		_, err := runOneOff(ctx, "claude", []string{"PATH=" + dir}, nil, t.TempDir(), nil, "")
 		done <- err
 	}()
 
@@ -267,5 +267,101 @@ func TestRunOneOffKillsTheGroup(t *testing.T) {
 		}
 
 		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestCodexDescribe(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PATH", dir)
+	t.Setenv("AIM_PANE", "private-pane")
+	t.Setenv("AIM_SOCK", "private-socket")
+	t.Setenv("AIM_BIN", "private-binary")
+	writeExecutable(t, filepath.Join(dir, "codex"), `#!/bin/sh
+set -eu
+[ -z "${AIM_PANE+x}${AIM_BIN+x}${AIM_SOCK+x}" ]
+if [ "$1" = "--no-daemon" ] && [ "$2" = mcp ]; then
+ printf '%s\n' '[{"name":"side.\"effects","enabled":true}]'
+ exit 0
+fi
+printf '%s\n' "$@" > args
+/bin/cat > prompt
+echo progress >&2
+printf '  final body\n'
+`)
+	req := DescribeRequest{Dir: dir, Branch: "topic", Commits: []Commit{{Subject: "implement lexer"}}, Template: "## Test plan"}
+
+	body, err := (Codex{}).Describe(t.Context(), req)
+	if err != nil || body != "final body" {
+		t.Fatalf("body %q, error %v", body, err)
+	}
+
+	args, err := os.ReadFile(filepath.Join(dir, "args"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, flag := range []string{"--ephemeral", "read-only", `web_search="disabled"`, `mcp_servers={"side.\"effects"={enabled=false}}`, "approval_policy=\"never\""} {
+		if !slices.Contains(strings.Split(string(args), "\n"), flag) {
+			t.Errorf("missing argv entry %q", flag)
+		}
+	}
+
+	argv := strings.Split(string(args), "\n")
+	for _, feature := range []string{"shell_tool", "apps", "plugins", "computer_use", "browser_use", "multi_agent_v2"} {
+		i := slices.Index(argv, "features."+feature+"=false")
+		if i < 1 || argv[i-1] != "-c" {
+			t.Errorf("missing -c features.%s=false in argv %q", feature, args)
+		}
+	}
+
+	if slices.Contains(argv, "--disable") {
+		t.Errorf("--disable in argv %q", args)
+	}
+
+	if slices.Contains(argv, "hooks") || slices.Contains(argv, "--output-last-message") {
+		t.Fatalf("hook config or output file in argv: %q", args)
+	}
+
+	prompt, err := os.ReadFile(filepath.Join(dir, "prompt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []string{req.Branch, req.Template, req.Commits[0].Subject} {
+		if !strings.Contains(string(prompt), want) {
+			t.Errorf("missing %q in %q", want, prompt)
+		}
+	}
+
+	if strings.Contains(string(prompt), "this conversation") {
+		t.Errorf("session in prompt %q", prompt)
+	}
+}
+
+func TestCodexDescribeInventoryFailure(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PATH", dir)
+	writeExecutable(t, filepath.Join(dir, "codex"), `#!/bin/sh
+if [ "$2" = mcp ]; then exit 1; fi
+: > exec-called
+`)
+
+	_, err := (Codex{}).Describe(t.Context(), DescribeRequest{Dir: dir})
+	if err == nil {
+		t.Fatalf("unexpected inventory error %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, "exec-called")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("exec marker: %v", err)
+	}
+}
+
+func TestCodexDescribeMissingExecutable(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PATH", dir)
+
+	_, err := (Codex{}).Describe(t.Context(), DescribeRequest{Dir: dir})
+	if !errors.Is(err, exec.ErrNotFound) || !strings.Contains(err.Error(), "codex") {
+		t.Fatalf("missing executable: %v", err)
 	}
 }

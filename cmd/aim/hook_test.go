@@ -146,7 +146,7 @@ func TestRunHookDelivers(t *testing.T) {
 
 	select {
 	case ev := <-out:
-		if ev.Pane != core.PaneID("p7") || ev.Session != "s1" || !ev.Start {
+		if ev.Harness != "claude-code" || ev.Pane != core.PaneID("p7") || ev.Session != "s1" || !ev.Start {
 			t.Fatalf("event = %+v, want pane p7 and a started session s1", ev)
 		}
 	default:
@@ -317,5 +317,28 @@ func TestRunHookPrintsTheNote(t *testing.T) {
 				t.Error("no event delivered")
 			}
 		})
+	}
+}
+
+func TestCodexHookWithoutOwner(t *testing.T) {
+	t.Parallel()
+	path, out := statusServer(t)
+
+	for _, tt := range []struct{ name, reply string }{{"PermissionRequest", ""}, {"Stop", "{}\n"}} {
+		var reply bytes.Buffer
+
+		ctx, cancel := context.WithTimeout(t.Context(), hookBudget)
+		runHook(ctx, "codex", false, strings.NewReader(`{"session_id":"s","turn_id":"t","hook_event_name":"`+tt.name+`"}`), &reply, env(map[string]string{"AIM_SOCK": path, "AIM_PANE": "p"}))
+		cancel()
+
+		select {
+		case ev := <-out:
+			t.Fatalf("unowned event forwarded: %+v", ev)
+		default:
+		}
+
+		if reply.String() != tt.reply {
+			t.Errorf("%s reply %q", tt.name, reply.String())
+		}
 	}
 }

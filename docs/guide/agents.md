@@ -1,12 +1,12 @@
 # Agents side by side
 
-AIM runs Claude Code in panes next to each other, in tabs, with a rail that lists every agent and a layout that comes back after a restart. This page covers starting agents, moving between panes and tabs, the rail, notifications, the command palette, closing things and what a restart restores.
+AIM runs Claude Code and Codex in panes next to each other, in tabs, with a rail that lists every agent and a layout that comes back after a restart. This page covers starting agents, moving between panes and tabs, the rail, notifications, the command palette, closing things and what a restart restores.
 
 The keys here are the defaults. A changed `leader_key` or `[keys]` table changes them; see [Keys](keys.md) for the full list and [Configuration](config.md#remapping-keys) for how to remap.
 
 ## The leader key
 
-AIM's own keys sit behind a leader key, `ctrl+space`, so every other key goes to the focused pane and the agent in it. Press the leader, then the key of a command: `ctrl+space n` opens an agent.
+AIM's own keys sit behind a leader key, `ctrl+space`, so every other key goes to the focused pane and the agent in it. Press the leader, then the key of a command: `ctrl+space n` opens the new agent picker.
 
 - Press the leader and wait a moment (`which_key_delay`, see [`config.example.toml`](../../config.example.toml)) and a which-key popup lists the keys, grouped as Panes, Layout, Tabs, Git and App.
 - Some keys start a two-key sequence: `ctrl+space g l` opens the pull request list. After the first key (`g`, `>`, `.` or `;`) a smaller popup lists the second keys at once.
@@ -20,19 +20,19 @@ In Claude Code one `esc` interrupts a turn. When an `esc` closes something of AI
 
 ## Start an agent
 
-To start an agent next to the focused pane, press `ctrl+space n`.
-
-- Outside a git repository, the agent starts at once, in the focused pane's working directory.
-- Inside one, the worktree picker opens first (titled "New agent"). It lists the repository's worktrees, each with its branch, its path, how many agents already run there, and `locked` or `prunable` when git says so.
+To start an agent next to the focused pane, press `ctrl+space n`. Inside a git repository the worktree list opens at once, titled with the selected agent (`New agent · Claude Code`). The picker selects `[agents] default`, Claude Code unless set. The list shows the repository's worktrees, each with its branch, its path, how many agents already run there, and `locked` or `prunable` when git says so.
 
 In the picker:
 
 | To | Press |
 | --- | --- |
-| Filter the list | type; it matches the branch and the path |
-| Move | `down`, `ctrl+n` or `tab`; `up`, `ctrl+p` or `shift+tab` (they wrap) |
+| Switch between Claude Code and Codex | `tab`, `shift+tab` |
+| Move | `j` `k`, `down` `up`, `ctrl+n` `ctrl+p` (they wrap) |
+| Filter the list | `/`, then type; it matches the branch and the path. `enter` or `esc` ends the filter and keeps it; `down` `up` and `ctrl+n` `ctrl+p` still move while you type |
 | Start an agent in the selected worktree | `enter` |
 | Close the picker | `esc` |
+
+Outside a git repository, the agent chooser shows instead: pick Claude Code or Codex with the arrow keys or `tab` and press `enter` to start it in the focused pane's working directory, or `esc` to cancel.
 
 A `prunable` worktree has no directory any more; `enter` on it shows `that worktree is gone; git worktree prune removes it`.
 
@@ -50,12 +50,21 @@ The last row, `new worktree…` (`+ new worktree…` with `icons = false`), open
 ### Shells beside the agent
 
 - `ctrl+space s` opens a shell below the focused pane, `ctrl+space v` one to its right. Both start in the focused pane's working directory and take focus. That is where a BSP tab puts them; the other layouts place a new pane by their own rule, see [Layouts](layouts.md).
-- Run `claude` in a shell and the pane becomes an agent pane; when Claude exits in an agent pane, it becomes a shell again. The rail lists agent panes only.
+- Run `claude` or `codex` (see [Codex](#codex)) in a pane shell to track the foreground agent. Exiting the agent returns the pane to a shell. The rail lists agent panes only.
 - A `claude` you type in a shell AIM started is a full agent: hooks, states, turns, follow, context, model, usage and resume, in the directory it started in. AIM does this without touching your shell startup files: a wrapper first on the shell's PATH adds the hooks to your `claude`, and a `claude` function in the shell calls it.
 - It may not be one when typed by full path, through `npx` or `bunx`, inside a shell or `tmux` started in the pane, in a terminal inside an editor (such as an nvim terminal) or another program run in the pane, in a shell other than zsh, bash or fish, under macOS's `/bin/bash`, in zsh when `/etc/zshenv` sets `ZDOTDIR`, or with its own `--settings`. Such a `claude` still makes the pane an agent pane, but its card on the rail may show no state, as for an agent with no hooks.
 - To see it: the shell's PATH starts with an AIM directory, and `type claude` names a function.
 - `[shell] integration = false` in the config turns it off; every pane then starts as it did without it (see [Configuration](config.md)).
 - At most 64 panes fit: past that, the notice is `at most 64 panes`.
+
+### Codex
+
+AIM starts Codex, and a `codex` you type in a pane, with `--no-daemon`, its hooks and its status line provider as launch flags, and never edits your Codex config. It has been tested with Codex CLI 0.172.0.
+
+- At first launch Codex asks you to review AIM's hooks: trust them. Untrusted, the card still shows the state, the thread name, the model and the context, but AIM records no turns or edits and sends no notifications, and from 3 seconds after Codex first reports work until a hook arrives, the rail reads `check /hooks`. Trust them later in `/hooks` and AIM tracks from the next prompt.
+- AIM's provider blanks Codex's footer in its panes, and the model sees one extra tool, `mcp__aim__statusline`.
+- Choosing a status line provider in `/statusline` inside AIM is saved to your Codex config, which then names a server that exists only in AIM's panes. Choose providers outside AIM.
+- AIM tracks a local `codex` or `codex resume <id>` in the foreground. Suspending it returns the pane to its shell, and `fg` keeps its session. Background jobs, nested terminals, remote sessions and `codex exec` run untracked.
 
 ### Focus, resize, swap and zoom
 
@@ -120,7 +129,7 @@ Agents are grouped by the tab they are on, in tab order, and a tab with no agent
 
 1. the state, the session name (or the project), the model, the context meter, a plan mark while the plan is unread, the time since the last activity, and a dot when the agent changed state or went idle while its pane was not the focused one, until you focus it;
 2. the branch, the commits ahead of its upstream (`↑N`), and its pull request with checks and review;
-3. what the agent is doing now (the tool and its target, or the question a blocked agent asks); an idle agent reads `waiting for a prompt`;
+3. what the agent is doing now (the tool and its target, or the question a blocked agent asks); an idle agent reads `waiting for a prompt`. When agents of both kinds are on the rail, the line starts with `claude` or `codex`;
 4. the diff stats against the base branch: lines added, lines removed and the file count.
 
 ## Claude usage
@@ -140,7 +149,7 @@ Click the module or press `ctrl+space u` (command "Claude usage") for the detail
 AIM sends a desktop notification to the terminal it runs in when an agent needs you or has finished, and only for an agent you cannot see. It notifies when:
 
 - an agent becomes blocked: a permission prompt or a question waits for you;
-- an agent's turn ends: Claude stopped, with or without an error, after working.
+- an agent's turn ends: the agent stopped, with or without an error, after working.
 
 An agent that goes quiet for a few seconds is not a finished turn, and an agent already blocked does not notify again until it has been in another state. Panes with no hooks never notify.
 
@@ -174,7 +183,7 @@ When a send arrives, on any tab, a card appears at the bottom right, about a thi
 
 Pictures need a terminal with the Kitty graphics protocol (kitty and Ghostty), not inside tmux. Without them the viewer shows each image's file name instead.
 
-AIM tells each agent about `aim show` at every session start, resume, `/clear` and compaction, so it can send you an image by itself. `tell_agents = false` under `[images]` in the config stops that. In Claude Code's auto mode `aim show` ran without asking in AIM's tests. In manual mode the agent asks every time it runs it, since the command starts with a variable, which no permission rule can match. Inside Claude's Bash sandbox `aim show` cannot reach AIM, and the agent names the image in its final reply instead.
+AIM tells Claude Code about `aim show` at every session start, resume, `/clear` and compaction, so it can send you an image by itself. Codex receives the same note when its trusted session-start hook runs. `tell_agents = false` under `[images]` in the config stops that. In Claude Code's auto mode `aim show` ran without asking in AIM's tests. In manual mode the agent asks every time it runs it, since the command starts with a variable, which no permission rule can match. Inside Claude's Bash sandbox `aim show` cannot reach AIM, and the agent names the image in its final reply instead.
 
 ## The command palette and themes
 
@@ -210,9 +219,11 @@ AIM saves your layout as you work and restores it on the next start, in the same
 - whether the rail and each tab's review drawer were open;
 - each agent's latest plan.
 
-Every agent pane starts `claude --resume` with its saved session, so the conversation continues. A shell starts fresh in its saved directory; what it was running and its scrollback are gone. The theme and the agents' states are not saved: the config decides the theme, and the states come back as the hooks report them.
+Each agent pane resumes its saved conversation with the same agent and launch directory. Claude Code needs its saved transcript; Codex looks up the session by ID. A shell starts fresh in its saved directory and clears its scrollback. The config decides the theme, and the agents' states come back as their hooks and Codex's status line report them.
 
-An agent that cannot resume starts a fresh `claude` and the notice says so: `started a fresh claude in api: its session could not be resumed`, or `started 3 fresh claudes: their sessions could not be resumed`. Several start-up notices show together, joined with `; `. A pane whose directory is gone starts in the launch directory with `<dir> is not available, started in <launch dir>`.
+An agent without a usable session starts a fresh conversation and AIM shows a notice. A refused resume gets one fresh launch of the same agent. If the executable is missing, the pane shows the shell's error and stays usable as a login shell. A pane whose directory is gone starts in the launch directory and the notice names both directories.
+
+An agent of a kind this AIM does not know comes back as a shell in its directory, and a notice names the kind.
 
 To start with one shell instead, run `aim --fresh`. That shell is the first change, so the new layout replaces the saved one as soon as AIM starts.
 

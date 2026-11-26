@@ -263,6 +263,42 @@ func TestEditOtherPathResolvesAgain(t *testing.T) {
 	}
 }
 
+func TestCodexEditAfterRelaunch(t *testing.T) {
+	t.Parallel()
+
+	const path = "/w/b/x.go"
+
+	for _, batch := range []bool{false, true} {
+		t.Run(fmt.Sprintf("batch=%v", batch), func(t *testing.T) {
+			t.Parallel()
+			r := newHookEditRig(t, map[string]git.Place{path: placeAt("/w/b")}, nil)
+			p := r.panes[r.id]
+			start := harness.Event{Pane: r.id, Harness: "codex", Name: "SessionStart", Start: true, Session: "same", Cwd: "/launch"}
+			launch := func(pid int) {
+				r.onCwd(paneCwdMsg{id: r.id, p: p, fg: "codex", pid: pid})
+				start.OwnerPID = pid
+				r.hook(start)
+			}
+			launch(41)
+
+			ev := r.event("PostToolUse", path)
+			if batch {
+				ev = r.changed(path)
+			}
+
+			ev.OwnerPID, ev.Session, ev.Harness = 41, start.Session, "codex"
+			pending := r.hook(ev)
+
+			launch(42)
+			r.deliver(pending)
+
+			if got := r.pane().FollowDir(); got != start.Cwd {
+				t.Fatalf("replacement follows %q, want %q", got, start.Cwd)
+			}
+		})
+	}
+}
+
 func TestEditAfterSessionChange(t *testing.T) {
 	t.Parallel()
 

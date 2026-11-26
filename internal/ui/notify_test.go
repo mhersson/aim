@@ -266,6 +266,26 @@ func TestNotifyDone(t *testing.T) {
 	}
 }
 
+func TestNotifyCodexInterrupt(t *testing.T) {
+	t.Parallel()
+	a, _ := notifyApp(t, core.NotificationsConfig{}, osc777Env)
+	a.Update(tea.BlurMsg{})
+	p := a.panes["p2"]
+	a.onCwd(paneCwdMsg{id: p.id, p: p, fg: "codex", pid: 42})
+	working := harness.Event{Pane: p.id, Harness: "codex", OwnerPID: 42, Session: "s", State: core.AgentWorking, Start: true}
+	hook(a, working)
+
+	end, err := (harness.Codex{}).ParseEvent([]byte(`{"session_id":"s","turn_id":"t","hook_event_name":"Interrupt"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	end.Pane, end.OwnerPID = p.id, 42
+	if got := raws(hook(a, end)); len(got) != 0 || agentState(a, p.id) != core.AgentIdle {
+		t.Errorf("interruption sent %q, state %v", got, agentState(a, p.id))
+	}
+}
+
 func TestNotifyMode(t *testing.T) {
 	t.Parallel()
 

@@ -56,12 +56,32 @@ func (a SetPaneKind) apply(s *State) error {
 			return fmt.Errorf("core: SetPaneKind agent for pane %q without a harness", a.ID)
 		}
 
+		if p.Harness != a.Harness {
+			p = Pane{Cwd: p.Cwd}
+		}
+
 		p.Kind, p.Harness = KindAgent, a.Harness
 	default:
 		return fmt.Errorf("core: SetPaneKind with unknown kind %q", a.Kind)
 	}
 
 	s.Panes[a.ID] = p
+
+	return nil
+}
+
+// ResumePaneJob restores the pane metadata saved while its shell ran in the foreground.
+type ResumePaneJob struct {
+	ID    PaneID
+	Agent Pane
+}
+
+func (a ResumePaneJob) apply(s *State) error {
+	if _, ok := s.Panes[a.ID]; !ok || a.Agent.Kind != KindAgent {
+		return fmt.Errorf("core: cannot restore agent in pane %q", a.ID)
+	}
+
+	s.Panes[a.ID] = a.Agent
 
 	return nil
 }

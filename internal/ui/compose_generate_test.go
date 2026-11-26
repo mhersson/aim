@@ -15,8 +15,11 @@ import (
 
 var keyCtrlG = tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl}
 
-// describer is a harness whose Describe answers text and err and records what
-// it was asked.
+type codexDescriber struct{ *describer }
+
+func (codexDescriber) ID() string { return "codex" }
+
+// describer records each PR description request.
 type describer struct {
 	harness.Claude
 
@@ -118,10 +121,12 @@ func TestComposeGenerateForksTheBranchAgentsSession(t *testing.T) {
 		name        string
 		session     bool
 		elsewhere   bool
+		codex       bool
 		wantSession core.SessionID
 	}{
 		{name: "the agent on the branch", session: true, wantSession: "s-agent"},
 		{name: "an agent without a session"},
+		{name: "Codex in a followed worktree", session: true, codex: true},
 		{name: "a box for another worktree", session: true, elsewhere: true},
 	}
 
@@ -132,6 +137,11 @@ func TestComposeGenerateForksTheBranchAgentsSession(t *testing.T) {
 			r := newComposeRig(t)
 			d := &describer{text: generated}
 			r.harness = d
+
+			if tt.codex {
+				r.harness = codexDescriber{d}
+				openIn(t, r.App, core.SetPaneKind{ID: r.agent, Kind: core.KindAgent, Harness: "codex"}, core.SetAgentCwd{ID: r.agent, Cwd: r.store.State().Panes[r.agent].Cwd}, core.SetPaneCwd{ID: r.agent, Cwd: "/launch"})
+			}
 
 			if tt.session {
 				openIn(t, r.App, core.SetAgentSession{ID: r.agent, Session: "s-agent", Transcript: "/x/t.jsonl"})

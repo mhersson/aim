@@ -271,6 +271,7 @@ func allowedByKey() map[string]allowedSpec {
 		"diff.max_files":            {lo: core.MinDiffLimit, hi: -1},
 		"diff.max_bytes":            {lo: core.MinDiffLimit, hi: -1, unit: "bytes"},
 		"diff.max_lines":            {lo: core.MinDiffLimit, hi: -1},
+		"agents.default":            {values: core.AgentIDs()},
 		"worktrees.root":            {values: core.WorktreeRoots()},
 		"notifications.notify":      {values: core.NotifyModes()},
 		"notifications.bell":        bools,

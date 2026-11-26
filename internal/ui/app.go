@@ -45,8 +45,9 @@ type Options struct {
 	NoOSC52, NoNativeClipboard bool
 	// Harness launches and recognises agents; nil means harness.Claude{}.
 	Harness harness.Harness
-	// HookSettings is the --settings file for agents; empty launches them without hooks.
-	HookSettings string
+	// HookSettings is the Claude settings file. CodexSettings is Codex's CLI hook table.
+	HookSettings  string
+	CodexSettings string
 	// HookSock is AIM_SOCK for every pane; empty sets none.
 	HookSock string
 	// HookBin is AIM_BIN, the binary the hooks run, for every pane that gets AIM_SOCK.
@@ -82,7 +83,9 @@ type Options struct {
 	Places placeFinder
 	// Diff is the [diff] config: the review drawer's starting layout and mode and
 	// the diff engine's limits. The zero value means the defaults.
-	Diff core.DiffConfig
+	Diff   core.DiffConfig
+	Agents core.AgentsConfig
+
 	// Worktrees is the [worktrees] config: where a new worktree goes. The zero
 	// value means inside the main checkout.
 	Worktrees core.WorktreesConfig
@@ -230,20 +233,20 @@ type App struct {
 	copy        *copyState     // copy mode; owns every key and ignores the mouse while set
 	mouse       mouseState
 
-	focusFollows, copyOnSelect bool
-	harness                    harness.Harness
-	tick                       func(time.Duration, func(time.Time) tea.Msg) tea.Cmd // tea.Tick; tests replace it
-	hookSettings, hookSock     string
-	hookBin                    string
-	shell                      term.Integration
-	events                     <-chan harness.Event
-	spin                       int         // badge spinner frame
-	agentTicking               bool        // an agentTickMsg is outstanding
-	slideTicking               bool        // a drawerSlideMsg is outstanding
-	drawersOpen                bool        // some tab's state holds a review drawer; only dispatch changes it
-	settled                    settleKey   // what settleDrawer last found nothing to change in
-	load                       loadSampler // nil on platforms without a load reading
-	start                      func(ctx context.Context, c term.Command, cols, rows int) (proc, error)
+	focusFollows, copyOnSelect            bool
+	harness                               harness.Harness
+	tick                                  func(time.Duration, func(time.Time) tea.Msg) tea.Cmd // tea.Tick; tests replace it
+	hookSettings, codexSettings, hookSock string
+	hookBin                               string
+	shell                                 term.Integration
+	events                                <-chan harness.Event
+	spin                                  int         // badge spinner frame
+	agentTicking                          bool        // an agentTickMsg is outstanding
+	slideTicking                          bool        // a drawerSlideMsg is outstanding
+	drawersOpen                           bool        // some tab's state holds a review drawer; only dispatch changes it
+	settled                               settleKey   // what settleDrawer last found nothing to change in
+	load                                  loadSampler // nil on platforms without a load reading
+	start                                 func(ctx context.Context, c term.Command, cols, rows int) (proc, error)
 
 	// ctx is the lifetime of the pane processes; Close cancels it.
 	ctx     context.Context
@@ -321,7 +324,7 @@ func New(opts Options) (*App, error) {
 	}
 
 	a := &App{
-		git: opts.Git, harness: h, tick: tea.Tick, hookSettings: opts.HookSettings, hookSock: opts.HookSock, hookBin: opts.HookBin, shell: opts.Shell,
+		git: opts.Git, harness: h, tick: tea.Tick, hookSettings: opts.HookSettings, codexSettings: opts.CodexSettings, hookSock: opts.HookSock, hookBin: opts.HookBin, shell: opts.Shell,
 		events: opts.Events, notice: opts.Notice, save: opts.Save, marks: opts.Marks,
 		log: opts.Logger, store: opts.Store, themes: themes, reg: reg, keymap: km, keys: tables,
 		panes: map[core.PaneID]*pane{}, outerFocused: true,
@@ -363,6 +366,7 @@ func New(opts Options) (*App, error) {
 	a.drawer.caches, a.drawer.hl = caches, &caches.hl
 	a.drawer.cfg = opts.Diff
 	a.picker.cfg = opts.Worktrees
+	a.picker.agents = opts.Agents
 	a.notify = newNotifier(opts.Notifications, getenv)
 	a.plans = opts.Plans
 	a.drawersOpen = anyReview(opts.Store.State())
@@ -657,7 +661,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(a.store.State().Panes) > 0 {
 				cmds = append(cmds, a.startRestored())
 			} else if a.store.State().Tab().Empty() {
-				cmds = append(cmds, a.openPane(core.KindShell, core.SplitVertical))
+				cmds = append(cmds, a.openPane(core.SplitVertical))
 			}
 		}
 

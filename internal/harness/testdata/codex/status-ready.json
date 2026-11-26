@@ -1,0 +1,48 @@
+{
+  "account": {
+    "rate_limits": []
+  },
+  "app": {
+    "cli_version": "0.172.0",
+    "display_mode": "standard"
+  },
+  "config": {
+    "statusline_items": [
+      "model-with-reasoning",
+      "current-dir",
+      "thread-name"
+    ]
+  },
+  "thread": {
+    "id": "01a20cf7-8253-76b2-8ef0-3d6b59580d38",
+    "name": null,
+    "agent": {
+      "state": "ready"
+    },
+    "model": {
+      "display_name": "gpt-test",
+      "id": "gpt-test",
+      "provider": "fixture",
+      "service_tier": "normal"
+    },
+    "workspace": {
+      "cwd": "/private/tmp/aimx.XmVm/w"
+    },
+    "usage": {
+      "context": {}
+    },
+    "approval": {
+      "policy": "on-request",
+      "reviewer": "user"
+    },
+    "permissions": {
+      "display_name": "Workspace",
+      "profile_id": ":workspace",
+      "type": "managed",
+      "file_system": {
+        "type": "restricted"
+      },
+      "network": "restricted"
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "session_id": "session-1",
+  "turn_id": "turn-3",
+  "transcript_path": "/state/sessions/session-1.jsonl",
+  "cwd": "/work/project",
+  "hook_event_name": "PermissionRequest",
+  "model": "gpt-6.2-sol",
+  "permission_mode": "default",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "pwd",
+    "description": "Print fixture directory?"
+  }
+}

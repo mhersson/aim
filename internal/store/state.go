@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -33,7 +34,6 @@ const (
 	maxNameRunes  = 32
 	maxVersionLen = 16
 	maxNumber     = 999_999_999 // keeps NextID + 1 far from overflow
-	harnessClaude = "claude-code"
 )
 
 var uuidRE = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -91,8 +91,9 @@ var planKinds = map[core.PlanKind]string{core.PlanMode: "mode", core.PlanFile: "
 
 // Report says which fallbacks Decode used, for the start-up notices.
 type Report struct {
-	Version   string // "" for the current version; else the version as written, or "unknown" when missing
-	Defaulted int    // tabs whose layout could not be read and got the default
+	Version   string   // "" for the current version; else the version as written, or "unknown" when missing
+	Defaulted int      // tabs whose layout could not be read and got the default
+	Skipped   []string // harness IDs of agent panes restored as shells, sorted
 }
 
 // Encode returns the state file for st: indented, deterministic, ratios
@@ -313,6 +314,11 @@ func Decode(data []byte, lc core.LayoutConfig) (core.State, Report, error) {
 		}
 
 		p, err := decodePane(jp)
+		if errors.Is(err, errUnknownHarness) {
+			rep.Skipped = append(rep.Skipped, jp.Harness)
+			p, err = core.Pane{Kind: core.KindShell, Cwd: p.Cwd}, nil
+		}
+
 		if err != nil {
 			return invalid("pane %s: %v", key, err)
 		}
@@ -320,6 +326,8 @@ func Decode(data []byte, lc core.LayoutConfig) (core.State, Report, error) {
 		st.Panes[core.PaneID(key)] = p
 		st.NextID = max(st.NextID, n)
 	}
+
+	slices.Sort(rep.Skipped)
 
 	if len(f.Tabs) == 0 {
 		return invalid("no tabs")
@@ -486,6 +494,10 @@ func decodeTab(jt tabJSON, base core.Tab, lc core.LayoutConfig) (tab core.Tab, o
 	return tab, true
 }
 
+// errUnknownHarness marks an agent of a harness this build lacks; decodePane
+// returns the pane with its Cwd so the caller can restore it as a shell.
+var errUnknownHarness = errors.New("unknown harness")
+
 func decodePane(jp paneJSON) (core.Pane, error) {
 	p := core.Pane{Kind: core.PaneKind(jp.Kind)}
 	if filepath.IsAbs(jp.Cwd) {
@@ -495,8 +507,12 @@ func decodePane(jp paneJSON) (core.Pane, error) {
 	switch p.Kind {
 	case core.KindShell:
 	case core.KindAgent:
-		if jp.Harness != harnessClaude {
-			return core.Pane{}, fmt.Errorf("unknown harness %q", jp.Harness)
+		if jp.Harness == "" {
+			return core.Pane{}, errors.New("agent without a harness")
+		}
+
+		if !slices.Contains(core.AgentIDs(), jp.Harness) {
+			return p, errUnknownHarness
 		}
 
 		p.Harness = jp.Harness

@@ -419,35 +419,37 @@ func TestTitle(t *testing.T) {
 
 	zoom := " " + iconZoom + " zoom "
 	tests := []struct {
-		name  string
-		kind  core.PaneKind
-		cwd   string
-		osc   string
-		width int
-		icons bool
-		zoom  bool
-		want  string
+		name    string
+		kind    core.PaneKind
+		harness string
+		cwd     string
+		osc     string
+		width   int
+		icons   bool
+		zoom    bool
+		want    string
 	}{
-		{"shell", core.KindShell, "/home/u/proj", "", 40, true, false, dashes("╭─ "+iconShell+" shell ", 40)},
-		{"agent", core.KindAgent, "/home/u/proj", "", 40, true, false, dashes("╭─ "+iconAgent+" claude ", 40)},
-		{"osc title", core.KindShell, "/home/u/proj", "\x1b]2;vim main.go\x07", 40, true, false, dashes("╭─ "+iconShell+" vim main.go ", 40)},
-		{"no icons", core.KindAgent, "/home/u/proj", "", 40, false, false, dashes("╭─ claude ", 40)},
-		{"no cwd in the title", core.KindShell, "", "", 40, true, false, dashes("╭─ "+iconShell+" shell ", 40)},
-		{"title fits exactly", core.KindAgent, "/home/u/proj", "", 13, true, false, dashes("╭─ "+iconAgent+" claude ", 13)},
-		{"title shrinks first", core.KindAgent, "/home/u/proj", "", 12, true, false, dashes("╭─ "+iconAgent+" clau… ", 12)},
-		{"title shrinks", core.KindShell, "/home/u/proj", "\x1b]2;abcdefghij\x07", 14, true, false, dashes("╭─ "+iconShell+" abcdef… ", 14)},
-		{"title shrinks to one", core.KindShell, "/home/u/proj", "\x1b]2;abcdefghij\x07", 11, true, false, dashes("╭─ "+iconShell+" abc… ", 11)},
-		{"title goes", core.KindShell, "/home/u/proj", "\x1b]2;abcdefghij\x07", 10, true, false, dashes("╭", 10)},
-		{"zoom tag", core.KindShell, "/home/u/proj", "", 40, true, true, fill("╭─ "+iconShell+" shell ", 30) + zoom + "─╮"},
-		{"zoom tag no icons", core.KindShell, "/home/u/proj", "", 40, false, true, fill("╭─ shell ", 32) + " zoom ─╮"},
-		{"zoom tag takes the title room", core.KindShell, "/home/u/proj", "", 21, true, true, "╭─ " + iconShell + " shell " + zoom + "─╮"},
-		{"zoom tag alone", core.KindShell, "/home/u/proj", "", 11, true, true, "╭" + zoom + "─╮"},
-		{"zoom tag does not fit", core.KindShell, "/home/u/proj", "", 10, true, true, dashes("╭", 10)},
+		{"shell", core.KindShell, "", "/home/u/proj", "", 40, true, false, dashes("╭─ "+iconShell+" shell ", 40)},
+		{"agent", core.KindAgent, "", "/home/u/proj", "", 40, true, false, dashes("╭─ "+iconAgent+" claude ", 40)},
+		{"codex agent", core.KindAgent, "codex", "/home/u/proj", "", 40, true, false, dashes("╭─ "+iconAgent+" codex ", 40)},
+		{"osc title", core.KindShell, "", "/home/u/proj", "\x1b]2;vim main.go\x07", 40, true, false, dashes("╭─ "+iconShell+" vim main.go ", 40)},
+		{"no icons", core.KindAgent, "", "/home/u/proj", "", 40, false, false, dashes("╭─ claude ", 40)},
+		{"no cwd in the title", core.KindShell, "", "", "", 40, true, false, dashes("╭─ "+iconShell+" shell ", 40)},
+		{"title fits exactly", core.KindAgent, "", "/home/u/proj", "", 13, true, false, dashes("╭─ "+iconAgent+" claude ", 13)},
+		{"title shrinks first", core.KindAgent, "", "/home/u/proj", "", 12, true, false, dashes("╭─ "+iconAgent+" clau… ", 12)},
+		{"title shrinks", core.KindShell, "", "/home/u/proj", "\x1b]2;abcdefghij\x07", 14, true, false, dashes("╭─ "+iconShell+" abcdef… ", 14)},
+		{"title shrinks to one", core.KindShell, "", "/home/u/proj", "\x1b]2;abcdefghij\x07", 11, true, false, dashes("╭─ "+iconShell+" abc… ", 11)},
+		{"title goes", core.KindShell, "", "/home/u/proj", "\x1b]2;abcdefghij\x07", 10, true, false, dashes("╭", 10)},
+		{"zoom tag", core.KindShell, "", "/home/u/proj", "", 40, true, true, fill("╭─ "+iconShell+" shell ", 30) + zoom + "─╮"},
+		{"zoom tag no icons", core.KindShell, "", "/home/u/proj", "", 40, false, true, fill("╭─ shell ", 32) + " zoom ─╮"},
+		{"zoom tag takes the title room", core.KindShell, "", "/home/u/proj", "", 21, true, true, "╭─ " + iconShell + " shell " + zoom + "─╮"},
+		{"zoom tag alone", core.KindShell, "", "/home/u/proj", "", 11, true, true, "╭" + zoom + "─╮"},
+		{"zoom tag does not fit", core.KindShell, "", "/home/u/proj", "", 10, true, true, dashes("╭", 10)},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			a, _ := framedApp(t, tt.width, 6, paneSpec{kind: tt.kind, cwd: tt.cwd, split: core.SplitVertical, text: tt.osc})
+			a, _ := framedApp(t, tt.width, 6, paneSpec{kind: tt.kind, cwd: tt.cwd, split: core.SplitVertical, text: tt.osc, harness: tt.harness})
 			a.icons = tt.icons
 
 			if tt.zoom {

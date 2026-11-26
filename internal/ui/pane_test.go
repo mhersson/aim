@@ -83,15 +83,15 @@ func (f *fakeProc) Cwd() (string, error) {
 	return f.cwd, nil
 }
 
-func (f *fakeProc) Foreground() (string, error) {
+func (f *fakeProc) ForegroundProcess() (string, int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	if f.fg == "" {
-		return "", io.ErrUnexpectedEOF
+		return "", 0, io.ErrUnexpectedEOF
 	}
 
-	return f.fg, nil
+	return f.fg, 42, nil
 }
 
 func (f *fakeProc) setFg(name string) {

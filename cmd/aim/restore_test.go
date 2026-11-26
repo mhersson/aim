@@ -170,6 +170,37 @@ func TestLoadState(t *testing.T) {
 		}
 	})
 
+	t.Run("agents of an unknown harness", func(t *testing.T) {
+		tests := []struct {
+			name string
+			ids  []string
+		}{
+			{"one", []string{"gemini"}},
+			{"two", []string{"gemini", "x"}},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				path := filepath.Join(t.TempDir(), "state.json")
+
+				var tabs, panes []string
+
+				for i, id := range tt.ids {
+					n := strconv.Itoa(i + 1)
+					tabs = append(tabs, `{"id":"t`+n+`","mode":"bsp","focused":"p`+n+`","pane_ids":["p`+n+`"],"layout":{"pane":"p`+n+`"}}`)
+					panes = append(panes, `"p`+n+`":{"kind":"agent","harness":`+strconv.Quote(id)+`,"cwd":"/w"}`)
+				}
+
+				writeFile(t, path, `{"version":2,"active":0,"tabs":[`+strings.Join(tabs, ",")+`],"panes":{`+strings.Join(panes, ",")+`}}`)
+
+				st, notices := loadState(path, false, testCfg)
+
+				if st.Panes["p1"].Kind != core.KindShell || !slices.Equal(notices, []string{skippedNotice(tt.ids)}) {
+					t.Errorf("state = %+v, notices = %q, want a shell and %q", st, notices, skippedNotice(tt.ids))
+				}
+			})
+		}
+	})
+
 	t.Run("tab layouts that could not be read", func(t *testing.T) {
 		tests := []struct {
 			name    string
@@ -197,7 +228,26 @@ func TestLoadState(t *testing.T) {
 	})
 }
 
+func TestSkippedNotice(t *testing.T) {
+	t.Parallel()
+
+	if got := skippedNotice(nil); got != "" {
+		t.Errorf("skippedNotice(nil) = %q, want none", got)
+	}
+
+	got := skippedNotice([]string{"a", "a", "b"})
+	if strings.Count(got, `"a"`) != 1 || strings.Count(got, `"b"`) != 1 {
+		t.Errorf("notice %q: want each ID once", got)
+	}
+
+	if got := skippedNotice([]string{"x\x1b[31m"}); strings.Contains(got, "\x1b") {
+		t.Errorf("notice %q carries an escape byte", got)
+	}
+}
+
 func TestCheckResume(t *testing.T) {
+	t.Parallel()
+
 	agent := func(cwd, session, transcript string) core.Pane {
 		return core.Pane{Kind: core.KindAgent, Cwd: cwd, Harness: "claude-code", Session: core.SessionID(session), Transcript: transcript}
 	}
@@ -210,6 +260,23 @@ func TestCheckResume(t *testing.T) {
 
 		if len(notices) != 0 || out.Panes["p1"].Session != sessionA || out.Panes["p1"].Transcript != "/t/ok.jsonl" {
 			t.Errorf("panes = %+v, notices = %q, want the session kept and no notice", out.Panes, notices)
+		}
+	})
+
+	t.Run("Codex resolves its own session", func(t *testing.T) {
+		codex := core.Pane{Kind: core.KindAgent, Cwd: "/w/codex", Harness: "codex", Session: sessionB, Transcript: "/t/gone.jsonl"}
+		in := stateOf(map[core.PaneID]core.Pane{
+			"p1": agent("/w/api", sessionA, "/t/gone.jsonl"),
+			"p2": codex,
+		})
+		out, notices := checkResume(in, exists)
+
+		if out.Panes["p1"].Session != "" || out.Panes["p2"].Session != codex.Session || out.Panes["p2"].Transcript != codex.Transcript {
+			t.Errorf("panes = %+v, want only the Codex session kept", out.Panes)
+		}
+
+		if len(notices) != 1 || !strings.Contains(notices[0], "api") {
+			t.Errorf("notices = %q, want one naming the Claude pane's directory", notices)
 		}
 	})
 
@@ -240,7 +307,8 @@ func TestCheckResume(t *testing.T) {
 
 	t.Run("several give the plural notice", func(t *testing.T) {
 		in := stateOf(map[core.PaneID]core.Pane{
-			"p1": agent("/w/a", "", ""), "p2": agent("/w/b", sessionB, "/t/gone.jsonl"), "p3": agent("/w/c", sessionA, "/t/ok.jsonl"),
+			"p1": {Kind: core.KindAgent, Cwd: "/w/a", Harness: "codex"},
+			"p2": agent("/w/b", sessionB, "/t/gone.jsonl"), "p3": agent("/w/c", sessionA, "/t/ok.jsonl"),
 		})
 		out, notices := checkResume(in, exists)
 
@@ -280,6 +348,13 @@ func (b *lockedBuffer) contains(s string) bool {
 	return strings.Contains(b.buf.String(), s)
 }
 
+func (b *lockedBuffer) count(s string) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return strings.Count(b.buf.String(), s)
+}
+
 func (b *lockedBuffer) len() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -298,7 +373,7 @@ func testEnv(t *testing.T) (env core.Env, cfg string) {
 	t.Setenv("XDG_STATE_HOME", shortDir(t))
 	t.Setenv("SHELL", "/bin/sh")
 
-	// run launches in the cwd; inside a repository leader n opens the worktree picker.
+	// run launches in the cwd; outside a repository leader n opens the agent chooser, not the worktree list.
 	t.Chdir(t.TempDir())
 
 	env, err := core.DefaultEnv()
@@ -527,10 +602,18 @@ func TestRunRestoresTheSession(t *testing.T) {
 	// First run: a shell, two agents and a split shell.
 	first := startSession(t, env, cfg, false)
 
+	// The chooser opens on the repository check's answer, so enter waits for its Codex row.
+	newAgent := func() {
+		shown := first.out.count("Codex")
+		first.keys(t, "\x00n")
+		waitFor(t, func() bool { return first.out.count("Codex") > shown })
+		first.keys(t, "\r")
+	}
+
 	waitFor(t, panesAre(1))
-	first.keys(t, "\x00n")
+	newAgent()
 	waitFor(t, panesAre(2))
-	first.keys(t, "\x00n")
+	newAgent()
 	waitFor(t, panesAre(3))
 	first.keys(t, "\x00v")
 	waitFor(t, panesAre(4))
@@ -610,4 +693,46 @@ func TestRunRestoresTheSession(t *testing.T) {
 	}
 
 	second.stop(t)
+}
+
+func TestResumeMissingCodexLeavesUsableShell(t *testing.T) {
+	env, cfg := testEnv(t)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Keep the executable search inside the test and bypass login profiles.
+	shell := filepath.Join(t.TempDir(), "sh")
+
+	script := "#!/bin/sh\nunset ENV BASH_ENV\nPATH=" + strconv.Quote(t.TempDir()) + "\nexport PATH\n" +
+		"if [ \"$3\" = -c ]; then shift 3; exec /bin/sh -c \"$@\"; fi\nexec /bin/sh -i\n"
+	if err := os.WriteFile(shell, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("SHELL", shell)
+
+	st := core.State{
+		Tabs:  []core.Tab{{ID: "t1", Mode: core.ModeBSP, Focus: "p1", Panes: []core.PaneID{"p1"}, Layout: &core.Node{Pane: "p1"}}},
+		Panes: map[core.PaneID]core.Pane{"p1": {Kind: core.KindAgent, Cwd: cwd, Harness: "codex", Session: sessionA}},
+	}
+
+	data, err := store.Encode(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stateDir := core.StateDir(env)
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	writeFile(t, filepath.Join(stateDir, "state.json"), string(data))
+	s := startSession(t, env, cfg, false)
+	waitFor(t, func() bool { return s.out.contains("codex: not found") || s.out.contains("codex: command not found") })
+	s.keys(t, "printf '%s%s\\n' restored- shell\r")
+	waitFor(t, func() bool { return s.out.contains("restored-shell") })
+	s.stop(t)
 }

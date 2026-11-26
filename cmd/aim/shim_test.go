@@ -172,7 +172,7 @@ func TestPlanShim(t *testing.T) {
 				t.Chdir(tt.chdir)
 			}
 
-			plan, ok := planShim(tt.args, tt.env, fs.self, func(tty string) bool { return tt.leads && tty == "/dev/pts/7" })
+			plan, ok := planShim("claude", tt.args, tt.env, fs.self, func(tty string) bool { return tt.leads && tty == "/dev/pts/7" })
 			if ok != tt.wantOK {
 				t.Fatalf("ok = %v, want %v (plan %+v)", ok, tt.wantOK, plan)
 			}
@@ -219,12 +219,12 @@ func TestPlanShimWithoutSelf(t *testing.T) {
 	pathEnv := filepath.Join(shellDir, "bin") + string(os.PathListSeparator) + fs.f
 	env := []string{"PATH=" + pathEnv, "AIM_SHELL_DIR=" + shellDir}
 
-	plan, ok := planShim(nil, env, nil, func(string) bool { return false })
+	plan, ok := planShim("claude", nil, env, nil, func(string) bool { return false })
 	if !ok || plan.path != fs.fakeClaude {
 		t.Errorf("with AIM_SHELL_DIR: plan %+v, %v; want %s", plan, ok, fs.fakeClaude)
 	}
 
-	if _, ok := planShim(nil, []string{"PATH=" + pathEnv}, nil, func(string) bool { return false }); ok {
+	if _, ok := planShim("claude", nil, []string{"PATH=" + pathEnv}, nil, func(string) bool { return false }); ok {
 		t.Error("without self and AIM_SHELL_DIR the plan must fail rather than risk exec'ing itself")
 	}
 }
@@ -253,7 +253,7 @@ func TestShimNotFound(t *testing.T) {
 
 	var buf bytes.Buffer
 
-	if got := runShim([]string{"a"}, &buf); got != 127 {
+	if got := runShim("claude", []string{"a"}, &buf); got != 127 {
 		t.Errorf("exit = %d, want 127", got)
 	}
 
@@ -441,6 +441,7 @@ func TestShimOnAPty(t *testing.T) {
 	}{
 		{"nested plain shell on the pane's tty", "bash --norc --noprofile -i\nclaude n", func(s string) []string { return []string{"--settings", s, "n"} }, "", ""},
 		{"nested pty", nested, func(string) []string { return []string{"x"} }, "", map[bool]string{true: "script is not installed"}[scriptErr != nil]},
+		{"settings path is a directory", `mv "${AIM_SOCK%.sock}-claude.json" "$HOME/old"; mkdir "${AIM_SOCK%.sock}-claude.json"; claude dir`, func(string) []string { return []string{"dir"} }, "", ""},
 		{"leader", "claude a 'b c'", func(s string) []string { return []string{"--settings", s, "a", "b c"} }, "", ""},
 		{"not the leader of a pipeline", "echo hi | claude -p", func(string) []string { return []string{"-p"} }, "", ""},
 		{"exit status", "FAKE_EXIT=3 claude q; echo rc=$?", func(s string) []string { return []string{"--settings", s, "q"} }, "rc=3", ""},
@@ -496,7 +497,7 @@ func TestShimKeepsTheProbeName(t *testing.T) {
 	deadline := time.Now().Add(hangGuard)
 
 	for {
-		got, err := r.p.Foreground()
+		got, _, err := r.p.ForegroundProcess()
 		if err == nil && got == "claude" {
 			return
 		}
@@ -530,5 +531,90 @@ func TestShimLeavesTheTerminalAlone(t *testing.T) {
 
 	if !bytes.Equal(direct, wrapped) {
 		t.Errorf("state through the wrapper differs from a direct run:\nwrapped:\n%s\ndirect:\n%s", wrapped, direct)
+	}
+}
+
+func TestCodexStatusArgs(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		bin         string
+		ok          bool
+		wantCommand string
+	}{
+		{"/s/aim", true, `command="/s/aim"`},
+		{`/a "b"\c/aim`, true, `command="/a \"b\"\\c/aim"`},
+		{"/a\x01/aim", false, ""},
+		{"/a\xff/aim", false, ""},
+	} {
+		args, ok := codexStatusArgs(tc.bin)
+		if ok != tc.ok {
+			t.Fatalf("codexStatusArgs(%q) ok = %v, want %v", tc.bin, ok, tc.ok)
+		}
+
+		if !ok {
+			continue
+		}
+
+		if len(args) != 6 || args[0] != "-c" || args[2] != "-c" || args[4] != "-c" {
+			t.Fatalf("args %q", args)
+		}
+
+		if !strings.Contains(args[3], tc.wantCommand) {
+			t.Errorf("mcp_servers argument %q lacks %q", args[3], tc.wantCommand)
+		}
+	}
+}
+
+// planShim adds the provider for an owned interactive launch only.
+func TestPlanShimCodexStatusLine(t *testing.T) {
+	t.Parallel()
+
+	fs := newShimFS(t)
+
+	realDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(realDir, "codex"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Symlink(fs.selfPath, filepath.Join(fs.w, "codex")); err != nil {
+		t.Fatal(err)
+	}
+
+	const bin = "/s/aim"
+
+	env := func(extra ...string) []string {
+		return append([]string{
+			"PATH=" + fs.w + string(os.PathListSeparator) + realDir,
+			"AIM_SOCK=" + fs.sockPath, "AIM_PANE=p", "AIM_TTY=/dev/pts/7", "AIM_CODEX_HOOKS={}",
+		}, extra...)
+	}
+	own := func(tty string) bool { return tty == "/dev/pts/7" }
+
+	provider := []string{
+		"-c", "features.tui_extensions_statusline=true",
+		"-c", `mcp_servers.aim={command="/s/aim",args=["codex-statusline"],env_vars=["AIM_SOCK","AIM_PANE","AIM_CODEX_OWNER","AIM_TTY"]}`,
+		"-c", `tui.status_line_provider={server="aim",tool="statusline"}`,
+	}
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		env  []string
+		want []string
+	}{
+		{"owned interactive", []string{"hello"}, env("AIM_BIN=" + bin), append(append([]string{"codex", "--no-daemon", "-c", "hooks={}"}, provider...), "hello")},
+		{"user passed no-daemon", []string{"--no-daemon", "hello"}, env("AIM_BIN=" + bin), append(append([]string{"codex", "-c", "hooks={}"}, provider...), "--no-daemon", "hello")},
+		{"exec", []string{"exec", "x"}, env("AIM_BIN=" + bin), []string{"codex", "exec", "x"}},
+		{"AIM_BIN unset", []string{"hello"}, env(), []string{"codex", "--no-daemon", "-c", "hooks={}", "hello"}},
+	} {
+		plan, ok := planShim("codex", tc.args, tc.env, fs.self, own)
+		if !ok {
+			t.Fatalf("%s: no plan", tc.name)
+		}
+
+		if !slices.Equal(plan.argv, tc.want) {
+			t.Errorf("%s: argv %q, want %q", tc.name, plan.argv, tc.want)
+		}
 	}
 }

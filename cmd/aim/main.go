@@ -29,8 +29,12 @@ import (
 const closeTimeout = 3 * time.Second
 
 func main() {
-	if filepath.Base(os.Args[0]) == shimName {
-		os.Exit(runShim(os.Args[1:], os.Stderr))
+	if name := filepath.Base(os.Args[0]); name == shimName || name == "codex" {
+		os.Exit(runShim(name, os.Args[1:], os.Stderr))
+	}
+
+	if len(os.Args) > 1 && os.Args[1] == "exec-owned-codex" {
+		os.Exit(runShim("codex", os.Args[2:], os.Stderr))
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
@@ -86,7 +90,7 @@ func newRootCmd() *cobra.Command {
 	cmd.Flags().StringVar(&recordDir, "record", "", "write each pane's terminal output to a recording in this directory")
 	// Diagnostics for bench inputs and VT fixtures, not a user feature.
 	_ = cmd.Flags().MarkHidden("record")
-	cmd.AddCommand(newHookCmd(os.Getenv), newStatuslineCmd(os.Getenv), newShowCmd(os.Getenv))
+	cmd.AddCommand(newHookCmd(os.Getenv), newStatuslineCmd(os.Getenv), newCodexStatuslineCmd(os.Getenv), newShowCmd(os.Getenv))
 
 	return cmd
 }
@@ -225,6 +229,7 @@ func run(ctx context.Context, env core.Env, configPath, recordDir string, fresh 
 		Keys:   cfg.Keys,
 		Themes: themes,
 
+		Agents:        cfg.Agents,
 		Worktrees:     cfg.Worktrees,
 		Notifications: cfg.Notifications,
 		Plans:         cfg.Plans,
@@ -238,28 +243,29 @@ func run(ctx context.Context, env core.Env, configPath, recordDir string, fresh 
 		RecordDir:  recordDir,
 		ConfigPath: configPath,
 
-		Shell:        hooks.Shell,
-		HookSettings: hooks.Settings,
-		HookSock:     hooks.Sock,
-		HookBin:      hooks.Bin,
-		Events:       hooks.Events,
-		GitTempDir:   hooks.RunDir,
-		IndexCache:   indexCache,
-		SweepRefs:    saver != nil,
-		Pictures:     github.NewImageFetcher(github.ImageOptions{}),
-		ImageCache:   imageCacheDir(indexCache),
-		PRCopies:     prCopyDir(indexCache),
-		SentDir:      sentDir(indexCache, os.Getpid()),
-		Git:          ui.SystemGit{},
-		Watches:      watches,
-		Places:       places,
-		PRs:          prs.poller,
-		PRLookup:     prs.lookup,
-		PRActions:    prs.actions(),
-		PRReads:      prs.reads(),
-		Notice:       strings.Join(notices, "; "),
-		Save:         save,
-		Marks:        markFilesOf(marks),
+		Shell:         hooks.Shell,
+		HookSettings:  hooks.Settings,
+		CodexSettings: hooks.CodexSettings,
+		HookSock:      hooks.Sock,
+		HookBin:       hooks.Bin,
+		Events:        hooks.Events,
+		GitTempDir:    hooks.RunDir,
+		IndexCache:    indexCache,
+		SweepRefs:     saver != nil,
+		Pictures:      github.NewImageFetcher(github.ImageOptions{}),
+		ImageCache:    imageCacheDir(indexCache),
+		PRCopies:      prCopyDir(indexCache),
+		SentDir:       sentDir(indexCache, os.Getpid()),
+		Git:           ui.SystemGit{},
+		Watches:       watches,
+		Places:        places,
+		PRs:           prs.poller,
+		PRLookup:      prs.lookup,
+		PRActions:     prs.actions(),
+		PRReads:       prs.reads(),
+		Notice:        strings.Join(notices, "; "),
+		Save:          save,
+		Marks:         markFilesOf(marks),
 	})
 	if err != nil {
 		_ = prs.Close()

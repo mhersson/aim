@@ -17,7 +17,10 @@ import (
 	"github.com/mhersson/aim/internal/term"
 )
 
-const restoreSession = "7c0b6f1e-3a52-4d8e-9b41-2f5e8a1d0c37"
+const (
+	restoreSession      = "7c0b6f1e-3a52-4d8e-9b41-2f5e8a1d0c37"
+	restoreCodexSession = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+)
 
 // freshNoticeShown reports whether the notice says a fresh claude started in api.
 func freshNoticeShown(a *App) bool { return carries("claude", "api").matches(a.notice) }
@@ -143,8 +146,13 @@ func hasArgs(argv []string, flag, value string) bool {
 
 func TestRestoreStartsEveryPane(t *testing.T) {
 	t.Parallel()
-	r := restoreApp(t, restoreState(), func(o *Options) {
-		o.HookSettings = "/run/1-claude.json"
+
+	st := restoreState()
+	st.Panes["p3"] = core.Pane{Kind: core.KindAgent, Cwd: "/tmp", Harness: "codex", Session: restoreCodexSession}
+
+	r := restoreApp(t, st, func(o *Options) {
+		o.Harness = harness.Codex{}
+		o.CodexSettings = "{SessionStart=[]}"
 		o.HookSock = "/run/1.sock"
 	})
 
@@ -167,23 +175,24 @@ func TestRestoreStartsEveryPane(t *testing.T) {
 		}
 	}
 
-	if got := argvOf(r.st.cmds[byPane["p1"]]); !hasArgs(got, "--resume", restoreSession) {
-		t.Errorf("p1 argv = %q, want --resume %s", got, restoreSession)
-	}
-
-	if got := argvOf(r.st.cmds[byPane["p3"]]); slices.Contains(got, "--resume") || !slices.Contains(got, "--settings") {
-		t.Errorf("p3 argv = %q, want a fresh claude with hooks", got)
+	for _, tc := range []struct {
+		pane, cwd string
+		argv      []string
+	}{
+		{"p1", "/srv/api", []string{"claude", "--settings", "/run/1-claude.json", "--resume", restoreSession}},
+		{"p3", "/tmp", []string{"codex", "--no-daemon", "-c", "hooks={SessionStart=[]}", "resume", restoreCodexSession}},
+	} {
+		c := r.st.cmds[byPane[tc.pane]]
+		if got := argvOf(c); c.Dir != tc.cwd || !slices.Equal(got, tc.argv) {
+			t.Errorf("%s dir = %q, argv = %q; want %q, %q", tc.pane, c.Dir, got, tc.cwd, tc.argv)
+		}
 	}
 
 	if c := r.st.cmds[byPane["p2"]]; c.Dir != "/srv/web" || c.Argv[len(c.Argv)-1] != "-l" {
 		t.Errorf("p2 command = %+v, want a login shell in /srv/web", c)
 	}
 
-	if c := r.st.cmds[byPane["p1"]]; c.Dir != "/srv/api" {
-		t.Errorf("p1 dir = %q, want /srv/api", c.Dir)
-	}
-
-	st := r.a.store.State()
+	st = r.a.store.State()
 	for _, id := range []core.PaneID{"p1", "p2", "p3"} {
 		c, rw := paneSizeOf(r.a, id)
 		size := [2]int{c, rw}
@@ -204,8 +213,8 @@ func TestRestoreStartsEveryPane(t *testing.T) {
 		}
 	}
 
-	if !r.a.panes["p1"].resuming || r.a.panes["p3"].resuming || r.a.panes["p2"].resuming {
-		t.Errorf("resuming = %v %v %v, want only p1", r.a.panes["p1"].resuming, r.a.panes["p2"].resuming, r.a.panes["p3"].resuming)
+	if !r.a.panes["p1"].resuming || !r.a.panes["p3"].resuming || r.a.panes["p2"].resuming {
+		t.Errorf("resuming = %v %v %v, want p1 and p3", r.a.panes["p1"].resuming, r.a.panes["p2"].resuming, r.a.panes["p3"].resuming)
 	}
 
 	if r.saves.count() != 0 {
@@ -509,6 +518,96 @@ func TestResumeRestartsAgentWhoseClaudeNeverAppeared(t *testing.T) {
 	}
 }
 
+func TestResumeCodex(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		fg       string
+		settings string
+	}{
+		{fg: "claude"},
+		{fg: "zsh"},
+		{fg: "codex", settings: "{SessionStart=[]}"},
+	} {
+		t.Run(tc.fg, func(t *testing.T) {
+			t.Parallel()
+
+			st := restoreState()
+			st.Panes["p1"] = core.Pane{Kind: core.KindAgent, Cwd: "/srv/api", Harness: "codex", Session: restoreCodexSession}
+			r := restoreApp(t, st, func(o *Options) { o.CodexSettings = tc.settings })
+			r.size(100, 30)
+
+			want := []string{"codex", "--no-daemon"}
+			if tc.settings != "" {
+				want = append(want, "-c", "hooks="+tc.settings)
+			}
+
+			want = append(want, "resume", restoreCodexSession)
+			if got := argvOf(r.st.cmds[0]); !slices.Equal(got, want) {
+				t.Fatalf("resume argv = %q, want %q", got, want)
+			}
+
+			old := r.a.panes["p1"]
+			r.st.proc(0).setFg("codex")
+			probeAt(t, r, "p1", 0)
+			r.st.proc(0).setFg(tc.fg)
+
+			if tc.fg == "claude" {
+				probeAt(t, r, "p1", time.Second)
+
+				m := r.a.store.State().Panes["p1"]
+				if m.Harness != "claude-code" || m.Session != "" || old.resuming || r.st.count() != 3 {
+					t.Fatalf("direct foreground switch during resume: %+v, resuming=%v, starts=%d", m, old.resuming, r.st.count())
+				}
+
+				return
+			}
+
+			probeAt(t, r, "p1", agentGrace)
+
+			m := r.a.store.State().Panes["p1"]
+			if tc.fg == "codex" {
+				if r.st.count() != 3 || old.resuming || m.Session != restoreCodexSession {
+					t.Fatalf("starts = %d, resuming = %v, session = %q; want the running session kept", r.st.count(), old.resuming, m.Session)
+				}
+
+				return
+			}
+
+			if r.st.count() != 4 || r.a.panes["p1"] == old || m.Session != "" {
+				t.Fatalf("starts = %d, pane = %p (old %p), session = %q; want one fresh pane", r.st.count(), r.a.panes["p1"], old, m.Session)
+			}
+
+			c := r.st.cmds[3]
+			if got := argvOf(c); !slices.Equal(got, []string{"codex", "--no-daemon"}) || c.Dir != "/srv/api" || !slices.Contains(c.Env, "AIM_PANE=p1") {
+				t.Errorf("fresh command = %+v, want a fresh Codex in the same pane and cwd", c)
+			}
+
+			if !carries("codex", "api").matches(r.a.notice) {
+				t.Errorf("notice = %q, want Codex and the directory", r.a.notice)
+			}
+
+			fresh := r.a.panes["p1"]
+			r.st.proc(3).setFg("codex")
+			probeAt(t, r, "p1", 0)
+			r.a.Update(hookMsg{ev: harness.Event{Harness: "codex", OwnerPID: 42, Pane: "p1", Name: "SessionStart", Session: restoreSession, Start: true}})
+			r.clk.Advance(agentGrace)
+			r.a.Update(paneCwdMsg{id: "p1", p: old, fg: "zsh", due: true})
+
+			if r.st.count() != 4 || r.a.panes["p1"] != fresh || r.a.store.State().Panes["p1"].Session != restoreSession {
+				t.Fatal("a late probe disturbed the replacement's session")
+			}
+
+			r.st.proc(3).setFg("zsh")
+			probeAt(t, r, "p1", 0)
+
+			if r.st.count() != 4 || kindOf(r.a, "p1") != core.KindShell {
+				t.Errorf("starts = %d, kind = %q; want a shell and no further retry", r.st.count(), kindOf(r.a, "p1"))
+			}
+		})
+	}
+}
+
 // Claude Code files its sessions under the directory it was launched in, so an
 // agent resumes there even when its last hook named another directory.
 func TestResumeStartsInTheLaunchDirNotTheAgentCwd(t *testing.T) {
@@ -785,8 +884,8 @@ func TestPaneLimitNotice(t *testing.T) {
 	panes, starts := len(r.a.store.State().Panes), r.st.count()
 
 	for name, open := range map[string]func() tea.Cmd{
-		"split":    func() tea.Cmd { return r.a.openPane(core.KindShell, core.SplitVertical) },
-		"agent":    func() tea.Cmd { return r.a.openPane(core.KindAgent, core.SplitVertical) },
+		"split":    func() tea.Cmd { return r.a.openPane(core.SplitVertical) },
+		"agent":    func() tea.Cmd { return r.a.openAgentIn(r.a.harness.ID(), r.a.cwd) },
 		"new tab":  r.a.newTab,
 		"leader n": func() tea.Cmd { return press(r.a, keyLeader, keyRune('n')) },
 	} {

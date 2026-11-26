@@ -82,7 +82,7 @@ To copy a selection in a pane or the drawer, press `ctrl+space y`. In a plan, ma
 
 ### When the mouse is ignored
 
-While one of these is open the pointer does nothing, the rail included, apart from the exceptions below: a confirm, a prompt, an overlay such as the command palette, the compose or merge box, the pull request list, the worktree picker, the drawer's worktree list or link chooser, copy mode, or a leader key waiting for its next key.
+While one of these is open the pointer does nothing, the rail included, apart from the exceptions below: a confirm, a prompt, an overlay such as the command palette, the compose or merge box, the pull request list, the new agent picker and its worktree pages, the drawer's worktree list or link chooser, copy mode, or a leader key waiting for its next key.
 
 While the Claude usage details are open, a click anywhere outside them only closes them, and the wheel and hover do nothing.
 

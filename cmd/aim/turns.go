@@ -15,6 +15,7 @@ import (
 	"github.com/mhersson/aim/internal/core"
 	"github.com/mhersson/aim/internal/git"
 	"github.com/mhersson/aim/internal/harness"
+	"github.com/mhersson/aim/internal/term"
 )
 
 const (
@@ -141,12 +142,11 @@ type startedRoot struct {
 }
 
 // paneTurn is what the gate remembers of a pane's last turn: the worktrees it
-// started, and whether a worktree it could not find makes it unsure.
+// started, and whether the next prompt has sealed it.
 type paneTurn struct {
 	session string
 	turn    int
 	roots   map[string]*startedRoot
-	unsure  bool
 	// sealed is set when the pane's next prompt takes over: a worktree not yet
 	// in roots is no longer started.
 	sealed bool
@@ -268,12 +268,12 @@ func (p *paneTurns) seal(ctx context.Context, pane core.PaneID) (paneTurn, bool)
 // says the caller started it and must close done; marker says it gets no
 // snapshot, because the turn is unsure or marker asks for it. ok is false when
 // the pane has moved on to another turn or sealed this one without root.
-func (p *paneTurns) claim(ctx context.Context, pane core.PaneID, turn int, root string, marker bool) (e *startedRoot, mine, ok bool) {
+func (p *paneTurns) claim(ctx context.Context, pane core.PaneID, active paneCurrent, root string, marker bool) (e *startedRoot, mine, ok bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	cur, found := p.last[pane]
-	if !found || cur.turn != turn {
+	if !found || cur.turn != active.turn {
 		return nil, false, false
 	}
 
@@ -285,7 +285,7 @@ func (p *paneTurns) claim(ctx context.Context, pane core.PaneID, turn int, root 
 		return nil, false, false
 	}
 
-	e = &startedRoot{done: make(chan struct{}), marker: marker || cur.unsure}
+	e = &startedRoot{done: make(chan struct{}), marker: marker || active.uncertain.Load() || ctx.Err() != nil}
 	if !e.marker {
 		e.start, e.cancel = context.WithCancel(ctx)
 	}
@@ -337,42 +337,116 @@ func (p *paneTurns) failStart(pane core.PaneID, turn int, root string) {
 	}
 }
 
-// markUnsure makes the rest of the pane's turn record markers for the
-// worktrees it starts.
-func (p *paneTurns) markUnsure(pane core.PaneID, turn int) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if cur, ok := p.last[pane]; ok && cur.turn == turn {
-		cur.unsure = true
-		p.last[pane] = cur
-	}
-}
-
 // placeFunc finds the worktree an edited file belongs to.
 type placeFunc func(ctx context.Context, path string) (git.Place, error)
 
 // paneCurrent is the turn the gate's own goroutine last started for a pane.
 type paneCurrent struct {
-	session string
-	turn    int
-	tail    <-chan struct{} // closes when that turn's start is done
+	session   string
+	turn      int
+	uncertain *atomic.Bool    // an incomplete batch may have edited an unknown root
+	tail      <-chan struct{} // closes when that turn's start is done
 }
 
-// runTurnGate forwards every event from in to out in order and, for a turn
-// start, snapshots the working tree before releasing the held hook answer. The
-// snapshot starts before the event is forwarded, so a full out channel cannot
-// delay it; the forwarded event carries the channel the snapshot closes. Each
-// turn gets the number nextTurnID gives it in arrival order. A turn start ends
-// every worktree the pane's previous turn started, whatever session that was;
-// Stop, StopFailure and SessionEnd end nothing. An edit tool's before-event is
-// held until the worktree of its file has a start for the pane's turn, when the
-// edit is the first there; later edits, files that do not count and events
-// outside a turn are answered at once. A snapshot passes unchanged
-// when seq reports the worktree watched and its counter is what it was just
-// before the last successful snapshot there. It returns when in closes or ctx
-// ends, after its snapshot goroutines.
-func runTurnGate(ctx context.Context, in <-chan harness.Event, out chan<- harness.Event, w turnWriter, places placeFunc, seq seqFunc, log *slog.Logger) {
+type codexLaunch struct {
+	tty      string
+	pid      int
+	session  core.SessionID
+	sessions map[core.SessionID]*codexPrompts
+	turn     string
+}
+
+// A completed submit keeps only its ID. Duplicate submits arriving during
+// its snapshot share the original acknowledgement.
+type codexPrompts struct {
+	mu   sync.Mutex
+	seen map[string]chan struct{}
+}
+
+func (p *codexPrompts) submit(ev *harness.Event) (bool, <-chan struct{}) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	id := ev.TurnID
+	if ack, exists := p.seen[id]; exists {
+		return false, ack
+	}
+
+	ack, done := make(chan struct{}), ev.Done
+	p.seen[id] = ack
+	ev.Done = sync.OnceFunc(func() {
+		if done != nil {
+			done()
+		}
+
+		p.mu.Lock()
+		p.seen[id] = nil
+
+		close(ack)
+		p.mu.Unlock()
+	})
+
+	return true, nil
+}
+
+// admit binds the first trusted parent prompt when hook review skipped SessionStart.
+func (l *codexLaunch) admit(ev *harness.Event) (allow bool, wait <-chan struct{}) {
+	if ev.OwnerPID != l.pid || ev.Subagent || !sessionIDRE.MatchString(string(ev.Session)) {
+		return false, nil
+	}
+
+	prompts := l.sessions[ev.Session]
+	if ev.Session != l.session {
+		if !ev.Start && (l.session != "" || !ev.TurnStart) {
+			return false, nil
+		}
+
+		if prompts == nil {
+			prompts = &codexPrompts{seen: make(map[string]chan struct{})}
+			l.sessions[ev.Session] = prompts
+		}
+
+		l.session, l.turn = ev.Session, ""
+		ev.Start = true
+	}
+
+	if ev.TurnStart {
+		allow, wait := prompts.submit(ev)
+		if allow {
+			l.turn = ev.TurnID
+		}
+
+		return allow, wait
+	}
+
+	if ev.Start {
+		return true, nil
+	}
+
+	if ev.TurnID == "" || ev.TurnID != l.turn {
+		return false, nil
+	}
+
+	if ev.Name == "Stop" || ev.Name == "Interrupt" {
+		l.turn = ""
+	}
+
+	return true, nil
+}
+
+// gateOptions holds the gate's probe of a registered Codex leader; a nil
+// probe uses the real one.
+type gateOptions struct {
+	ownerLeads func(tty string, pid int) bool
+}
+
+// runTurnGate admits events in arrival order. Each pane's snapshots start
+// before UI forwarding and run one at a time independently of other panes.
+func runTurnGate(ctx context.Context, in <-chan harness.Event, out chan<- harness.Event, w turnWriter, places placeFunc, seq seqFunc, log *slog.Logger, opts gateOptions) {
+	if opts.ownerLeads == nil {
+		opts.ownerLeads = term.ForegroundOwner
+	}
+
 	var wg sync.WaitGroup
 	defer wg.Wait()
 
@@ -389,6 +463,7 @@ func runTurnGate(ctx context.Context, in <-chan harness.Event, out chan<- harnes
 	// The last number given per pane; touched only by this goroutine.
 	numbers := make(map[core.PaneID]int)
 	current := make(map[core.PaneID]paneCurrent)
+	owners := make(map[core.PaneID]*codexLaunch)
 
 	for {
 		var ev harness.Event
@@ -402,6 +477,69 @@ func runTurnGate(ctx context.Context, in <-chan harness.Event, out chan<- harnes
 			}
 
 			ev = e
+		}
+
+		owner := owners[ev.Pane]
+		if ev.Harness == "codex" {
+			switch ev.Name {
+			case harness.CodexOwnerStart:
+				if ev.OwnerPID > 0 && (owner == nil || owner.pid != ev.OwnerPID) {
+					owners[ev.Pane] = &codexLaunch{pid: ev.OwnerPID, tty: ev.OwnerTTY, sessions: make(map[core.SessionID]*codexPrompts)}
+				}
+
+				release(ev)
+
+				continue
+			case harness.CodexOwnerEnd:
+				if owner != nil && owner.pid == ev.OwnerPID {
+					delete(owners, ev.Pane)
+				}
+
+				release(ev)
+
+				continue
+			}
+
+			if owner == nil || !opts.ownerLeads(owner.tty, owner.pid) || (ev.Status && ev.OwnerPID != owner.pid) {
+				release(ev)
+
+				continue
+			}
+
+			// A status binds no session and starts no snapshot, so it skips the prompt admission.
+			if ev.Status {
+				select {
+				case out <- ev:
+				case <-ctx.Done():
+					release(ev)
+
+					return
+				}
+
+				continue
+			}
+
+			allow, wait := owner.admit(&ev)
+			if !allow {
+				if wait == nil {
+					release(ev)
+				} else {
+					wg.Go(func() {
+						select {
+						case <-wait:
+						case <-ctx.Done():
+						}
+
+						release(ev)
+					})
+				}
+
+				continue
+			}
+		} else if owner != nil && !ev.Show && opts.ownerLeads(owner.tty, owner.pid) {
+			release(ev)
+
+			continue
 		}
 
 		arrived := time.Now()
@@ -430,7 +568,7 @@ func runTurnGate(ctx context.Context, in <-chan harness.Event, out chan<- harnes
 				prev, done := tails[ev.Pane], make(chan struct{})
 				tails[ev.Pane] = done
 				ev.Snapped = done
-				current[ev.Pane] = paneCurrent{session: string(ev.Session), turn: turn, tail: done}
+				current[ev.Pane] = paneCurrent{session: string(ev.Session), turn: turn, tail: done, uncertain: new(atomic.Bool)}
 
 				wg.Go(func() {
 					defer close(done)
@@ -757,11 +895,10 @@ func (g *gate) edit(parent context.Context, deadline time.Time, cur paneCurrent,
 	ctx, cancel := context.WithDeadline(parent, deadline)
 	defer cancel()
 
-	// The worktree is known once its lookup is; until then, any start of the
-	// turn could hold this edit's file.
-	var resolved atomic.Pointer[string]
+	// Until every root is claimed, a timeout must cancel even starts claimed
+	// by another edit and prevent any late before-picture of the unknown files.
+	var resolved atomic.Pointer[[]string]
 
-	// The deadline's work runs on the gate's own goroutine, which ends with the edit.
 	finished := make(chan struct{})
 
 	g.wg.Go(func() {
@@ -771,44 +908,80 @@ func (g *gate) edit(parent context.Context, deadline time.Time, cur paneCurrent,
 		case <-ctx.Done():
 		}
 
-		root := ""
-		if r := resolved.Load(); r != nil {
-			root = *r
+		if roots := resolved.Load(); roots != nil {
+			for _, root := range *roots {
+				g.cancelAndWait(parent, ev.Pane, cur.turn, root)
+			}
+		} else {
+			cur.uncertain.Store(true)
+			g.cancelAndWait(parent, ev.Pane, cur.turn, "")
 		}
 
-		g.cancelAndWait(parent, ev.Pane, cur.turn, root)
 		release(ev)
 	})
 
 	defer close(finished)
 	defer release(ev)
 
-	answers := g.lookup(parent, []string{ev.Edit})
-	if len(answers) == 0 || answers[0].skip {
+	paths := ev.BeforePaths
+	if ev.Edit != "" {
+		paths = []string{ev.Edit}
+	}
+
+	answers := g.lookup(parent, paths)
+
+	var roots []string
+
+	seen := make(map[string]bool)
+
+	unsure := len(answers) != len(paths)
+	for _, a := range answers {
+		if a.unsure {
+			unsure = true
+		}
+
+		if !a.skip && !a.unsure && !seen[a.place.Root] {
+			seen[a.place.Root] = true
+			roots = append(roots, a.place.Root)
+		}
+	}
+
+	if !unsure && len(roots) == 0 {
+		resolved.Store(&roots)
+
 		return
 	}
 
-	// The turn start sets the pane's state last, and replaces it whole.
+	if unsure {
+		cur.uncertain.Store(true)
+		g.cancelAndWait(parent, ev.Pane, cur.turn, "")
+	}
+
 	select {
 	case <-cur.tail:
 	case <-parent.Done():
 		return
 	}
 
-	if answers[0].unsure {
-		g.panes.markUnsure(ev.Pane, cur.turn)
+	var batch sync.WaitGroup
 
-		return
+	for _, root := range roots {
+		e, mine, ok := g.panes.claim(ctx, ev.Pane, cur, root, false)
+
+		batch.Go(func() { g.editRoot(parent, ctx, cur, ev.Pane, root, e, mine, ok) })
 	}
 
-	root := answers[0].place.Root
-	resolved.Store(&root)
+	if !unsure {
+		resolved.Store(&roots)
+	}
 
-	e, mine, ok := g.panes.claim(ctx, ev.Pane, cur.turn, root, ctx.Err() != nil)
+	batch.Wait()
+}
+
+func (g *gate) editRoot(parent, ctx context.Context, cur paneCurrent, pane core.PaneID, root string, e *startedRoot, mine, ok bool) {
 	if !ok {
 		// The next prompt took over: the turn still lists the worktree.
-		release(ev)
-		g.markStart(parent, root, cur)
+		g.wg.Go(func() { g.markStart(parent, root, cur) })
 
 		return
 	}
@@ -817,7 +990,7 @@ func (g *gate) edit(parent context.Context, deadline time.Time, cur paneCurrent,
 		select {
 		case <-e.done:
 		case <-ctx.Done():
-			g.cancelAndWait(parent, ev.Pane, cur.turn, root)
+			g.cancelAndWait(parent, pane, cur.turn, root)
 		}
 
 		return
@@ -825,25 +998,23 @@ func (g *gate) edit(parent context.Context, deadline time.Time, cur paneCurrent,
 
 	if e.cancel == nil {
 		close(e.done)
-		release(ev)
-		g.markStart(parent, root, cur)
+		g.wg.Go(func() { g.markStart(parent, root, cur) })
 
 		return
 	}
 
 	defer e.cancel()
 
-	err := g.startRoot(e.start, ev.Pane, root, cur)
+	err := g.startRoot(e.start, pane, root, cur)
 	if err != nil {
-		g.panes.failStart(ev.Pane, cur.turn, root)
+		g.panes.failStart(pane, cur.turn, root)
 	}
 
 	close(e.done)
-	release(ev)
 
 	if err != nil {
 		g.log.Warn("before-picture failed", "session", cur.session, "root", root, "err", err)
-		g.markStart(parent, root, cur)
+		g.wg.Go(func() { g.markStart(parent, root, cur) })
 	}
 }
 
@@ -889,12 +1060,12 @@ func (g *gate) changed(parent context.Context, cur paneCurrent, ev harness.Event
 		}
 
 		if a.unsure {
-			g.panes.markUnsure(ev.Pane, cur.turn)
+			cur.uncertain.Store(true)
 
 			continue
 		}
 
-		e, mine, ok := g.panes.claim(parent, ev.Pane, cur.turn, a.place.Root, true)
+		e, mine, ok := g.panes.claim(parent, ev.Pane, cur, a.place.Root, true)
 		if !ok {
 			g.markStart(parent, a.place.Root, cur)
 

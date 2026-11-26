@@ -199,7 +199,7 @@ func (a *App) onPlanLinkEdit(msg linkEditMsg) tea.Cmd {
 	a.closeFinder()
 
 	run := &paneRun{program: reviewEditor(a.getenv), args: []string{"+1", msg.path}}
-	cmd, _ := a.openPaneAt(core.KindShell, core.SplitVertical, a.store.State().Tab().Focus, msg.root, run)
+	cmd, _ := a.openPaneAt(core.SplitVertical, a.store.State().Tab().Focus, msg.root, run)
 
 	return cmd
 }

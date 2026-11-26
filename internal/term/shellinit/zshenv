@@ -30,6 +30,15 @@ _aim_shell_init() {
       fi
     }
   fi
+  if (( ! $+functions[codex] )); then
+    function codex {
+      if [[ -x $AIM_SHELL_DIR/bin/codex ]]; then
+        "$AIM_SHELL_DIR/bin/codex" "$@"
+      else
+        command codex "$@"
+      fi
+    }
+  fi
 }
 
 if [[ -r "${ZDOTDIR:-$HOME}/.zshenv" ]]; then

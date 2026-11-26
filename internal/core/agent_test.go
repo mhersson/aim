@@ -67,6 +67,7 @@ func TestSetPaneKind(t *testing.T) {
 		want Pane
 	}{
 		{"shell to agent", Pane{Kind: KindShell, Cwd: "/w"}, SetPaneKind{ID: "p1", Kind: KindAgent, Harness: "claude-code"}, Pane{Kind: KindAgent, Cwd: "/w", Harness: "claude-code"}},
+		{"harness change clears agent fields", full, SetPaneKind{ID: "p1", Kind: KindAgent, Harness: "codex"}, Pane{Kind: KindAgent, Cwd: "/w", Harness: "codex"}},
 		{"agent to shell clears agent fields", full, SetPaneKind{ID: "p1", Kind: KindShell}, Pane{Kind: KindShell, Cwd: "/w"}},
 		{"agent to shell ignores harness", full, SetPaneKind{ID: "p1", Kind: KindShell, Harness: "x"}, Pane{Kind: KindShell, Cwd: "/w"}},
 	}

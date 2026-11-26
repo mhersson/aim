@@ -14,7 +14,7 @@ import (
 
 // composeGenerate is ctrl+g: off the update loop it reads the commits and the
 // diff summary and asks the pane's harness for a body. When the box is for the
-// worktree the pane's agent follows, the run forks the agent's session.
+// worktree a Claude agent follows, the run forks its session; Codex never forks.
 func (a *App) composeGenerate(v *composeView) tea.Cmd {
 	if v.generate != nil {
 		return nil
@@ -24,7 +24,7 @@ func (a *App) composeGenerate(v *composeView) tea.Cmd {
 	h := a.harnessOf(m)
 	req := harness.DescribeRequest{Dir: v.t.root, Branch: v.t.branch, Base: v.t.bases[v.base], Template: v.template}
 
-	if m.Kind == core.KindAgent && m.Session != "" && m.FollowDir() == v.t.dir {
+	if h.ID() != (harness.Codex{}).ID() && m.Kind == core.KindAgent && m.Session != "" && m.FollowDir() == v.t.dir {
 		req.Session, req.Dir = m.Session, cmp.Or(m.Cwd, v.t.root)
 	}
 

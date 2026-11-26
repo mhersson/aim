@@ -154,7 +154,7 @@ func TestFocusedCwdAndTabNameFollowTheAgent(t *testing.T) {
 
 	// A pane opened beside the agent starts where the agent works.
 	next := r.store.State().NewPaneID()
-	r.openPane(core.KindShell, core.SplitVertical)
+	r.openPane(core.SplitVertical)
 
 	if m, ok := r.store.State().Panes[next]; !ok || m.Cwd != tr.sub {
 		t.Errorf("new pane = %+v, want a shell in %q", m, tr.sub)

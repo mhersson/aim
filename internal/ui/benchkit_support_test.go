@@ -79,11 +79,11 @@ func (r *replayProc) Read([]byte) (int, error) {
 	return 0, io.EOF
 }
 
-func (r *replayProc) Write(b []byte) (int, error) { return len(b), nil }
-func (r *replayProc) Resize(int, int) error       { return nil }
-func (r *replayProc) Done() <-chan struct{}       { return r.done }
-func (r *replayProc) Cwd() (string, error)        { return "", errNoCwd }
-func (r *replayProc) Foreground() (string, error) { return "", errNoCwd }
+func (r *replayProc) Write(b []byte) (int, error)             { return len(b), nil }
+func (r *replayProc) Resize(int, int) error                   { return nil }
+func (r *replayProc) Done() <-chan struct{}                   { return r.done }
+func (r *replayProc) Cwd() (string, error)                    { return "", errNoCwd }
+func (r *replayProc) ForegroundProcess() (string, int, error) { return "", 0, errNoCwd }
 
 func (r *replayProc) Close() error {
 	r.once.Do(func() { close(r.done) })
@@ -450,7 +450,7 @@ func newBenchApp(cfg benchConfig, clk clock) (*App, []core.PaneID, error) {
 
 	ids := []core.PaneID{app.store.State().Tab().Focus}
 	open := func(split core.Split) {
-		app.openPane(core.KindShell, split)
+		app.openPane(split)
 		ids = append(ids, app.store.State().Tab().Focus)
 	}
 

@@ -520,7 +520,7 @@ func TestAppCloseNoLeaksWithWatches(t *testing.T) {
 	_, c := r.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	pm.run(c)
 	pm.run(r.waitWatch())
-	pm.run(r.openPane(core.KindAgent, core.SplitVertical))
+	pm.run(r.openAgentIn(r.harness.ID(), r.cwd))
 	_, c = r.Update(struct{}{})
 	pm.run(c)
 

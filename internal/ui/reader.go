@@ -121,7 +121,7 @@ func (a *App) planEdit() tea.Cmd {
 	a.closeFinder()
 
 	run := &paneRun{program: reviewEditor(a.getenv), args: []string{"+" + strconv.Itoa(line), path}}
-	cmd, _ := a.openPaneAt(core.KindShell, core.SplitVertical, a.store.State().Tab().Focus, root, run)
+	cmd, _ := a.openPaneAt(core.SplitVertical, a.store.State().Tab().Focus, root, run)
 
 	return cmd
 }

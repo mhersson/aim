@@ -21,6 +21,8 @@ cp config.example.toml ~/.config/aim/config.toml
 
 The `theme` setting decides the theme at each start. A theme you pick while AIM runs lasts for that session only, unless you save it with `ctrl+s` in the theme picker: that sets `theme` in the config file AIM started with and leaves the rest of it as it was (see [the command palette and themes](agents.md#the-command-palette-and-themes)). It is the only time AIM writes the file. Themes of your own go in a `themes` folder beside the config file; see [Themes](themes.md).
 
+Under `[agents]`, set `default = "codex"` to select Codex when the new agent picker opens. The default is `"claude-code"`. You can choose either agent each time.
+
 ## Errors at start
 
 The file is strict. Invalid TOML, an unknown key, a value of the wrong type and a value that is out of range or not one of the allowed names all stop AIM before it takes over the terminal. AIM prints one line that names the file and the problem it found (the first one, except that every unknown key is listed: `unknown key a, b`), to the terminal, and exits with status 1. The line starts with `aim: config <path>:`. For example:

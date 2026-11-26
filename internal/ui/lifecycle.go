@@ -6,6 +6,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -18,20 +19,22 @@ import (
 // cwdProbeEvery bounds how often a pane's working directory is looked up.
 const cwdProbeEvery = 500 * time.Millisecond
 
-// agentGrace is how long a launched agent may take to show Claude in the
+// agentGrace is how long a launched agent may take to show its program in the
 // foreground before the kind rule can demote it.
 const agentGrace = 10 * time.Second
 
 // paneCwdMsg carries a pane's looked-up working directory and foreground
 // process name; each is empty when unknown. due marks any probe outside the
-// cwd throttle, hook the one that held hooks started.
+// cwd throttle.
 type paneCwdMsg struct {
-	id   core.PaneID
-	p    *pane
-	cwd  string
-	fg   string
-	due  bool
-	hook bool
+	checkedOwner, liveOwner int
+	seq                     uint64
+	id                      core.PaneID
+	p                       *pane
+	cwd                     string
+	pid                     int
+	fg                      string
+	due                     bool
 }
 
 // paneKindDueMsg is the probe agentGrace after an agent launch.
@@ -64,15 +67,17 @@ func contentSize(r core.Rect) (cols, rows int) {
 	return max(c.W, 1), max(c.H, 1)
 }
 
-// openPane starts a pane of kind next to the focused one, in its working
+// openPane starts a shell pane next to the focused one, in its working
 // directory, and focuses it. Nothing changes when the process does not start.
-func (a *App) openPane(kind core.PaneKind, split core.Split) tea.Cmd {
-	return a.openPaneIn(kind, split, a.focusedCwd(a.store.State()))
+func (a *App) openPane(split core.Split) tea.Cmd {
+	st := a.store.State()
+	cmd, _ := a.openPaneAt(split, st.Tab().Focus, a.focusedCwd(st), nil)
+
+	return cmd
 }
 
-// openPaneIn is openPane in cwd.
-func (a *App) openPaneIn(kind core.PaneKind, split core.Split, cwd string) tea.Cmd {
-	cmd, _ := a.openPaneAt(kind, split, a.store.State().Tab().Focus, cwd, nil)
+func (a *App) openAgentIn(agent, cwd string) tea.Cmd {
+	cmd, _ := a.startOpenPane(core.OpenPane{Kind: core.KindAgent, Harness: agent, Cwd: cwd, Split: core.SplitVertical, Beside: a.store.State().Tab().Focus}, nil)
 
 	return cmd
 }
@@ -97,11 +102,15 @@ type paneRun struct {
 	once    bool // the pane ends with the program, with no shell after it
 }
 
-// openPaneAt starts a pane of kind in cwd next to anchor, a pane of the active
-// tab, and focuses it. A shell pane with run set starts that command line in
-// place of the plain shell and, unless run.once is set, keeps a shell after it.
+// openPaneAt starts a shell pane in cwd next to anchor, a pane of the active
+// tab, and focuses it. With run set it starts that command line in place of
+// the plain shell and, unless run.once is set, keeps a shell after it.
 // It reports whether the pane opened; when it did not, nothing changed.
-func (a *App) openPaneAt(kind core.PaneKind, split core.Split, anchor core.PaneID, cwd string, run *paneRun) (tea.Cmd, bool) {
+func (a *App) openPaneAt(split core.Split, anchor core.PaneID, cwd string, run *paneRun) (tea.Cmd, bool) {
+	return a.startOpenPane(core.OpenPane{Kind: core.KindShell, Cwd: cwd, Split: split, Beside: anchor}, run)
+}
+
+func (a *App) startOpenPane(act core.OpenPane, run *paneRun) (tea.Cmd, bool) {
 	// Without a size there is no rect to start at.
 	if !a.started {
 		return nil, false
@@ -112,10 +121,8 @@ func (a *App) openPaneAt(kind core.PaneKind, split core.Split, anchor core.PaneI
 		return nil, false
 	}
 
-	act := core.OpenPane{Kind: kind, Cwd: cwd, Split: split, Area: a.bodyArea(), Beside: anchor}
-	if kind == core.KindAgent {
-		act.Harness = a.harness.ID()
-	}
+	act.Area = a.bodyArea()
+	kind, cwd := act.Kind, act.Cwd
 
 	id := st.NewPaneID()
 
@@ -129,7 +136,7 @@ func (a *App) openPaneAt(kind core.PaneKind, split core.Split, anchor core.PaneI
 		}
 	}
 
-	pn, cwd, err := a.startPaneRunning(id, kind, cwd, cols, rows, "", run)
+	pn, cwd, err := a.startPaneRunning(id, core.Pane{Kind: act.Kind, Harness: act.Harness, Cwd: cwd}, cols, rows, run)
 	if err != nil {
 		return nil, false
 	}
@@ -170,19 +177,27 @@ func (a *App) kindDueCmd(p *pane) tea.Cmd {
 }
 
 // startPane starts the process of pane id at cols x rows and registers the
-// pane, in cwd or, when that directory is gone, the launch dir; it returns the
-// directory used. An agent resumes session resume when it is set. On failure it
-// leaves a notice and registers nothing.
-func (a *App) startPane(id core.PaneID, kind core.PaneKind, cwd string, cols, rows int, resume core.SessionID) (*pane, string, error) {
-	return a.startPaneRunning(id, kind, cwd, cols, rows, resume, nil)
+// pane in its working directory or the launch directory. An agent starts with
+// its saved session when set. On failure it leaves a notice.
+func (a *App) startPane(id core.PaneID, m core.Pane, cols, rows int) (*pane, string, error) {
+	return a.startPaneRunning(id, m, cols, rows, nil)
 }
 
 // startPaneRunning is startPane for a shell pane that starts the command line
 // run, when it is set, in place of the plain shell.
-func (a *App) startPaneRunning(id core.PaneID, kind core.PaneKind, cwd string, cols, rows int, resume core.SessionID, run *paneRun) (*pane, string, error) {
+func (a *App) startPaneRunning(id core.PaneID, m core.Pane, cols, rows int, run *paneRun) (*pane, string, error) {
+	kind, cwd := m.Kind, m.Cwd
+	if cwd == "" {
+		cwd = a.cwd
+	}
+
 	env := []string{"AIM_PANE=" + string(id)}
 	if a.hookSock != "" {
 		env = append(env, "AIM_SOCK="+a.hookSock)
+		if a.codexSettings != "" {
+			env = append(env, "AIM_CODEX_HOOKS="+a.codexSettings)
+		}
+
 		if a.hookBin != "" {
 			env = append(env, "AIM_BIN="+a.hookBin)
 		}
@@ -192,9 +207,17 @@ func (a *App) startPaneRunning(id core.PaneID, kind core.PaneKind, cwd string, c
 
 	switch {
 	case kind == core.KindAgent:
-		// Restored and restarted agents use the app's harness; a second harness
-		// must pass the pane's own (harness.ByID(Pane.Harness)).
-		c = term.AgentCommand(a.getenv, a.shell, cwd, a.harness.Launch(a.hookSettings, resume), env)
+		h := a.harnessOf(m)
+
+		argv := h.Launch(a.settingsFor(h), m.Session)
+		if h.ID() == "codex" && a.hookBin != "" && a.codexSettings != "" {
+			argv = []string{a.hookBin, "exec-owned-codex"}
+			if m.Session != "" {
+				argv = append(argv, "resume", string(m.Session))
+			}
+		}
+
+		c = term.AgentCommand(a.getenv, a.shell, cwd, argv, env)
 	case run != nil && run.once:
 		c = term.EditorOnlyCommand(a.getenv, a.shell, cwd, run.program, run.args, env)
 	case run != nil:
@@ -284,9 +307,28 @@ func (a *App) closePane(id core.PaneID) tea.Cmd {
 	return tea.Batch(handBack, a.relayout())
 }
 
-// closeAsync closes a pane that has left the registry. Pane.close can take a
-// second, so it never runs on the update loop; Close waits for it.
+func (a *App) retireCodex(p *pane) {
+	pid := p.trackedCodexPID()
+	p.suspended = nil
+	p.ownerPID, p.codex = 0, codexStatus{}
+
+	if pid == 0 || a.hookSock == "" {
+		return
+	}
+
+	ev := harness.Event{Harness: "codex", Pane: p.id, Name: harness.CodexOwnerEnd, OwnerPID: pid}
+
+	a.closing.Go(func() {
+		ctx, cancel := context.WithTimeout(a.ctx, 2*time.Second)
+		defer cancel()
+
+		_ = harness.Send(ctx, a.hookSock, ev)
+	})
+}
+
+// Pane.close can take a second, so it runs off the update loop; Close waits for it.
 func (a *App) closeAsync(p *pane) {
+	a.retireCodex(p)
 	a.closing.Go(func() {
 		if err := p.close(); err != nil {
 			a.log.Warn("close pane", "pane", p.id, "err", err)
@@ -474,8 +516,24 @@ func (a *App) runProbe(p *pane) tea.Cmd {
 // probe (the grace and held-hook ones) leaves the cwd throttle alone; hook marks
 // the probe a held hook started.
 func probe(p *pane, due, hook bool) tea.Cmd {
+	p.probeSeq++
+
+	owner := p.trackedCodexPID()
+
+	seq := p.probeSeq
+	if hook {
+		p.heldProbe = seq
+	}
+
 	return func() tea.Msg {
-		return paneCwdMsg{id: p.id, p: p, cwd: p.workingDir(), fg: p.foreground(), due: due, hook: hook}
+		fg, pid := p.foreground()
+
+		var live int
+		if owner > 0 && (owner == pid || syscall.Kill(owner, 0) == nil) {
+			live = owner
+		}
+
+		return paneCwdMsg{checkedOwner: owner, liveOwner: live, seq: seq, id: p.id, p: p, cwd: p.workingDir(), fg: fg, pid: pid, due: due}
 	}
 }
 
@@ -515,8 +573,17 @@ func (a *App) onCwd(msg paneCwdMsg) tea.Cmd {
 		p.cwdBusy = false
 	}
 
-	if msg.hook {
-		p.heldProbe = false
+	if msg.seq != 0 {
+		// A probe requested before the hook can still report the previous agent.
+		if msg.seq < max(p.appliedProbe, p.heldProbe) {
+			return nil
+		}
+
+		p.appliedProbe = msg.seq
+	}
+
+	if tracked := p.trackedCodexPID(); msg.seq != 0 && tracked != 0 && msg.checkedOwner != tracked && msg.fg != "codex" {
+		return probe(p, true, p.heldProbe != 0)
 	}
 
 	m := a.store.State().Panes[msg.id]
@@ -527,16 +594,69 @@ func (a *App) onCwd(msg paneCwdMsg) tea.Cmd {
 		_ = a.dispatch(core.SetPaneCwd{ID: msg.id, Cwd: msg.cwd})
 	}
 
-	kind := a.applyKind(p, msg.fg)
+	if msg.fg != "" && p.ownerPID != 0 && (msg.fg != "codex" || msg.pid != p.ownerPID) {
+		if msg.liveOwner == p.ownerPID && msg.fg != "codex" {
+			p.suspended = &suspendedJob{pid: p.ownerPID, agent: m, launchDue: p.launchDue, codex: p.codex}
+			p.ownerPID, p.codex = 0, codexStatus{}
+		} else {
+			a.retireCodex(p)
+		}
 
-	switch {
-	case len(p.held) > 0 && a.store.State().Panes[msg.id].Kind == core.KindAgent:
-		return tea.Batch(kind, a.replayHeld(p))
-	case msg.hook:
+		if msg.fg == "codex" {
+			// A replacement Codex starts a new session even though the program name stayed the same.
+			_ = a.dispatch(core.SetPaneKind{ID: p.id, Kind: core.KindShell})
+			p.resuming = false
+		}
+	}
+
+	job := p.suspended
+	if job != nil && msg.fg != "" {
+		if msg.fg == "codex" && msg.pid == job.pid {
+			p.suspended = nil
+		} else if msg.liveOwner != job.pid || msg.fg == "codex" {
+			a.retireCodex(p)
+
+			job = nil
+		}
+	}
+
+	if msg.fg == "codex" {
+		p.ownerPID = msg.pid
+	}
+
+	kind := a.applyKind(p, msg.fg)
+	if job != nil && msg.fg == "codex" && msg.pid == job.pid {
+		_ = a.dispatch(core.ResumePaneJob{ID: p.id, Agent: job.agent})
+		p.launchDue, p.codex = job.launchDue, job.codex
+		kind = tea.Batch(kind, a.agentTickCmd())
+	}
+
+	// Before the held hooks replay, so they own the state.
+	if ev := p.codexPending; ev.Status && p.ownerPID == ev.OwnerPID {
+		if m := a.store.State().Panes[msg.id]; m.Kind == core.KindAgent && m.Harness == "codex" {
+			p.codexPending = harness.Event{}
+			kind = tea.Batch(kind, a.applyCodexStatus(m, p, ev))
+		}
+	}
+
+	if p.heldProbe != 0 && msg.seq >= p.heldProbe {
+		p.heldProbe = 0
+		if msg.fg != "" && a.store.State().Panes[msg.id].Kind == core.KindAgent {
+			return tea.Batch(kind, a.replayHeld(p))
+		}
+
 		p.held = nil
 	}
 
 	return kind
+}
+
+func (a *App) settingsFor(h harness.Harness) string {
+	if h.ID() == (harness.Codex{}).ID() {
+		return a.codexSettings
+	}
+
+	return a.hookSettings
 }
 
 // harnessOf is the harness that recognises the pane's agent: the app's when it
@@ -553,11 +673,9 @@ func (a *App) harnessOf(m core.Pane) harness.Harness {
 	return a.harness
 }
 
-// applyKind makes the pane follow its foreground process. An unknown name
-// changes nothing, and a launched agent keeps its kind until Claude was seen
-// and left or the grace period passed. A resuming agent is never demoted before
-// the grace period; after it, one whose Claude is not in the foreground is
-// restarted fresh instead of following the kind rule.
+// applyKind follows the foreground process. A launched agent keeps its kind
+// until its program is seen and exits or the grace period passes. A resume
+// still out of the foreground after the grace period gets one fresh launch.
 func (a *App) applyKind(p *pane, fg string) tea.Cmd {
 	if fg == "" {
 		return nil
@@ -570,6 +688,11 @@ func (a *App) applyKind(p *pane, fg string) tea.Cmd {
 
 	h := a.harnessOf(m)
 
+	if candidate, ok := harness.ByProgram(fg); ok && fg != h.Program() {
+		h = candidate
+		p.resuming = false
+	}
+
 	if p.resuming && m.Kind == core.KindAgent {
 		switch {
 		case a.clock.Now().Before(p.launched.Add(agentGrace)):
@@ -579,14 +702,15 @@ func (a *App) applyKind(p *pane, fg string) tea.Cmd {
 		case fg != h.Program():
 			return a.restartFresh(p.id)
 		default:
-			// A refused resume exits within about a second, so Claude still
-			// in the foreground now did resume, with or without its hooks.
+			// A refused resume exits quickly. An agent still in the
+			// foreground has resumed even if its hooks did not run.
 			p.resuming = false
 		}
 	}
 
 	switch {
-	case m.Kind == core.KindShell && fg == h.Program():
+	case (m.Kind == core.KindShell || m.Harness != h.ID()) && fg == h.Program():
+		p.codex = codexStatus{}
 		p.seen = true
 		p.launched = time.Time{}
 		p.launchDue = true
@@ -676,7 +800,7 @@ func (a *App) newTab() tea.Cmd {
 	id := st.NewPaneID()
 	cols, rows := contentSize(a.bodyArea())
 
-	pn, cwd, err := a.startPane(id, core.KindShell, cwd, cols, rows, "")
+	pn, cwd, err := a.startPane(id, core.Pane{Kind: core.KindShell, Cwd: cwd}, cols, rows)
 	if err != nil {
 		return nil
 	}

@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/mhersson/aim/internal/core"
 	"github.com/mhersson/aim/internal/harness"
@@ -56,19 +59,38 @@ func loadState(statePath string, fresh bool, cfg core.Config) (core.State, []str
 		notices = append(notices, fmt.Sprintf("%d saved tab layouts could not be read; restored them with default layouts", rep.Defaulted))
 	}
 
+	if n := skippedNotice(rep.Skipped); n != "" {
+		notices = append(notices, n)
+	}
+
 	return st, notices
 }
 
+// skippedNotice names the harnesses of saved agents restored as shells, each
+// once; %q escapes control bytes. It is empty for none.
+func skippedNotice(ids []string) string {
+	if len(ids) == 0 {
+		return ""
+	}
+
+	var names []string
+
+	for _, id := range slices.Compact(slices.Clone(ids)) {
+		names = append(names, strconv.Quote(id))
+	}
+
+	return fmt.Sprintf("saved agents of unknown kind restored as shells: %s", strings.Join(names, ", "))
+}
+
 // checkResume clears the session of every agent that cannot resume: one with
-// no session, or whose transcript file does not exist. Those start a fresh
-// agent, which the notice says. st itself is not changed.
+// no session, or a Claude session whose transcript file does not exist.
 func checkResume(st core.State, exists func(path string) bool) (core.State, []string) {
 	panes := make(map[core.PaneID]core.Pane, len(st.Panes))
 
 	var fresh []core.Pane
 
 	for id, p := range st.Panes {
-		if p.Kind == core.KindAgent && (p.Session == "" || !exists(p.Transcript)) {
+		if p.Kind == core.KindAgent && (p.Session == "" || (p.Harness == (harness.Claude{}).ID() && !exists(p.Transcript))) {
 			fresh = append(fresh, p)
 			p.Session, p.Transcript = "", ""
 		}
@@ -85,7 +107,7 @@ func checkResume(st core.State, exists func(path string) bool) (core.State, []st
 		return st, []string{fmt.Sprintf("started a fresh %s in %s: its session could not be resumed", programOf(fresh[0]), cwdName(fresh[0].Cwd))}
 	}
 
-	return st, []string{fmt.Sprintf("started %d fresh %ss: their sessions could not be resumed", len(fresh), programOf(fresh[0]))}
+	return st, []string{fmt.Sprintf("started %d fresh agents: their sessions could not be resumed", len(fresh))}
 }
 
 func programOf(p core.Pane) string {

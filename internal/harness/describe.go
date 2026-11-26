@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 )
 
@@ -24,7 +25,9 @@ func (c Claude) Describe(ctx context.Context, req DescribeRequest) (string, erro
 
 	run := c.oneOff
 	if run == nil {
-		run = runClaude
+		run = func(ctx context.Context, dir string, args []string, prompt string) (string, error) {
+			return runProgram(ctx, c.Program(), dir, args, prompt)
+		}
 	}
 
 	out, err := run(ctx, req.Dir, args, describePrompt(req))
@@ -85,14 +88,14 @@ func describePrompt(req DescribeRequest) string {
 	return b.String()
 }
 
-// runClaude runs the first claude on PATH that is not AIM's own binary, which
-// a nested AIM's PATH holds as the wrapper.
-func runClaude(ctx context.Context, dir string, args []string, stdin string) (string, error) {
+func runProgram(ctx context.Context, program, dir string, args []string, stdin string) (string, error) {
 	var self os.FileInfo
 
 	if exe, err := os.Executable(); err == nil {
 		self, _ = os.Stat(exe)
 	}
 
-	return runOneOff(ctx, os.Environ(), self, dir, args, stdin)
+	env := slices.DeleteFunc(os.Environ(), func(entry string) bool { return strings.HasPrefix(entry, "AIM_") })
+
+	return runOneOff(ctx, program, env, self, dir, args, stdin)
 }

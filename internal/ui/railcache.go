@@ -29,16 +29,18 @@ type railKey struct {
 
 // railAgentKey is what an agent's card takes from outside the core state: the
 // unseen mark, the probe results, the repository its branch's pull request is
-// read from, the session name and the age as displayed (its unit and count, so
-// an age that renders the same does not rebuild).
+// read from, the session name, a Codex's thread name and the age as displayed
+// (its unit and count, so an age that renders the same does not rebuild).
 type railAgentKey struct {
-	unseen  bool
-	probe   railProbe
-	prRepo  github.Repo
-	prOK    bool
-	name    railName
-	ageN    int
-	ageUnit byte
+	checkHooks bool
+	unseen     bool
+	probe      railProbe
+	prRepo     github.Repo
+	prOK       bool
+	name       railName
+	codexName  string
+	ageN       int
+	ageUnit    byte
 }
 
 // railFitKey is the inputs of railFit. Without a search the cards' text does
@@ -109,8 +111,11 @@ func (a *App) railAgentKeys(dst []railAgentKey, ids []core.PaneID, now time.Time
 			k.unseen, k.probe, k.name, active = rp.unseen, rp.probe, rp.name, rp.hookAt
 		}
 
-		if p := a.panes[id]; p != nil && p.lastOut.After(active) {
-			active = p.lastOut
+		if p := a.panes[id]; p != nil {
+			k.checkHooks, k.codexName = p.codex.checkHooks(now), p.codex.last.ThreadName
+			if p.lastOut.After(active) {
+				active = p.lastOut
+			}
 		}
 
 		k.prRepo, k.prOK = a.prRepoOf(id)

@@ -91,6 +91,9 @@ func TestLoadConfig(t *testing.T) {
 			}(),
 		},
 		{
+			name: "agent section", content: "[agents]\ndefault = \"codex\"\n", want: Config{Theme: DefaultTheme, Agents: AgentsConfig{Default: "codex"}},
+		},
+		{
 			name: "worktrees section", content: "[worktrees]\nroot = \"sibling\"\n",
 			want: func() Config {
 				c := DefaultConfig()
@@ -152,6 +155,10 @@ func TestLoadConfig(t *testing.T) {
 			// Likewise for Diff.
 			if tt.want.Diff == (DiffConfig{}) {
 				tt.want.Diff = DefaultConfig().Diff
+			}
+
+			if tt.want.Agents == (AgentsConfig{}) {
+				tt.want.Agents = AgentsConfig{Default: "claude-code"}
 			}
 
 			// And for Worktrees.
@@ -375,6 +382,7 @@ func TestAllowedValuesMatchValidate(t *testing.T) {
 		{"layout.master_position", tiling.MasterPositions(), func(c *Config, v string) { c.Layout.MasterPosition = v }, func(c Config) error { return c.Layout.Validate() }},
 		{"notifications.notify", NotifyModes(), func(c *Config, v string) { c.Notifications.Notify = v }, func(c Config) error { return c.Notifications.Validate() }},
 		{"notifications.protocol", NotifyProtocols(), func(c *Config, v string) { c.Notifications.Protocol = v }, func(c Config) error { return c.Notifications.Validate() }},
+		{"agents.default", AgentIDs(), func(c *Config, v string) { c.Agents.Default = v }, func(c Config) error { return c.Agents.Validate() }},
 		{"worktrees.root", WorktreeRoots(), func(c *Config, v string) { c.Worktrees.Root = v }, func(c Config) error { return c.Worktrees.Validate() }},
 	}
 
